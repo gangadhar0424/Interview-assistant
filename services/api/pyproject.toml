@@ -1,0 +1,80 @@
+[project]
+name = "interview-assistant-api"
+version = "0.1.0"
+description = "Interview Assistant backend (FastAPI modular monolith)"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.32,<1.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<3.0",
+    "sqlalchemy[asyncio]>=2.0.36,<2.1",
+    "asyncpg>=0.30,<1.0",
+    "alembic>=1.14,<2.0",
+    "redis>=5.2,<8.0",
+    "dramatiq[redis]>=1.17,<2.0",
+    "argon2-cffi>=25.1.0",
+    "pyjwt>=2.15.1",
+    "email-validator>=2.2",
+    "python-multipart>=0.0.33",
+    "pymupdf>=1.26,<2",
+    "python-docx>=1.2.0",
+]
+
+[project.optional-dependencies]
+embeddings = [
+    "fastembed>=0.7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9.0",
+    "httpx>=0.27,<1.0",
+    "ruff>=0.8,<1.0",
+    "mypy>=1.13,<2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: needs the docker compose infrastructure (postgres, redis) to be running",
+]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "TID251"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"tests/test_qa_service.py" = ["F811"]  # pytest fixtures are re-declared as test parameters
+"tests/test_job_import_ssrf.py" = ["S104"]  # 0.0.0.0 etc. are intentional blocked-address data
+"app/ai/adapters/**" = ["TID251"]  # the only place provider SDKs may be imported (Phase 6)
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"openai".msg = "Provider SDKs may only be imported in app/ai/adapters/."
+"anthropic".msg = "Provider SDKs may only be imported in app/ai/adapters/."
+"groq".msg = "Provider SDKs may only be imported in app/ai/adapters/."
+"litellm".msg = "Provider SDKs may only be imported in app/ai/adapters/."
+"sarvamai".msg = "Provider SDKs may only be imported in app/ai/adapters/."
+"google.generativeai".msg = "Provider SDKs may only be imported in app/ai/adapters/."
+"google.genai".msg = "Provider SDKs may only be imported in app/ai/adapters/."
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["app", "tests", "alembic"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_calls = false  # PyMuPDF/python-docx are untyped; used only to build fixtures
+
+[[tool.mypy.overrides]]
+module = ["fastembed", "fastembed.*"]
+ignore_missing_imports = true  # optional extra (`--extra embeddings`); absent in default CI installs

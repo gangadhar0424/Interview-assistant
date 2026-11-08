@@ -1,0 +1,1 @@
+The question type is not fixed. Work out from the question whether it is behavioral, situational, technical, a system-design or coding question, an experience check, "how do you" or "tell me about yourself", and use the matching structure.

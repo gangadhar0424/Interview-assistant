@@ -1,0 +1,1046 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Interview Assistant realtime protocol",
+  "protocol_version": 1,
+  "close_codes": {
+    "normal": 1000,
+    "unsupported_data": 1003,
+    "policy": 1008,
+    "too_big": 1009,
+    "superseded": 4001,
+    "idle_timeout": 4002,
+    "protocol_error": 4003,
+    "unsupported_version": 4004,
+    "rate_limited": 4005,
+    "slow_consumer": 4010,
+    "too_many_connections": 4429
+  },
+  "client_message": {
+    "$defs": {
+      "AnswerCancel": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "type": {
+            "const": "answer.cancel",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/AnswerCancelPayload"
+          }
+        },
+        "required": [
+          "type",
+          "payload"
+        ],
+        "title": "AnswerCancel",
+        "type": "object"
+      },
+      "AnswerCancelPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id"
+        ],
+        "title": "AnswerCancelPayload",
+        "type": "object"
+      },
+      "ClientHello": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "type": {
+            "const": "client.hello",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/ClientHelloPayload"
+          }
+        },
+        "required": [
+          "type",
+          "payload"
+        ],
+        "title": "ClientHello",
+        "type": "object"
+      },
+      "ClientHelloPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "client_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Client Version"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Platform"
+          },
+          "capabilities": {
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "resume_from_seq": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resume From Seq"
+          }
+        },
+        "required": [
+          "protocol_version"
+        ],
+        "title": "ClientHelloPayload",
+        "type": "object"
+      },
+      "EmptyPayload": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "EmptyPayload",
+        "type": "object"
+      },
+      "Ping": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "type": {
+            "const": "ping",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/EmptyPayload"
+          }
+        },
+        "required": [
+          "type",
+          "payload"
+        ],
+        "title": "Ping",
+        "type": "object"
+      },
+      "QuestionSubmit": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Id"
+          },
+          "type": {
+            "const": "question.submit",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/QuestionSubmitPayload"
+          }
+        },
+        "required": [
+          "type",
+          "payload"
+        ],
+        "title": "QuestionSubmit",
+        "type": "object"
+      },
+      "QuestionSubmitPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "question_type_override": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Question Type Override"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "QuestionSubmitPayload",
+        "type": "object"
+      }
+    },
+    "discriminator": {
+      "mapping": {
+        "answer.cancel": "#/$defs/AnswerCancel",
+        "client.hello": "#/$defs/ClientHello",
+        "ping": "#/$defs/Ping",
+        "question.submit": "#/$defs/QuestionSubmit"
+      },
+      "propertyName": "type"
+    },
+    "oneOf": [
+      {
+        "$ref": "#/$defs/ClientHello"
+      },
+      {
+        "$ref": "#/$defs/Ping"
+      },
+      {
+        "$ref": "#/$defs/QuestionSubmit"
+      },
+      {
+        "$ref": "#/$defs/AnswerCancel"
+      }
+    ]
+  },
+  "server_message": {
+    "$defs": {
+      "AnswerCancelled": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "answer.cancelled",
+            "default": "answer.cancelled",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/AnswerCancelledPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "AnswerCancelled",
+        "type": "object"
+      },
+      "AnswerCancelledPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_id": {
+            "format": "uuid",
+            "title": "Answer Id",
+            "type": "string"
+          },
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer_id",
+          "question_id"
+        ],
+        "title": "AnswerCancelledPayload",
+        "type": "object"
+      },
+      "AnswerDelta": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "answer.delta",
+            "default": "answer.delta",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/AnswerDeltaPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "AnswerDelta",
+        "type": "object"
+      },
+      "AnswerDeltaPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_id": {
+            "format": "uuid",
+            "title": "Answer Id",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer_id",
+          "index",
+          "text"
+        ],
+        "title": "AnswerDeltaPayload",
+        "type": "object"
+      },
+      "AnswerDone": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "answer.done",
+            "default": "answer.done",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/AnswerDonePayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "AnswerDone",
+        "type": "object"
+      },
+      "AnswerDonePayload": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_id": {
+            "format": "uuid",
+            "title": "Answer Id",
+            "type": "string"
+          },
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "metrics": {
+            "$ref": "#/$defs/AnswerMetrics"
+          },
+          "fallback_used": {
+            "title": "Fallback Used",
+            "type": "boolean"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          }
+        },
+        "required": [
+          "answer_id",
+          "question_id",
+          "provider",
+          "model",
+          "metrics",
+          "fallback_used",
+          "input_tokens",
+          "output_tokens"
+        ],
+        "title": "AnswerDonePayload",
+        "type": "object"
+      },
+      "AnswerError": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "answer.error",
+            "default": "answer.error",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/AnswerErrorPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "AnswerError",
+        "type": "object"
+      },
+      "AnswerErrorPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_id": {
+            "format": "uuid",
+            "title": "Answer Id",
+            "type": "string"
+          },
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "answer_id",
+          "question_id",
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "AnswerErrorPayload",
+        "type": "object"
+      },
+      "AnswerMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "retrieval_ms": {
+            "title": "Retrieval Ms",
+            "type": "integer"
+          },
+          "first_token_ms": {
+            "title": "First Token Ms",
+            "type": "integer"
+          },
+          "total_ms": {
+            "title": "Total Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "retrieval_ms",
+          "first_token_ms",
+          "total_ms"
+        ],
+        "title": "AnswerMetrics",
+        "type": "object"
+      },
+      "AnswerStarted": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "answer.started",
+            "default": "answer.started",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/AnswerStartedPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "AnswerStarted",
+        "type": "object"
+      },
+      "AnswerStartedPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_id": {
+            "format": "uuid",
+            "title": "Answer Id",
+            "type": "string"
+          },
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer_id",
+          "question_id",
+          "provider",
+          "model"
+        ],
+        "title": "AnswerStartedPayload",
+        "type": "object"
+      },
+      "EmptyPayload": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "EmptyPayload",
+        "type": "object"
+      },
+      "ErrorEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "error",
+            "default": "error",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/ErrorPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "ErrorEvent",
+        "type": "object"
+      },
+      "ErrorPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "fatal": {
+            "title": "Fatal",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "fatal"
+        ],
+        "title": "ErrorPayload",
+        "type": "object"
+      },
+      "Pong": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "pong",
+            "default": "pong",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/EmptyPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "Pong",
+        "type": "object"
+      },
+      "QuestionCreated": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "question.created",
+            "default": "question.created",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/QuestionCreatedPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "QuestionCreated",
+        "type": "object"
+      },
+      "QuestionCreatedPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "answer_id": {
+            "format": "uuid",
+            "title": "Answer Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "answer_id"
+        ],
+        "title": "QuestionCreatedPayload",
+        "type": "object"
+      },
+      "RetrievalDone": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "retrieval.done",
+            "default": "retrieval.done",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/RetrievalDonePayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "RetrievalDone",
+        "type": "object"
+      },
+      "RetrievalDonePayload": {
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {
+            "format": "uuid",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "chunk_count": {
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "ms": {
+            "title": "Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "question_id",
+          "chunk_count",
+          "ms"
+        ],
+        "title": "RetrievalDonePayload",
+        "type": "object"
+      },
+      "SessionLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "max_frame_bytes": {
+            "title": "Max Frame Bytes",
+            "type": "integer"
+          },
+          "heartbeat_interval_seconds": {
+            "title": "Heartbeat Interval Seconds",
+            "type": "number"
+          },
+          "idle_timeout_seconds": {
+            "title": "Idle Timeout Seconds",
+            "type": "number"
+          },
+          "max_messages_per_second": {
+            "title": "Max Messages Per Second",
+            "type": "integer"
+          },
+          "resume_grace_seconds": {
+            "title": "Resume Grace Seconds",
+            "type": "number"
+          },
+          "resume_buffer_events": {
+            "title": "Resume Buffer Events",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_frame_bytes",
+          "heartbeat_interval_seconds",
+          "idle_timeout_seconds",
+          "max_messages_per_second",
+          "resume_grace_seconds",
+          "resume_buffer_events"
+        ],
+        "title": "SessionLimits",
+        "type": "object"
+      },
+      "SessionReady": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "integer"
+          },
+          "type": {
+            "const": "session.ready",
+            "default": "session.ready",
+            "title": "Type",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/$defs/SessionReadyPayload"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "ts",
+          "type",
+          "payload"
+        ],
+        "title": "SessionReady",
+        "type": "object"
+      },
+      "SessionReadyPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "server_time": {
+            "title": "Server Time",
+            "type": "integer"
+          },
+          "resume_seq": {
+            "title": "Resume Seq",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "limits": {
+            "$ref": "#/$defs/SessionLimits"
+          }
+        },
+        "required": [
+          "session_id",
+          "server_time",
+          "resume_seq",
+          "protocol_version",
+          "limits"
+        ],
+        "title": "SessionReadyPayload",
+        "type": "object"
+      }
+    },
+    "discriminator": {
+      "mapping": {
+        "answer.cancelled": "#/$defs/AnswerCancelled",
+        "answer.delta": "#/$defs/AnswerDelta",
+        "answer.done": "#/$defs/AnswerDone",
+        "answer.error": "#/$defs/AnswerError",
+        "answer.started": "#/$defs/AnswerStarted",
+        "error": "#/$defs/ErrorEvent",
+        "pong": "#/$defs/Pong",
+        "question.created": "#/$defs/QuestionCreated",
+        "retrieval.done": "#/$defs/RetrievalDone",
+        "session.ready": "#/$defs/SessionReady"
+      },
+      "propertyName": "type"
+    },
+    "oneOf": [
+      {
+        "$ref": "#/$defs/SessionReady"
+      },
+      {
+        "$ref": "#/$defs/Pong"
+      },
+      {
+        "$ref": "#/$defs/ErrorEvent"
+      },
+      {
+        "$ref": "#/$defs/QuestionCreated"
+      },
+      {
+        "$ref": "#/$defs/RetrievalDone"
+      },
+      {
+        "$ref": "#/$defs/AnswerStarted"
+      },
+      {
+        "$ref": "#/$defs/AnswerDelta"
+      },
+      {
+        "$ref": "#/$defs/AnswerDone"
+      },
+      {
+        "$ref": "#/$defs/AnswerError"
+      },
+      {
+        "$ref": "#/$defs/AnswerCancelled"
+      }
+    ]
+  }
+}

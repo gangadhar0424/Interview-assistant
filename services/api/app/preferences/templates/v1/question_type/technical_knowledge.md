@@ -1,0 +1,1 @@
+Technical knowledge question. Define the concept accurately in one or two sentences, explain how it works or when to use it, and give a short practical example from the candidate material where it fits.

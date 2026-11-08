@@ -1,0 +1,1 @@
+Experience check. Confirm directly whether the candidate has the experience, then support it with the most relevant role, project and outcome from the candidate material. If the material does not show it, say so honestly and describe the closest related experience.

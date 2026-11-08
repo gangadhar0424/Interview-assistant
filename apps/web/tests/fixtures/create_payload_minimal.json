@@ -1,0 +1,14 @@
+{
+  "type": "interview",
+  "company_name": "Globex",
+  "job_description": "Data engineer role.",
+  "resume_id": "RESUME_ID",
+  "document_ids": [],
+  "preferences": {
+    "language": "en",
+    "question_type": "auto",
+    "answer_format": "full_script",
+    "answer_length": "balanced",
+    "answer_tone": "simple"
+  }
+}

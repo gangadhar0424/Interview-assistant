@@ -1,0 +1,16 @@
+{
+  "type": "interview",
+  "company_name": "Initech",
+  "job_description": "Platform role.",
+  "resume_id": "RESUME_ID",
+  "document_ids": ["DOC_ID_1"],
+  "preferences": {
+    "language": "hi",
+    "question_type": "coding",
+    "answer_format": "bullets",
+    "answer_length": "short",
+    "answer_tone": "simple",
+    "provider": "fake",
+    "model": "fake-echo"
+  }
+}
