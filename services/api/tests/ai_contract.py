@@ -24,7 +24,9 @@ async def run_contract(provider: LLMProvider, model: str) -> None:
     done = await provider.complete(MESSAGES, model, CONFIG)
     assert isinstance(done, Completion)
     assert done.text.strip()
-    assert done.usage.input_tokens >= 0 and done.usage.output_tokens >= 0
+    # Usage is optional (D-44): an endpoint may omit counts, but counts present must be sane.
+    if done.usage is not None:
+        assert done.usage.input_tokens >= 0 and done.usage.output_tokens >= 0
 
     # stream_chat(): tokens (in order), then at most one trailing Usage; text is non-empty.
     events = [e async for e in provider.stream_chat(MESSAGES, model, CONFIG)]

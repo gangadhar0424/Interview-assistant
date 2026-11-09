@@ -34,7 +34,7 @@ class Usage:
 @dataclass(frozen=True, slots=True)
 class Completion:
     text: str
-    usage: Usage
+    usage: Usage | None
     provider: str = ""
     model: str = ""
 

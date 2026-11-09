@@ -1,6 +1,6 @@
 # Database Design (initial relational model)
 
-PostgreSQL 16+ with `pgvector`. No migrations exist yet (Alembic introduced in Phase 1+). Conventions: UUID v7 primary keys (time-ordered) or `gen_random_uuid()`; `created_at/updated_at timestamptz` on all tables; enums as Postgres enums or `text` + CHECK (prefer text+CHECK for easier evolution); soft delete only where noted.
+PostgreSQL 16+ with `pgvector`; the implemented schema is managed by Alembic migrations under `services/api/alembic/versions/`. Conventions: UUID v7 primary keys (time-ordered) or `gen_random_uuid()`; `created_at/updated_at timestamptz` on all tables; enums as Postgres enums or `text` + CHECK (prefer text+CHECK for easier evolution); soft delete only where noted.
 
 ## 1. Entity Relationship
 ```mermaid
@@ -136,11 +136,12 @@ Everything hangs off `users.id`. Every user-owned table carries a **denormalized
 
 ## 4. User Isolation Strategy
 1. **Repository layer** requires `user_id`; no method returns a user-owned row without it.
-2. **Row-Level Security** on all user-owned tables: `USING (user_id = current_setting('app.user_id')::uuid)`; API connects as a non-superuser role subject to RLS; each request/transaction runs `SET LOCAL app.user_id`. Workers set it from the job's `user_id`. A separate admin/maintenance role bypasses RLS and is not used by request handlers.
-3. **Retrieval** always filters by `user_id` and server-resolved selected `source_id`s.
-4. **Object keys** prefixed by `user_id`; access only via API authz check.
-5. **404 on cross-user access.**
-6. **Automated tests**: two-user fixtures for every endpoint and retrieval (see TESTING_STRATEGY).
+2. **Row-Level Security** is enabled and forced by migration `0008_tenant_rls` on the implemented user-owned tables. Runtime sessions use the non-login, `NOBYPASSRLS` `interview_app_runtime` role and set `app.user_id` transaction-locally. Login and refresh-token lookup use narrowly scoped transaction-local context; ingestion workers bind the database-backed job owner. Session preferences are scoped through their owning session.
+3. **Runtime credentials** must be a non-superuser/non-owner login able to `SET LOCAL ROLE interview_app_runtime`; production migration provisioning must grant role membership separately when migration and runtime users differ. Recovery and reindex use the separately configured `MAINTENANCE_DATABASE_URL`; it is never used by request handlers.
+4. **Retrieval** always filters by `user_id` and server-resolved selected `source_id`s.
+5. **Object keys** are prefixed by `user_id`; access only via API authorization checks.
+6. **404 on cross-user access.**
+7. **Automated tests**: two-user fixtures for endpoints and retrieval, plus a PostgreSQL test of the runtime role and RLS (see TESTING_STRATEGY).
 
 ## 5. Important Indexes (summary)
 users(email unique); refresh_tokens(token_hash unique, user_id, family_id); resumes/documents(user_id, created_at desc); ingestion_jobs(status, next_attempt_at) + partial unique active job; chunks(user_id, source_id), HNSW(embedding); sessions(user_id, created_at desc); transcript_segments(session_id, seq); detected_questions(session_id, detected_at); generated_answers(question_id); screenshots(expires_at); audit_events(user_id, created_at desc).

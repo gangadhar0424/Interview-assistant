@@ -120,7 +120,7 @@ async def create_file(
     )
     # Dispatch only after the commit. If the queue is down the job stays `pending` and the
     # recovery sweep re-sends it; the upload itself still succeeds.
-    await ingestion.dispatch_best_effort(dispatcher, job.id)
+    await ingestion.dispatch_best_effort(dispatcher, job.id, user_id)
     return row, {job.stage: job}
 
 
@@ -168,7 +168,7 @@ async def retry_ingestion(
     if not job_ids:
         raise AppError(409, "not_retryable", "Only files whose processing failed can be retried.")
     for job_id in job_ids:
-        await ingestion.dispatch_best_effort(dispatcher, job_id)
+        await ingestion.dispatch_best_effort(dispatcher, job_id, user_id)
     jobs = await ingestion_repository.get_jobs_for_source(session, user_id, kind.name, row.id)
     return row, jobs
 

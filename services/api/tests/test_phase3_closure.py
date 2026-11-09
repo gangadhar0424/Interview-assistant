@@ -160,7 +160,13 @@ def _settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> Settings:
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     for key in ("FILE_STORAGE_ROOT", "APP_ENV"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("JWT_SECRET", "a-production-looking-secret-" + "x" * 30)
+    monkeypatch.setenv("JWT_SECRET", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4")
+    # Deployed environments also require TLS Redis and a maintenance DB URL (D-45).
+    monkeypatch.setenv("REDIS_URL", "rediss://redis.example.invalid:6379/0")
+    monkeypatch.setenv(
+        "MAINTENANCE_DATABASE_URL",
+        "postgresql+asyncpg://maintenance:placeholder@db.example.invalid/app",
+    )
     # Deployed environments also require a real embedding provider (Phase 5); keep this helper
     # focused on the storage-root rules.
     monkeypatch.setenv("EMBEDDING_PROVIDER", "fastembed")

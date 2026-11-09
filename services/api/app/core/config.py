@@ -1,17 +1,27 @@
 """Environment-based configuration. Fails fast with a safe, useful message if misconfigured."""
 
+import math
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic import (
+    AnyHttpUrl,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # services/api/app/core/config.py -> repository root
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
-MIN_JWT_SECRET_LENGTH = 32
+MIN_JWT_SECRET_LENGTH = 43
 PLACEHOLDER_SECRET_PREFIX = "change-me"  # noqa: S105
+_JWT_SECRET_CHARS = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class ConfigurationError(RuntimeError):
@@ -28,10 +38,11 @@ class Settings(BaseSettings):
     app_env: Literal["local", "staging", "production"] = "local"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     database_url: str = Field(min_length=1)
+    maintenance_database_url: str | None = None
     redis_url: str = Field(min_length=1)
 
     # --- Authentication (Phase 2) ---
-    # HMAC signing secret for access tokens. Required; >= 32 chars; no placeholder outside local.
+    # HMAC signing secret for access tokens. Required; at least 256 bits of encoded material.
     jwt_secret: SecretStr
     access_token_ttl_minutes: int = Field(default=15, ge=1, le=60)
     refresh_token_ttl_days: int = Field(default=14, ge=1, le=90)
@@ -69,11 +80,15 @@ class Settings(BaseSettings):
     retrieval_max_limit: int = Field(default=20, ge=1, le=100)
 
     # --- LLM provider layer (Phase 6, D-33) ---
-    # Comma-separated provider ids to enable. Phase 6 only knows `fake` (local/tests); real
-    # adapters are not built until OQ-4 is resolved. Empty = no LLM provider enabled.
+    # Comma-separated provider ids to enable. Empty = no LLM provider enabled.
     llm_enabled_providers: str = ""
     # Comma-separated fallback order (subset of the enabled providers). Empty = enabled order.
     llm_fallback_chain: str = ""
+    openai_api_key: SecretStr | None = None
+    ollama_api_key: SecretStr | None = None
+    openai_base_url: AnyHttpUrl = AnyHttpUrl("https://api.openai.com/v1")
+    openai_model: str = Field(default="gpt-4o-mini", min_length=1, max_length=100)
+    openai_timeout: float = Field(default=30.0, gt=0, le=300)
     llm_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     llm_first_token_timeout_seconds: float = Field(default=4.0, gt=0, le=60)
     llm_stream_idle_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
@@ -201,6 +216,13 @@ class Settings(BaseSettings):
             raise ValueError("must start with 'postgresql+asyncpg://'")
         return v
 
+    @field_validator("maintenance_database_url")
+    @classmethod
+    def _async_maintenance_postgres_driver(cls, v: str | None) -> str | None:
+        if v is not None and not v.startswith("postgresql+asyncpg://"):
+            raise ValueError("must start with 'postgresql+asyncpg://'")
+        return v
+
     @field_validator("redis_url")
     @classmethod
     def _redis_scheme(cls, v: str) -> str:
@@ -211,8 +233,9 @@ class Settings(BaseSettings):
     @field_validator("jwt_secret")
     @classmethod
     def _jwt_secret_length(cls, v: SecretStr) -> SecretStr:
-        if len(v.get_secret_value()) < MIN_JWT_SECRET_LENGTH:
-            raise ValueError(f"must be at least {MIN_JWT_SECRET_LENGTH} characters")
+        secret = v.get_secret_value()
+        if len(secret) < MIN_JWT_SECRET_LENGTH:
+            raise ValueError("must contain at least 43 URL-safe characters")
         return v
 
     @field_validator("cors_origins")
@@ -225,9 +248,30 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _no_placeholder_secret_outside_local(self) -> Self:
-        placeholder = self.jwt_secret.get_secret_value().startswith(PLACEHOLDER_SECRET_PREFIX)
-        if self.app_env != "local" and placeholder:
-            raise ValueError("JWT_SECRET must not be a placeholder value outside APP_ENV=local")
+        secret = self.jwt_secret.get_secret_value()
+        if self.app_env != "local":
+            counts: dict[str, int] = {}
+            for char in secret:
+                counts[char] = counts.get(char, 0) + 1
+            entropy = -sum(
+                (count / len(secret)) * math.log2(count / len(secret)) for count in counts.values()
+            )
+            if (
+                secret.startswith(PLACEHOLDER_SECRET_PREFIX)
+                or not _JWT_SECRET_CHARS.fullmatch(secret)
+                or len(counts) < 20
+                or entropy < 3.5
+            ):
+                raise ValueError(
+                    "JWT_SECRET must be generated from at least 32 cryptographically random "
+                    "bytes outside APP_ENV=local"
+                )
+        if self.app_env != "local" and self.redis_url.startswith("redis://"):
+            raise ValueError("REDIS_URL must use rediss:// outside APP_ENV=local")
+        if self.app_env != "local" and self.maintenance_database_url is None:
+            raise ValueError(
+                "MAINTENANCE_DATABASE_URL must be set outside APP_ENV=local for recovery jobs"
+            )
         if self.app_env != "local" and self.file_storage_root is None:
             raise ValueError(
                 "FILE_STORAGE_ROOT must be set outside APP_ENV=local (use a persistent volume)"
@@ -264,9 +308,25 @@ class Settings(BaseSettings):
             raise ValueError("LLM_ENABLED_PROVIDERS contains an unknown provider id")
         if self.app_env != "local" and "fake" in enabled:
             raise ValueError("the fake LLM provider may only be enabled with APP_ENV=local")
+        if "openai" in enabled:
+            is_ollama = self.openai_base_url.host == "ollama.com"
+            api_key = self.ollama_api_key if is_ollama else self.openai_api_key
+            required_key_name = "OLLAMA_API_KEY" if is_ollama else "OPENAI_API_KEY"
+            if api_key is None or not api_key.get_secret_value().strip():
+                raise ValueError(
+                    f"{required_key_name} is required for the configured OpenAI-compatible endpoint"
+                )
         if any(p not in enabled for p in self.llm_fallback_chain_list):
             raise ValueError("LLM_FALLBACK_CHAIN may only list providers in LLM_ENABLED_PROVIDERS")
         return self
+
+    @field_validator("openai_model")
+    @classmethod
+    def _openai_model_not_blank(cls, value: str) -> str:
+        model = value.strip()
+        if not model:
+            raise ValueError("OPENAI_MODEL must not be blank")
+        return model
 
     @property
     def llm_enabled_provider_list(self) -> list[str]:

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.errors import AppError
 from app.db.models import User
+from app.db.session import set_tenant_context
 from app.qa import repository
 from app.qa.events import AnswerDone, AnswerFailed, QaEvent, QuestionCreated
 from app.qa.limits import QuestionLimits, Slot
@@ -126,6 +127,7 @@ class Generation:
 
     async def _user_is_active(self) -> bool:
         async with self._sessionmaker() as db:
+            await set_tenant_context(db, self._user_id)
             user = await db.get(User, self._user_id)
         return user is not None and user.status == "active"
 
@@ -135,6 +137,7 @@ class Generation:
             return None
         try:
             async with self._sessionmaker() as db:
+                await set_tenant_context(db, self._user_id)
                 row = await repository.get_answer(
                     db, self._user_id, self._session_id, self.answer_id
                 )

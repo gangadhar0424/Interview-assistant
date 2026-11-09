@@ -12,8 +12,8 @@ logger = logging.getLogger("app.ai.usage")
 class UsageRecord:
     provider: str
     model: str
-    input_tokens: int
-    output_tokens: int
+    input_tokens: int | None
+    output_tokens: int | None
     latency_ms: int
     ok: bool
     error_code: str | None = None

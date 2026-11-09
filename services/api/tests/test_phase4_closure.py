@@ -12,7 +12,7 @@ from app.ingestion import extractors
 from app.ingestion.service import recover_stale_jobs
 from app.workers import recovery
 from tests.conftest import RunSql
-from tests.helpers import RecordingDispatcher, real_pdf, run_async
+from tests.helpers import RecordingDispatcher, real_pdf, run_maintenance_async
 from tests.test_files import stored_files, upload
 from tests.test_ingestion_jobs import (  # noqa: F401  (fixtures + helpers reused as-is)
     Env,
@@ -111,7 +111,7 @@ def test_extracted_text_exists_exactly_for_completed_jobs_across_all_paths(
         "locked_at = now() - interval '2 hours' WHERE source_id = :i",
         i=uuid.UUID(timed_out),
     )
-    run_async(test_db_url, lambda s: _sweep(s, RecordingDispatcher()))
+    run_maintenance_async(test_db_url, lambda s: _sweep(s, RecordingDispatcher()))
     # A failed job is retried and then completes.
     run_sql("UPDATE ingestion_jobs SET status='failed' WHERE source_id = :i", i=uuid.UUID(retried))
     assert client.post(f"/api/v1/documents/{retried}/retry", headers=alice).status_code == 202
@@ -146,7 +146,8 @@ def test_api_delete_while_a_worker_is_extracting_leaves_nothing_behind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = upload(client, "resumes", alice, "cv.pdf", real_pdf("Racing delete")).json()
-    job_id = job_row(run_sql, created["id"])["id"]
+    job = job_row(run_sql, created["id"])
+    job_id, owner = job["id"], job["user_id"]  # a queue message carries the owner
     real = extractors.PdfExtractor.extract
     seen: dict[str, Any] = {}
 
@@ -167,9 +168,9 @@ def test_api_delete_while_a_worker_is_extracting_leaves_nothing_behind(
     assert texts(run_sql) == [] and stored_files(storage_root) == []
 
     # Neither a duplicate delivery nor the recovery sweep resurrects the deleted work.
-    assert env.work(job_id) == "skipped"
+    assert env.work(job_id, user_id=owner) == "skipped"
     dispatcher = RecordingDispatcher()
-    report = run_async(test_db_url, lambda s: _sweep(s, dispatcher))
+    report = run_maintenance_async(test_db_url, lambda s: _sweep(s, dispatcher))
     assert (report.failed, report.requeued, report.dispatched) == ([], [], [])
     assert dispatcher.dispatched == [] and texts(run_sql) == []
 
@@ -209,7 +210,7 @@ def test_recovery_dry_run_changes_nothing_and_completed_jobs_are_never_reprocess
     assert run_sql(JOBS_SNAPSHOT) == before and texts(run_sql) == text_before  # no mutation
 
     dispatcher = RecordingDispatcher()
-    report = run_async(test_db_url, lambda s: _sweep(s, dispatcher))
+    report = run_maintenance_async(test_db_url, lambda s: _sweep(s, dispatcher))
     done_id = job_row(run_sql, done["id"])["id"]
     assert done_id not in dispatcher.dispatched and done_id not in report.requeued
     assert sorted(dispatcher.dispatched) == sorted(
@@ -218,5 +219,5 @@ def test_recovery_dry_run_changes_nothing_and_completed_jobs_are_never_reprocess
     assert job_row(run_sql, done["id"])["status"] == "completed"
     assert len(texts(run_sql)) == 1  # the completed file's text is untouched
 
-    again = run_async(test_db_url, lambda s: _sweep(s, dispatcher))
+    again = run_maintenance_async(test_db_url, lambda s: _sweep(s, dispatcher))
     assert (again.failed, again.requeued, again.dispatched) == ([], [], [])  # idempotent

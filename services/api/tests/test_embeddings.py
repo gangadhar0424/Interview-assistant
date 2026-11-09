@@ -173,7 +173,12 @@ def test_deployed_environments_must_use_a_real_embedding_provider(
     monkeypatch: pytest.MonkeyPatch, provider: str | None, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("JWT_SECRET", "a-production-looking-secret-" + "x" * 30)
+    monkeypatch.setenv("JWT_SECRET", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4")
+    monkeypatch.setenv("REDIS_URL", "rediss://redis.example.invalid:6379/0")
+    monkeypatch.setenv(
+        "MAINTENANCE_DATABASE_URL",
+        "postgresql+asyncpg://maintenance:placeholder@db.example.invalid/app",
+    )
     monkeypatch.setenv("FILE_STORAGE_ROOT", str(tmp_path))
     monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
     if provider is not None:

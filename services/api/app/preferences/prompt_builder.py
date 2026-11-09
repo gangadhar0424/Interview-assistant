@@ -1,8 +1,9 @@
 """PromptBuilder: the only place prompts are built, from versioned template files (D-11, D-34).
 
 Templates live in `templates/<version>/`. A released version directory is immutable: change a
-template by creating a new version directory and bumping `PROMPT_VERSION` (a test pins the v1
-fingerprint). All prompt prose lives in those files; this module only assembles them.
+template by creating a new version directory and bumping `PROMPT_VERSION`. A version can override
+only changed files and inherits other files from v1; fingerprints cover the effective template set.
+All prompt prose lives in those files; this module only assembles them.
 
 Untrusted text (job description, candidate material, prior exchanges, the question and the user's
 style preferences) is never placed in the system message. It goes into delimited data blocks in the
@@ -15,13 +16,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from uuid import UUID
 
 from app.ai.types import Message
 from app.preferences.answer_config import AnswerConfig
 from app.preferences.sanitize import clean_text
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 TEMPLATES_ROOT = Path(__file__).resolve().parent / "templates"
+_BASE_TEMPLATE_VERSION = "v1"
 
 NONE_PROVIDED = "(none provided)"
 _PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
@@ -32,13 +35,21 @@ class PromptError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class EvidencePassage:
+    source_type: str
+    source_id: UUID
+    chunk_index: int
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class PromptInputs:
     """The runtime material for one question. Assembling it from retrieval is Phase 8's job."""
 
     question: str
     company_name: str = ""
     job_description: str = ""
-    context_passages: Sequence[str] = ()  # candidate material (resume/document excerpts)
+    context_passages: Sequence[str | EvidencePassage] = ()
     history: Sequence[tuple[str, str]] = ()  # earlier (question, answer) pairs
 
 
@@ -51,6 +62,8 @@ class BuiltPrompt:
 @lru_cache(maxsize=512)
 def _read(version: str, relative: str) -> str:
     path = TEMPLATES_ROOT / version / relative
+    if not path.is_file() and version != _BASE_TEMPLATE_VERSION:
+        path = TEMPLATES_ROOT / _BASE_TEMPLATE_VERSION / relative
     try:
         raw = path.read_bytes()
     except OSError:
@@ -71,13 +84,19 @@ def _render(template: str, values: Mapping[str, str]) -> str:
 
 
 def template_fingerprint(version: str) -> str:
-    """SHA-256 over every template file of a version (names + line-ending-normalised content)."""
+    """SHA-256 over a version's effective templates (names + normalised content)."""
     root = TEMPLATES_ROOT / version
     if not root.is_dir():
         raise PromptError("unknown prompt version")
+    base = TEMPLATES_ROOT / _BASE_TEMPLATE_VERSION
+    paths = {path.relative_to(root).as_posix(): path for path in root.rglob("*") if path.is_file()}
+    if version != _BASE_TEMPLATE_VERSION:
+        for path in base.rglob("*"):
+            if path.is_file():
+                paths.setdefault(path.relative_to(base).as_posix(), path)
     digest = hashlib.sha256()
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
-        digest.update(path.relative_to(root).as_posix().encode())
+    for relative, path in sorted(paths.items()):
+        digest.update(relative.encode())
         digest.update(b"\0")
         digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
         digest.update(b"\0")
@@ -128,8 +147,27 @@ class PromptBuilder:
     def build(self, config: AnswerConfig, inputs: PromptInputs) -> BuiltPrompt:
         if not clean_text(inputs.question):
             raise PromptError("question must not be empty")
-        passages = [clean_text(p) for p in inputs.context_passages]
-        material = "\n\n".join(f"[{i}] {p}" for i, p in enumerate(passages, 1) if p)
+        material_entries: list[str] = []
+        for index, passage in enumerate(inputs.context_passages, 1):
+            if isinstance(passage, EvidencePassage):
+                if passage.source_type not in ("resume", "document") or passage.chunk_index < 0:
+                    raise PromptError("invalid evidence metadata")
+                if not isinstance(passage.source_id, UUID):
+                    raise PromptError("invalid evidence metadata")
+                text = clean_text(passage.text)
+                if text and self.version == "v2":
+                    text = re.sub(r"\[E\d+\]", "[quoted evidence tag]", text, flags=re.IGNORECASE)
+                    material_entries.append(
+                        f"[E{index} | {passage.source_type} | source {passage.source_id} "
+                        f"| chunk {passage.chunk_index}] {text}"
+                    )
+                elif text:
+                    material_entries.append(text)
+            else:
+                text = clean_text(passage)
+                if text:
+                    material_entries.append(f"[E{index}] {text}" if self.version == "v2" else text)
+        material = "\n\n".join(material_entries)
         exchanges = "\n\n".join(
             f"Q: {clean_text(q)}\nA: {clean_text(a)}" for q, a in inputs.history
         )

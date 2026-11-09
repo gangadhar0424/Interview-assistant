@@ -11,7 +11,7 @@ import sys
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.db.session import create_engine, create_sessionmaker
+from app.db.session import create_engine, create_maintenance_sessionmaker
 from app.ingestion.dispatch import DramatiqDispatcher
 from app.ingestion.service import find_stuck_jobs, recover_stale_jobs
 
@@ -19,8 +19,8 @@ from app.ingestion.service import find_stuck_jobs, recover_stale_jobs
 async def main(dry_run: bool) -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
-    engine = create_engine(settings.database_url)
-    sessions = create_sessionmaker(engine)
+    engine = create_engine(settings.maintenance_database_url or settings.database_url)
+    sessions = create_maintenance_sessionmaker(engine)
     try:
         if dry_run:
             async with sessions() as session:

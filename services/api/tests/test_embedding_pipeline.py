@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db.session import set_tenant_context
 from app.embeddings.base import EmbeddingError, EmbeddingUnavailable
 from app.embeddings.fake import FakeEmbeddingProvider
 from app.ingestion.chunking import ChunkConfig, chunk_text
@@ -20,7 +21,13 @@ from app.ingestion.service import (
 from app.retrieval.service import RetrievalError, search_chunks
 from app.storage.local import LocalFileStorage
 from tests.conftest import RunSql
-from tests.helpers import RecordingDispatcher, real_pdf, run_async
+from tests.helpers import (
+    RecordingDispatcher,
+    job_owner_id,
+    real_pdf,
+    run_async,
+    run_maintenance_async,
+)
 from tests.test_files import upload
 from tests.test_ingestion_jobs import (  # noqa: F401  (fixtures + helpers reused as-is)
     Env,
@@ -72,6 +79,7 @@ def search(
 
     async def go(sessions: Any) -> list[Any]:
         async with sessions() as session:
+            await set_tenant_context(session, uid)
             return await search_chunks(session, provider, uid, query, **kwargs)
 
     return run_async(url, go)
@@ -282,7 +290,7 @@ def test_vectors_of_another_model_are_never_compared_or_mixed(
         async with sessions() as session:
             return await enqueue_missing_embeddings(session, model_b.model_id)
 
-    job_ids = run_async(test_db_url, enqueue)
+    job_ids = run_maintenance_async(test_db_url, enqueue)
     assert job_ids == [job_row(run_sql, file_id, "embed")["id"]]
     assert env.work(job_ids[0], embedder=model_b) == "completed"
 
@@ -293,7 +301,7 @@ def test_vectors_of_another_model_are_never_compared_or_mixed(
     best = search(test_db_url, uid, "pottery work", model_b, limit=1)[0]
     assert "pottery" in best.text
 
-    assert run_async(test_db_url, enqueue) == []  # nothing left to re-embed for model B
+    assert run_maintenance_async(test_db_url, enqueue) == []  # nothing left for model B
 
 
 # ---------------------------------------------- idempotency and duplicates
@@ -331,13 +339,26 @@ def test_duplicate_and_concurrent_embed_delivery_creates_no_duplicate_chunks(
     file_id = upload_txt(client, alice, long_text())
     env.work(job_row(run_sql, file_id)["id"])
     embed_id = job_row(run_sql, file_id, "embed")["id"]
+    owner_id = job_owner_id(test_db_url, embed_id)
     storage = LocalFileStorage(storage_root)
 
     async def both(sessions: Any) -> list[str]:
         return list(
             await asyncio.gather(
-                process_job(sessions, storage, embed_id, embedder=FakeEmbeddingProvider()),
-                process_job(sessions, storage, embed_id, embedder=FakeEmbeddingProvider()),
+                process_job(
+                    sessions,
+                    storage,
+                    embed_id,
+                    user_id=owner_id,
+                    embedder=FakeEmbeddingProvider(),
+                ),
+                process_job(
+                    sessions,
+                    storage,
+                    embed_id,
+                    user_id=owner_id,
+                    embedder=FakeEmbeddingProvider(),
+                ),
             )
         )
 
@@ -412,7 +433,8 @@ def test_delete_during_embedding_leaves_no_orphans_and_is_not_resurrected(
 ) -> None:
     file_id = upload_txt(client, alice, long_text())
     env.work(job_row(run_sql, file_id)["id"])
-    embed_id = job_row(run_sql, file_id, "embed")["id"]
+    embed_row = job_row(run_sql, file_id, "embed")
+    embed_id, owner = embed_row["id"], embed_row["user_id"]  # a queue message carries the owner
     original = FakeEmbeddingProvider.embed_documents
     seen: dict[str, Any] = {}
 
@@ -428,7 +450,7 @@ def test_delete_during_embedding_leaves_no_orphans_and_is_not_resurrected(
     assert seen["status"] == "processing" and seen["delete"].status_code == 204
     for table in ("chunks", "chunk_embeddings", "extracted_texts", "ingestion_jobs", "documents"):
         assert rows(run_sql, table) == [], table
-    assert env.work(embed_id) == "skipped"
+    assert env.work(embed_id, user_id=owner) == "skipped"
     dispatcher = RecordingDispatcher()
 
     async def sweep(sessions: Any) -> Any:
@@ -440,7 +462,7 @@ def test_delete_during_embedding_leaves_no_orphans_and_is_not_resurrected(
             pending_redispatch_seconds=120,
         )
 
-    report = run_async(test_db_url, sweep)
+    report = run_maintenance_async(test_db_url, sweep)
     assert (report.dispatched, report.requeued) == ([], []) and rows(run_sql, "chunks") == []
 
 
@@ -505,7 +527,7 @@ def test_transient_provider_failure_retries_automatically_then_succeeds(
             pending_redispatch_seconds=120,
         )
 
-    assert run_async(test_db_url, sweep).dispatched == [embed_id]
+    assert run_maintenance_async(test_db_url, sweep).dispatched == [embed_id]
     assert env.work(embed_id) == "completed"
     assert job_row(run_sql, file_id, "embed")["attempt"] == 2
     assert len(rows(run_sql, "chunk_embeddings")) == N_CHUNKS

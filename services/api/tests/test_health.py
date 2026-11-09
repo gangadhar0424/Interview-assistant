@@ -71,3 +71,13 @@ def test_ready_with_real_unreachable_dependencies_is_safe(client: TestClient) ->
 def test_request_id_header_is_returned(client: TestClient) -> None:
     r = client.get("/health", headers={"x-request-id": "abc123"})
     assert r.headers["x-request-id"] == "abc123"
+
+
+def test_metrics_endpoint_exposes_request_metrics(client: TestClient) -> None:
+    client.get("/health")
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "interview_http_requests_total" in response.text
+    assert 'route="/health"' in response.text
+    assert "interview_http_request_duration_seconds" in response.text

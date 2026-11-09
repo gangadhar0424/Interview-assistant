@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.db.models import IngestionJob
+from app.db.session import set_tenant_context
 from app.embeddings.fake import FakeEmbeddingProvider
 from app.ingestion import repository as ingestion_repository
 from app.ingestion.service import find_stuck_jobs, process_job, recover_stale_jobs
@@ -18,12 +19,14 @@ from app.storage.local import LocalFileStorage
 from tests.conftest import RunSql
 from tests.helpers import (
     RecordingDispatcher,
+    job_owner_id,
     make_docx,
     make_pdf,
     real_docx,
     real_pdf,
     register,
     run_async,
+    run_maintenance_async,
     run_worker,
 )
 from tests.test_files import stored_files, upload
@@ -88,8 +91,8 @@ class Env:
                 ).all()
             return {r.stage: r.id for r in rows}
 
-        self.work(run_async(self.url, job_ids)["extract"])
-        self.work(run_async(self.url, job_ids)["embed"])
+        self.work(run_maintenance_async(self.url, job_ids)["extract"])
+        self.work(run_maintenance_async(self.url, job_ids)["embed"])
 
 
 @pytest.fixture
@@ -316,13 +319,18 @@ def test_concurrent_workers_claim_a_job_only_once(
 ) -> None:
     created = upload(client, "resumes", alice, "cv.pdf", real_pdf("Race")).json()
     job_id = job_row(run_sql, created["id"])["id"]
+    owner_id = job_owner_id(test_db_url, job_id)
     storage = LocalFileStorage(storage_root)
 
     async def both(sessions: Any) -> list[str]:
         return list(
             await asyncio.gather(
-                process_job(sessions, storage, job_id, embedder=FakeEmbeddingProvider()),
-                process_job(sessions, storage, job_id, embedder=FakeEmbeddingProvider()),
+                process_job(
+                    sessions, storage, job_id, user_id=owner_id, embedder=FakeEmbeddingProvider()
+                ),
+                process_job(
+                    sessions, storage, job_id, user_id=owner_id, embedder=FakeEmbeddingProvider()
+                ),
             )
         )
 
@@ -372,14 +380,17 @@ def test_deleting_a_file_removes_its_job_and_text_and_skips_the_worker(
     done = upload(client, "resumes", alice, "a.pdf", real_pdf("Done")).json()
     env.work(job_row(run_sql, done["id"])["id"])
     pending = upload(client, "resumes", alice, "b.pdf", real_pdf("Pending")).json()
-    pending_job = job_row(run_sql, pending["id"])["id"]
+    pending_row = job_row(run_sql, pending["id"])
+    pending_job, owner = pending_row["id"], pending_row["user_id"]
     assert len(texts(run_sql)) == 1
 
     assert client.delete(f"/api/v1/resumes/{done['id']}", headers=alice).status_code == 204
     assert client.delete(f"/api/v1/resumes/{pending['id']}", headers=alice).status_code == 204
     assert run_sql("SELECT count(*) AS n FROM ingestion_jobs")[0]["n"] == 0
     assert texts(run_sql) == []
-    assert env.work(pending_job) == "skipped"  # queued message for a deleted file is harmless
+    assert (
+        env.work(pending_job, user_id=owner) == "skipped"
+    )  # queued message for a deleted file is harmless
 
 
 # ----------------------------------------------------------------------- retry
@@ -439,14 +450,14 @@ def test_queue_outage_at_upload_leaves_a_recoverable_pending_job(
 
     # Fresh pending job: not old enough to be considered lost.
     dispatcher.fail = False
-    assert run_async(test_db_url, sweep).dispatched == []
+    assert run_maintenance_async(test_db_url, sweep).dispatched == []
 
     run_sql("UPDATE ingestion_jobs SET updated_at = now() - interval '10 minutes'")
-    report = run_async(test_db_url, sweep)
+    report = run_maintenance_async(test_db_url, sweep)
     assert report.stale_pending == [job["id"]] and report.dispatched == [job["id"]]
     assert dispatcher.dispatched == [job["id"]]
     assert env.work(job["id"]) == "completed"
-    assert run_async(test_db_url, sweep).dispatched == []  # idempotent: nothing left to do
+    assert run_maintenance_async(test_db_url, sweep).dispatched == []
 
 
 def test_sweep_with_queue_still_down_keeps_the_job_pending(
@@ -466,7 +477,7 @@ def test_sweep_with_queue_still_down_keeps_the_job_pending(
             pending_redispatch_seconds=120,
         )
 
-    report = run_async(test_db_url, sweep)
+    report = run_maintenance_async(test_db_url, sweep)
     assert report.dispatched == [] and len(report.dispatch_failed) == 1
     assert run_sql("SELECT status FROM ingestion_jobs")[0]["status"] == "pending"
 
@@ -503,7 +514,7 @@ def test_stuck_processing_jobs_are_identifiable_and_recovered_deterministically(
             )
         return [j.id for j in found]
 
-    assert run_async(test_db_url, identify) == [jobs[0], jobs[1]]  # oldest first; others excluded
+    assert run_maintenance_async(test_db_url, identify) == [jobs[0], jobs[1]]
 
     async def sweep(sessions: Any) -> Any:
         return await recover_stale_jobs(
@@ -514,7 +525,7 @@ def test_stuck_processing_jobs_are_identifiable_and_recovered_deterministically(
             pending_redispatch_seconds=120,
         )
 
-    report = run_async(test_db_url, sweep)
+    report = run_maintenance_async(test_db_url, sweep)
     assert report.failed == [jobs[1]] and report.requeued == [jobs[0]]
     assert dispatcher.dispatched == [jobs[0]]
     states = {r["id"]: r for r in run_sql("SELECT * FROM ingestion_jobs")}
@@ -523,7 +534,7 @@ def test_stuck_processing_jobs_are_identifiable_and_recovered_deterministically(
     assert states[jobs[2]]["status"] == "processing"  # recent: untouched
     assert states[jobs[3]]["status"] == "pending"  # fresh pending: untouched
 
-    again = run_async(test_db_url, sweep)  # deterministic and idempotent
+    again = run_maintenance_async(test_db_url, sweep)
     assert (again.failed, again.requeued, again.dispatched) == ([], [], [])
 
 
@@ -536,7 +547,9 @@ def test_worker_task_uses_settings_for_database_and_storage(
 
     created = upload(client, "resumes", alice, "cv.pdf", real_pdf("Via actor")).json()
     job = job_row(run_sql, created["id"])
-    ingest_job.fn(str(job["id"]))  # what the Dramatiq worker runs, minus the broker
+    ingest_job.fn(
+        str(job["id"]), str(job["user_id"])
+    )  # what the Dramatiq worker runs, minus the broker
     assert job_row(run_sql, created["id"])["status"] == "completed"
     assert "Via actor" in texts(run_sql)[0]["text"]
 
@@ -583,10 +596,13 @@ def test_users_cannot_see_or_retry_each_others_ingestion(
 
     async def fetch(sessions: Any) -> tuple[Any, Any]:
         async with sessions() as session:
+            await set_tenant_context(session, alice_id)
             src = uuid.UUID(created["id"])
             mine = await ingestion_repository.get_extracted_text(session, alice_id, "resume", src)
+        async with sessions() as session:
+            await set_tenant_context(session, bob_id)
             theirs = await ingestion_repository.get_extracted_text(session, bob_id, "resume", src)
-            return mine, theirs
+        return mine, theirs
 
     mine, theirs = run_async(test_db_url, fetch)
     assert theirs is None and mine is not None and secret in mine.text
@@ -651,12 +667,18 @@ def test_ingestion_repository_reads_are_scoped_to_the_user(
 
     async def look(sessions: Any) -> tuple[Any, Any, Any, Any]:
         async with sessions() as session:
-            return (
+            await set_tenant_context(session, alice_id)
+            mine = (
                 await ingestion_repository.get_job_for_source(session, alice_id, "resume", source),
-                await ingestion_repository.get_job_for_source(session, bob_id, "resume", source),
                 await ingestion_repository.jobs_for_sources(session, alice_id, "resume", [source]),
+            )
+        async with sessions() as session:
+            await set_tenant_context(session, bob_id)
+            theirs = (
+                await ingestion_repository.get_job_for_source(session, bob_id, "resume", source),
                 await ingestion_repository.jobs_for_sources(session, bob_id, "resume", [source]),
             )
+        return mine[0], theirs[0], mine[1], theirs[1]
 
     mine, theirs, mine_many, theirs_many = run_async(test_db_url, look)
     assert mine is not None and theirs is None

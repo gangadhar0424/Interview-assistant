@@ -164,7 +164,8 @@ def test_stream_yields_tokens_then_usage_and_records_usage() -> None:
     assert isinstance(events[-1], Usage)
     assert "".join(e.text for e in events if isinstance(e, Token)) == "echo: " + MSGS[0].content
     assert len(sink.records) == 1 and sink.records[0].user_id == uid and sink.records[0].ok
-    assert sink.records[0].output_tokens > 0
+    output_tokens = sink.records[0].output_tokens
+    assert output_tokens is not None and output_tokens > 0  # the fake provider reports usage
 
 
 def test_first_token_timeout_triggers_fallback() -> None:

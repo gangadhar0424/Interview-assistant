@@ -23,7 +23,9 @@ from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.config import Settings, get_settings
+from app.core.metrics import websocket_disconnects
 from app.db.models import User
+from app.db.session import set_tenant_context
 from app.qa.limits import QuestionLimits
 from app.qa.service import QuestionAnswerer
 from app.realtime import schemas as proto
@@ -81,6 +83,7 @@ async def _authenticate(
         return None
 
     async with websocket.app.state.sessionmaker() as db:
+        await set_tenant_context(db, binding.user_id)
         user = await db.get(User, binding.user_id)
         if user is None or user.status != "active":
             await _refuse(websocket, "user_inactive")
@@ -138,6 +141,7 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         code = await _serve(websocket, conn, settings)
     finally:
         registry.release(conn)
+        websocket_disconnects.labels("normal" if code == proto.CLOSE_NORMAL else "other").inc()
         logger.info(
             "ws closed",
             extra={

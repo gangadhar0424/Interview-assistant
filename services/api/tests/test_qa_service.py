@@ -16,6 +16,7 @@ from app.ai.router import LLMRouter, RouterConfig
 from app.ai.usage import MemoryUsageSink
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
+from app.db.session import set_tenant_context
 from app.embeddings.base import EmbeddingUnavailable
 from app.embeddings.fake import FakeEmbeddingProvider
 from app.preferences.enums import QuestionType
@@ -274,7 +275,7 @@ def test_a_question_flows_through_every_stage_and_is_persisted(
         False,
     )
     assert answer["input_tokens"] > 0 and answer["output_tokens"] > 0
-    assert answer["error_code"] is None and answer["prompt_version"] == "v1"
+    assert answer["error_code"] is None and answer["prompt_version"] == "v2"
     assert str(answer["user_id"]) == str(scenario.alice_id)
     config = answer["generation_config"]
     assert (
@@ -950,7 +951,9 @@ def test_the_character_budget_caps_the_passages_sent_to_the_provider(
         make_router([provider]), "Describe BIGDOC", session=session, settings=get_settings()
     )
     material = provider.recorded[0].block("candidate_material")
-    passages = re.split(r"(?:^|\n\n)\[\d+\] ", material)[1:]  # chunk text may hold blank lines
+    # Prompt v2 tags each passage `[E<n> | <type> | source <id> | chunk <i>] `; chunk text may
+    # hold blank lines. Only the passage text (after the tag) counts toward the budget.
+    passages = re.split(r"(?:^|\n\n)\[E\d+(?: \|[^\]]*)?\] ", material)[1:]
     total = sum(len(p) for p in passages)
     assert 0 < total <= 1000 and len(passages) < 8
 
@@ -1039,6 +1042,7 @@ def test_finishing_or_marking_another_users_rows_changes_nothing(
 
     async def attack(sessions: Any) -> tuple[bool, bool]:
         async with sessions() as db:
+            await set_tenant_context(db, scenario.bob_id)
             hijacked = await repository.finish_answer(
                 db,
                 scenario.bob_id,  # not the owner
@@ -1048,6 +1052,7 @@ def test_finishing_or_marking_another_users_rows_changes_nothing(
             await repository.mark_question_answered(db, scenario.bob_id, question["id"])
             await db.commit()
         async with sessions() as db:
+            await set_tenant_context(db, scenario.alice_id)
             owner = await repository.finish_answer(
                 db, scenario.alice_id, answer["id"], AnswerResult(status="error", text="")
             )
@@ -1075,6 +1080,7 @@ def test_a_complete_answer_is_terminal_and_never_rewritten(
     async def late_writes(sessions: Any) -> list[bool]:
         out = []
         async with sessions() as db:
+            await set_tenant_context(db, scenario.alice_id)
             for status in ("cancelled", "error"):
                 out.append(
                     await repository.finish_answer(
