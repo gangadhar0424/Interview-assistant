@@ -88,9 +88,48 @@ def test_storage_settings_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch
 def test_storage_root_is_required_outside_local(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "staging")
     monkeypatch.setenv("EMBEDDING_PROVIDER", "fastembed")  # required outside local (Phase 5)
-    monkeypatch.setenv("JWT_SECRET", "a-real-looking-secret-" + "x" * 30)
+    monkeypatch.setenv("JWT_SECRET", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4")
+    monkeypatch.setenv("REDIS_URL", "rediss://redis.example.invalid:6379/0")
+    monkeypatch.setenv(
+        "MAINTENANCE_DATABASE_URL",
+        "postgresql+asyncpg://maintenance:placeholder@db.example.invalid/app",
+    )
     with pytest.raises(ConfigurationError) as exc:
         load_settings()
     assert "FILE_STORAGE_ROOT" in str(exc.value)
     monkeypatch.setenv("FILE_STORAGE_ROOT", str(Path(tempfile.gettempdir()) / "persistent-volume"))
     load_settings()
+
+
+def _set_valid_deployment_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "fastembed")
+    monkeypatch.setenv("JWT_SECRET", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4")
+    monkeypatch.setenv("REDIS_URL", "rediss://redis.example.invalid:6379/0")
+    monkeypatch.setenv(
+        "MAINTENANCE_DATABASE_URL",
+        "postgresql+asyncpg://maintenance:placeholder@db.example.invalid/app",
+    )
+    monkeypatch.setenv("FILE_STORAGE_ROOT", str(Path(tempfile.gettempdir()) / "persistent-volume"))
+
+
+def test_plaintext_redis_is_rejected_outside_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_valid_deployment_settings(monkeypatch)
+    monkeypatch.setenv("REDIS_URL", "redis://redis.example.invalid:6379/0")
+
+    with pytest.raises(ConfigurationError) as exc:
+        load_settings()
+
+    assert "REDIS_URL" in str(exc.value)
+
+
+def test_maintenance_database_url_is_required_outside_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_valid_deployment_settings(monkeypatch)
+    monkeypatch.delenv("MAINTENANCE_DATABASE_URL")
+
+    with pytest.raises(ConfigurationError) as exc:
+        load_settings()
+
+    assert "MAINTENANCE_DATABASE_URL" in str(exc.value)

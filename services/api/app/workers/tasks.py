@@ -11,11 +11,13 @@ stages (`extract`, `embed`); the stage is stored on the job row.
 
 import asyncio
 import logging
+import time
 import uuid
 
 import dramatiq
 
 from app.core.config import get_settings
+from app.core.metrics import ingestion_task_duration, ingestion_tasks
 from app.db.session import create_engine, create_sessionmaker
 from app.embeddings.factory import build_embedding_provider
 from app.ingestion.chunking import ChunkConfig
@@ -27,7 +29,7 @@ from app.workers import broker as _broker  # noqa: F401  (configures the broker 
 logger = logging.getLogger(__name__)
 
 
-async def _run(job_id: uuid.UUID) -> str:
+async def _run(job_id: uuid.UUID, user_id: uuid.UUID) -> str:
     settings = get_settings()
     engine = create_engine(settings.database_url)
     try:
@@ -35,6 +37,7 @@ async def _run(job_id: uuid.UUID) -> str:
             create_sessionmaker(engine),
             LocalFileStorage(settings.storage_root),
             job_id,
+            user_id=user_id,
             embedder=build_embedding_provider(settings),
             dispatcher=DramatiqDispatcher(),
             chunk_config=ChunkConfig(settings.chunk_size_chars, settings.chunk_overlap_chars),
@@ -45,6 +48,17 @@ async def _run(job_id: uuid.UUID) -> str:
 
 
 @dramatiq.actor(queue_name="ingestion", max_retries=0, time_limit=30 * 60 * 1000)
-def ingest_job(job_id: str) -> None:
-    outcome = asyncio.run(_run(uuid.UUID(job_id)))
-    logger.info("ingest_job finished", extra={"job_id": job_id, "outcome": outcome})
+def ingest_job(job_id: str, user_id: str) -> None:
+    started = time.perf_counter()
+    result = "error"
+    try:
+        result = asyncio.run(_run(uuid.UUID(job_id), uuid.UUID(user_id)))
+        logger.info("ingest_job finished", extra={"job_id": job_id, "outcome": result})
+    finally:
+        duration = time.perf_counter() - started
+        ingestion_tasks.labels(result).inc()
+        ingestion_task_duration.observe(duration)
+        logger.info(
+            "ingestion task metrics",
+            extra={"job_id": job_id, "result": result, "duration_ms": int(duration * 1000)},
+        )

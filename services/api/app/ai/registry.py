@@ -2,14 +2,13 @@
 
 from dataclasses import dataclass
 
+from app.ai.adapters.openai import OpenAIProvider, openai_spec
 from app.ai.base import LLMProvider
 from app.ai.errors import InvalidSelection
 from app.ai.fake import FakeLLMProvider, fake_spec
 from app.ai.types import Capability, ModelSpec, ProviderSpec
 
-# Provider ids that can be enabled by configuration. Phase 6 has no real adapter (OQ-4); a real
-# adapter is added here, together with its module in app/ai/adapters/, once approved.
-KNOWN_PROVIDER_IDS: frozenset[str] = frozenset({"fake"})
+KNOWN_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,13 +62,36 @@ class ProviderRegistry:
                     seen[lang] = None
         return list(seen)
 
+    async def aclose(self) -> None:
+        """Close provider-owned resources when the application lifespan ends."""
+        for entry in self._entries.values():
+            if isinstance(entry.provider, OpenAIProvider):
+                await entry.provider.aclose()
 
-def build_registry(enabled: list[str]) -> ProviderRegistry:
-    """Build the registry from configuration. Credentials (future adapters) come from env only."""
+
+def build_registry(
+    enabled: list[str],
+    *,
+    openai_api_key: str | None = None,
+    openai_model: str = "gpt-4o-mini",
+    openai_timeout: float = 30.0,
+    openai_base_url: str = "https://api.openai.com/v1",
+) -> ProviderRegistry:
+    """Build the provider allowlist from configuration; credentials remain server-side."""
     entries: list[RegisteredProvider] = []
     for provider_id in enabled:
         if provider_id == "fake":
             entries.append(RegisteredProvider(FakeLLMProvider("fake"), fake_spec("fake")))
+        elif provider_id == "openai":
+            if not openai_api_key:
+                raise ValueError("OPENAI_API_KEY is required when the OpenAI provider is enabled")
+            provider = OpenAIProvider(
+                api_key=openai_api_key,
+                model=openai_model,
+                timeout=openai_timeout,
+                base_url=openai_base_url,
+            )
+            entries.append(RegisteredProvider(provider, openai_spec(openai_model)))
         else:  # config validation already rejects unknown ids; fail closed regardless
             raise ValueError("unknown provider id")
     return ProviderRegistry(entries)

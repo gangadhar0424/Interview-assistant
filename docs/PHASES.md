@@ -98,12 +98,13 @@ Rules: each phase is independently testable; do not start a phase without explic
 - **Targeted tests:** WS contract tests, auth/ticket tests, reconnect/cancel tests, load smoke (N concurrent connections).
 - **Acceptance evidence (9C closure):** protocol events match `API.md` (strict models, generated `packages/protocol`, drift test, SSE payload parity); reconnect resumes (replay tests, a live abrupt-drop resume, a 50-connection load smoke with half the clients dropping and resuming); unauthorized or other-user sessions are rejected (handshake tests, isolation tests across resume, disabled-user reattach); cancellation works (9B tests plus the cancel-versus-final-commit race, where the database decides). See `docs/DECISIONS.md` D-41 to D-43.
 
-## Phase 10 — Desktop Client Shell (Tauri)
+## Phase 10 — Desktop Client Shell (Electron MVP)
+> **Windows MVP implemented, pending owner review (D-47):** `apps/desktop/` contains the Electron main/preload/renderer app, visible floating window and tray, login/signup, session picker, typed Q&A over existing SSE, cancellation, history/copy, settings, secure refresh-token storage, and unit tests. `apps/web/` and backend business logic remain unchanged. No screenshot, audio, stealth/evasion, WebSocket client, signing, or auto-update work is included.
 - **Objective:** Floating, user-controlled client with typed Q&A.
-- **Scope:** Tauri app, login (keychain), session picker, floating window (always-on-top, opacity, hotkeys), typed question, streamed answer view, history. PoC findings from window behavior per OS.
+- **Scope:** Electron app with main/preload/renderer separation, login/signup, session picker, visible floating window (always-on-top, opacity, expand/collapse, tray), typed question through the existing SSE API, cancel, streamed answer, history, copy, and backend settings. Windows-focused.
 - **Dependencies:** Phase 9.
-- **Acceptance:** login/logout; select session; typed Q streams answer; tokens stored in keychain; capture indicators present.
-- **Targeted tests:** client unit/component tests, WS integration test with mock server, manual cross-OS checklist.
+- **Acceptance:** login/logout; select session; typed Q streams answer and can be cancelled; history loads; credentials stay outside the renderer; IPC rejects untrusted renderers; window remains visible and user-controlled.
+- **Targeted tests:** desktop unit tests, strict TypeScript check, production build, Windows startup/package smoke, and [desktop manual QA checklist](./DESKTOP_MANUAL_CHECKLIST.md). WebSocket, cross-OS and capture tests are deferred with those features.
 
 ## Phase 11 — Screenshot Input
 - **Objective:** User-initiated screenshot → answer.

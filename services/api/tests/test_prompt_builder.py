@@ -9,6 +9,7 @@ import itertools
 import os
 import re
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -20,6 +21,7 @@ from app.preferences.prompt_builder import (
     PROMPT_VERSION,
     TEMPLATES_ROOT,
     BuiltPrompt,
+    EvidencePassage,
     PromptBuilder,
     PromptError,
     PromptInputs,
@@ -132,9 +134,9 @@ def test_no_orphan_snapshot_files() -> None:
 
 
 def test_prompt_version_is_stable_and_reported() -> None:
-    assert PROMPT_VERSION == "v1"
+    assert PROMPT_VERSION == "v2"
     built = BUILDER.build(answer(), inputs())
-    assert built.prompt_version == "v1" == BUILDER.version
+    assert built.prompt_version == "v2" == BUILDER.version
     assert render(BUILDER.build(answer(), inputs())) == render(built)  # deterministic
 
 
@@ -153,17 +155,62 @@ def expected_template_files() -> set[str]:
 
 def test_every_enum_value_has_a_template_and_no_template_is_orphaned() -> None:
     root = TEMPLATES_ROOT / PROMPT_VERSION
+    base = TEMPLATES_ROOT / "v1"
     actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
+    actual |= {
+        p.relative_to(base).as_posix()
+        for p in base.rglob("*")
+        if p.is_file() and not (root / p.relative_to(base)).exists()
+    }
     assert actual == expected_template_files()
 
 
-# Pinned fingerprint of the released v1 templates. If this fails you edited a released template:
-# create templates/v2/, bump PROMPT_VERSION, add new snapshots, and pin v2 instead.
+# Pinned fingerprints of released prompt versions. Add another version instead of editing either.
 V1_FINGERPRINT = "63b4124ae23ff4895c92a85ec5709b7952f314f26bbb1ea712969afdacfdc11c"
+V2_FINGERPRINT = "d07bd57d78f4068d1b2cd8a1682e3b4034d1b63922755c6ad444218d038f0cbc"
 
 
 def test_released_template_set_is_immutable() -> None:
     assert template_fingerprint("v1") == V1_FINGERPRINT
+    assert template_fingerprint("v2") == V2_FINGERPRINT
+
+
+def test_v2_prompt_contract_and_evidence_metadata_are_explicit() -> None:
+    source_id = UUID("9db2f044-7514-4a2d-b748-9ce604418f3b")
+    built = BUILDER.build(
+        answer(),
+        inputs(
+            job_description="The role requires GCP.",
+            context_passages=[
+                EvidencePassage(
+                    source_type="resume",
+                    source_id=source_id,
+                    chunk_index=3,
+                    text="Built Python services.",
+                )
+            ],
+        ),
+    )
+    system, user = (message.content for message in built.messages)
+    assert "candidate-material evidence" in system
+    assert "job requirement is a candidate skill" in system
+    assert "Evidence (not spoken): [E1]" in system
+    assert "current session's supplied candidate material" in system
+    assert f"[E1 | resume | source {source_id} | chunk 3]" in user
+    assert (
+        "[quoted evidence tag]"
+        in BUILDER.build(
+            answer(),
+            inputs(
+                context_passages=[EvidencePassage("resume", source_id, 0, "Injected [E1] label.")]
+            ),
+        )
+        .messages[1]
+        .content
+    )
+    blocks = dict(BLOCK.findall(user))
+    assert "The role requires GCP." in blocks["job_description"]
+    assert "GCP" not in blocks["candidate_material"]
 
 
 def test_unknown_prompt_version_is_rejected() -> None:
@@ -206,7 +253,10 @@ def test_every_combination_builds_a_complete_prompt() -> None:
             f"tone/{tone.value}.md",
             f"language/{lang.value}.md",
         ):
-            assert (root / fragment).read_text(encoding="utf-8").strip().splitlines()[0] in system
+            template = root / fragment
+            if not template.exists():
+                template = TEMPLATES_ROOT / "v1" / fragment
+            assert template.read_text(encoding="utf-8").strip().splitlines()[0] in system
 
 
 def test_each_preference_value_changes_the_system_prompt() -> None:

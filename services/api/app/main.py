@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -6,6 +7,7 @@ from contextlib import asynccontextmanager
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.ai.registry import build_registry
 from app.ai.router import LLMRouter, RouterConfig
@@ -15,6 +17,7 @@ from app.core.body_limit import BodySizeLimitMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging, request_id_ctx
+from app.core.metrics import http_request_duration, http_requests
 from app.db.session import create_engine, create_sessionmaker
 from app.embeddings.factory import build_embedding_provider
 from app.ingestion.dispatch import DramatiqDispatcher
@@ -41,7 +44,18 @@ def create_app() -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
         app.state.storage = LocalFileStorage(settings.storage_root)  # no I/O until first use
-        registry = build_registry(settings.llm_enabled_provider_list)
+        provider_api_key = (
+            settings.ollama_api_key
+            if settings.openai_base_url.host == "ollama.com"
+            else settings.openai_api_key
+        )
+        registry = build_registry(
+            settings.llm_enabled_provider_list,
+            openai_api_key=(provider_api_key.get_secret_value() if provider_api_key else None),
+            openai_model=settings.openai_model,
+            openai_timeout=settings.openai_timeout,
+            openai_base_url=str(settings.openai_base_url),
+        )
         app.state.llm_registry = registry
         app.state.llm_router = LLMRouter(
             registry,
@@ -103,6 +117,7 @@ def create_app() -> FastAPI:
         app.state.session_channels = session_channels
         yield
         await session_channels.shutdown()  # cancel detached generations; their answers are stored
+        await registry.aclose()
         await ticket_redis.aclose()
         await engine.dispose()
 
@@ -115,8 +130,11 @@ def create_app() -> FastAPI:
     ) -> Response:
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         token = request_id_ctx.set(request_id)
+        started = time.perf_counter()
+        status_code = 500
         try:
             response = await call_next(request)
+            status_code = response.status_code
             response.headers["x-request-id"] = request_id
             logger.info(
                 "request",
@@ -128,7 +146,17 @@ def create_app() -> FastAPI:
             )
             return response
         finally:
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", "unmatched")
+            http_requests.labels(request.method, route_path, str(status_code)).inc()
+            http_request_duration.labels(request.method, route_path).observe(
+                time.perf_counter() - started
+            )
             request_id_ctx.reset(token)
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> Response:
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # Explicit origins only (never "*"): credentials are allowed for the refresh cookie.
     app.add_middleware(

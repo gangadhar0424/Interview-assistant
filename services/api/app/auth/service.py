@@ -13,6 +13,7 @@ from app.auth import security
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.models import RefreshToken, User
+from app.db.session import set_login_email, set_refresh_token_context, set_tenant_context
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,8 @@ def invalid_refresh_error() -> AppError:
 
 
 async def signup(session: AsyncSession, email: str, password: str) -> User:
-    user = User(email=email, password_hash=security.hash_password(password))
+    user = User(id=uuid.uuid4(), email=email, password_hash=security.hash_password(password))
+    await set_tenant_context(session, user.id)
     session.add(user)
     try:
         await session.commit()
@@ -68,6 +70,7 @@ def _new_refresh_row(
 async def login(
     session: AsyncSession, settings: Settings, email: str, password: str
 ) -> IssuedSession:
+    await set_login_email(session, email)
     user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is None:
         security.burn_password_check(password)
@@ -76,6 +79,7 @@ async def login(
         raise _invalid_credentials()
 
     now = datetime.now(UTC)
+    await set_tenant_context(session, user.id)
     if security.needs_rehash(user.password_hash):
         user.password_hash = security.hash_password(password)
     user.last_login_at = now
@@ -99,15 +103,18 @@ async def _revoke_family(session: AsyncSession, family_id: uuid.UUID, now: datet
 
 async def refresh(session: AsyncSession, settings: Settings, raw_token: str) -> IssuedSession:
     now = datetime.now(UTC)
+    token_hash = security.hash_refresh_token(raw_token)
+    await set_refresh_token_context(session, token_hash)
     row = (
         await session.execute(
             select(RefreshToken)
-            .where(RefreshToken.token_hash == security.hash_refresh_token(raw_token))
+            .where(RefreshToken.token_hash == token_hash)
             .with_for_update()  # serialise concurrent use of the same token
         )
     ).scalar_one_or_none()
     if row is None:
         raise invalid_refresh_error()
+    await set_tenant_context(session, row.user_id)
 
     if row.revoked_at is not None:
         # A rotated or logged-out token was presented again: assume theft, kill the whole family.
@@ -151,15 +158,16 @@ async def logout(session: AsyncSession, raw_token: str | None) -> None:
     """Revoke the whole refresh-token family of the presented token. Idempotent."""
     if not raw_token:
         return
+    token_hash = security.hash_refresh_token(raw_token)
+    await set_refresh_token_context(session, token_hash)
     row = (
         await session.execute(
-            select(RefreshToken).where(
-                RefreshToken.token_hash == security.hash_refresh_token(raw_token)
-            )
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash)
         )
     ).scalar_one_or_none()
     if row is None:
         return
+    await set_tenant_context(session, row.user_id)
     await _revoke_family(session, row.family_id, datetime.now(UTC))
     await session.commit()
     logger.info("logout", extra={"user_id": str(row.user_id)})

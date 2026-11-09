@@ -18,13 +18,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db.session import set_tenant_context
 from app.embeddings.fastembed_provider import FastEmbedProvider
 from app.ingestion.chunking import ChunkConfig
 from app.ingestion.service import process_job
 from app.retrieval.service import search_chunks
 from app.storage.local import LocalFileStorage
 from tests.conftest import RunSql
-from tests.helpers import register, run_async
+from tests.helpers import job_owner_id, register, run_async
 from tests.test_files import upload
 from tests.test_ingestion_jobs import Env, env, job_row  # noqa: F401  (fixture reused)
 
@@ -78,11 +79,19 @@ def test_real_model_pipeline_retrieves_the_right_passage_in_three_languages(
     )
     env.work(job_row(run_sql, file_id)["id"])  # extract
     embed_id = job_row(run_sql, file_id, "embed")["id"]
+    owner_id = job_owner_id(test_db_url, embed_id)
     small = ChunkConfig(size=200, overlap=0)  # one paragraph per chunk for this tiny document
     storage = LocalFileStorage(storage_root)
 
     async def embed(sessions: Any) -> str:
-        return await process_job(sessions, storage, embed_id, embedder=provider, chunk_config=small)
+        return await process_job(
+            sessions,
+            storage,
+            embed_id,
+            user_id=owner_id,
+            embedder=provider,
+            chunk_config=small,
+        )
 
     assert run_async(test_db_url, embed) == "completed"
     stored = run_sql("SELECT embedding_model, vector_dims(embedding) AS d FROM chunk_embeddings")
@@ -95,6 +104,7 @@ def test_real_model_pipeline_retrieves_the_right_passage_in_three_languages(
     async def ask(sessions: Any) -> list[tuple[str, str, float]]:
         results = []
         async with sessions() as session:
+            await set_tenant_context(session, uid)
             for query, _expected in CASES:
                 hit = (await search_chunks(session, provider, uid, query, limit=1))[0]
                 results.append((query, hit.text, hit.similarity))
@@ -132,9 +142,17 @@ def test_real_vectors_respect_user_isolation(
     for fid in (alice_file, bob_file):
         env.work(job_row(run_sql, fid)["id"])  # extract
         embed_id = job_row(run_sql, fid, "embed")["id"]
+        owner_id = job_owner_id(test_db_url, embed_id)
 
-        async def embed(sessions: Any, jid: Any = embed_id) -> str:
-            return await process_job(sessions, storage, jid, embedder=provider, chunk_config=small)
+        async def embed(sessions: Any, jid: Any = embed_id, owner: uuid.UUID = owner_id) -> str:
+            return await process_job(
+                sessions,
+                storage,
+                jid,
+                user_id=owner,
+                embedder=provider,
+                chunk_config=small,
+            )
 
         assert run_async(test_db_url, embed) == "completed"
 
@@ -143,8 +161,11 @@ def test_real_vectors_respect_user_isolation(
 
     async def ask(sessions: Any) -> tuple[list[Any], list[Any]]:
         async with sessions() as session:
+            await set_tenant_context(session, alice_id)
             # Bob's Telugu passage is the best semantic match for this query, but it is Bob's.
             a = await search_chunks(session, provider, alice_id, "టెలిస్కోప్ ఆకాశం", limit=20)
+        async with sessions() as session:
+            await set_tenant_context(session, bob_id)
             b = await search_chunks(session, provider, bob_id, "టెలిస్కోప్ ఆకాశం", limit=20)
         return a, b
 

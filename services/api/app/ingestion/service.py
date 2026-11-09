@@ -31,6 +31,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Document, ExtractedText, IngestionJob, Resume
+from app.db.session import set_tenant_context
 from app.embeddings.base import (
     EMBEDDING_DIMENSION,
     EmbeddingError,
@@ -88,10 +89,12 @@ def new_job(
     )
 
 
-async def dispatch_best_effort(dispatcher: JobDispatcher, job_id: uuid.UUID) -> bool:
+async def dispatch_best_effort(
+    dispatcher: JobDispatcher, job_id: uuid.UUID, user_id: uuid.UUID
+) -> bool:
     """Try to enqueue; on failure the job stays `pending` for the recovery sweep. Never raises."""
     try:
-        await asyncio.to_thread(dispatcher.dispatch, job_id)
+        await asyncio.to_thread(dispatcher.dispatch, job_id, user_id)
     except Exception:
         logger.warning(
             "ingestion dispatch failed; job stays pending for recovery",
@@ -114,9 +117,10 @@ class _Claim:
     attempt: int
 
 
-async def _claim(sessions: Sessions, job_id: uuid.UUID) -> _Claim | None:
+async def _claim(sessions: Sessions, job_id: uuid.UUID, user_id: uuid.UUID) -> _Claim | None:
     """Atomically move pending -> processing. Only one worker can win; duplicates get None."""
     async with sessions() as session:
+        await set_tenant_context(session, user_id)
         stmt = (
             update(IngestionJob)
             .where(IngestionJob.id == job_id, IngestionJob.status == "pending")
@@ -155,6 +159,7 @@ def _read_all(storage: FileStorage, key: str) -> bytes:
 
 async def _extract(sessions: Sessions, storage: FileStorage, claim: _Claim) -> tuple[str, str]:
     async with sessions() as session:
+        await set_tenant_context(session, claim.user_id)
         model = SOURCE_MODELS[claim.source_type]
         row = await file_repository.get_for_user(session, model, claim.user_id, claim.source_id)
     if row is None:
@@ -183,6 +188,7 @@ async def _complete_extract(
     Returns the embed job id, or None if the job was deleted/recovered meanwhile (nothing stored).
     """
     async with sessions() as session:
+        await set_tenant_context(session, claim.user_id)
         done = await session.execute(
             update(IngestionJob)
             .where(IngestionJob.id == claim.job_id, IngestionJob.status == "processing")
@@ -249,8 +255,11 @@ async def _complete_extract(
     return embed_id
 
 
-async def _fail(sessions: Sessions, job_id: uuid.UUID, code: str, message: str) -> None:
+async def _fail(
+    sessions: Sessions, job_id: uuid.UUID, user_id: uuid.UUID, code: str, message: str
+) -> None:
     async with sessions() as session:
+        await set_tenant_context(session, user_id)
         await session.execute(
             update(IngestionJob)
             .where(IngestionJob.id == job_id, IngestionJob.status == "processing")
@@ -266,9 +275,12 @@ async def _fail(sessions: Sessions, job_id: uuid.UUID, code: str, message: str) 
         await session.commit()
 
 
-async def _retry_later(sessions: Sessions, job_id: uuid.UUID, code: str, message: str) -> None:
+async def _retry_later(
+    sessions: Sessions, job_id: uuid.UUID, user_id: uuid.UUID, code: str, message: str
+) -> None:
     """Transient failure with attempts left: back to `pending`; the recovery sweep re-sends it."""
     async with sessions() as session:
+        await set_tenant_context(session, user_id)
         await session.execute(
             update(IngestionJob)
             .where(IngestionJob.id == job_id, IngestionJob.status == "processing")
@@ -300,6 +312,7 @@ async def _run_embed_stage(
 ) -> bool:
     """Chunk + embed + persist. Returns False if the work was discarded (job gone/superseded)."""
     async with sessions() as session:
+        await set_tenant_context(session, claim.user_id)
         stored = await ingestion_repository.get_extracted_text(
             session, claim.user_id, claim.source_type, claim.source_id
         )
@@ -312,6 +325,7 @@ async def _run_embed_stage(
         raise StageError("text_too_large", "The file contains too much text to index.")
 
     async with sessions() as session:
+        await set_tenant_context(session, claim.user_id)
         unchanged = await chunk_store.is_indexed(
             session, claim.user_id, claim.source_type, claim.source_id, embedder.model_id, chunks
         )
@@ -320,6 +334,7 @@ async def _run_embed_stage(
         vectors = await asyncio.to_thread(_embed_all, embedder, [c.text for c in chunks])
 
     async with sessions() as session:
+        await set_tenant_context(session, claim.user_id)
         done = await session.execute(
             update(IngestionJob)
             .where(IngestionJob.id == claim.job_id, IngestionJob.status == "processing")
@@ -367,6 +382,7 @@ async def process_job(
     storage: FileStorage,
     job_id: uuid.UUID,
     *,
+    user_id: uuid.UUID,
     embedder: EmbeddingProvider,
     dispatcher: JobDispatcher | None = None,
     chunk_config: ChunkConfig | None = None,
@@ -377,7 +393,7 @@ async def process_job(
 
     Safe to call repeatedly or concurrently for the same job: only the claimant does the work.
     """
-    claim = await _claim(sessions, job_id)
+    claim = await _claim(sessions, job_id, user_id)
     if claim is None:
         return "skipped"
     ids = {
@@ -396,23 +412,23 @@ async def process_job(
             embed_job_id = await _complete_extract(sessions, claim, extracted, extractor)
             stored = embed_job_id is not None
             if embed_job_id is not None and dispatcher is not None:
-                await dispatch_best_effort(dispatcher, embed_job_id)  # after the commit
+                await dispatch_best_effort(dispatcher, embed_job_id, claim.user_id)
     except EmbeddingUnavailable:
         if claim.attempt < max_attempts:
-            await _retry_later(sessions, job_id, *UNAVAILABLE_RETRYING)
+            await _retry_later(sessions, job_id, claim.user_id, *UNAVAILABLE_RETRYING)
             logger.warning(
                 "embedding unavailable; will retry", extra={**ids, "attempt": claim.attempt}
             )
             return "retry_later"
-        await _fail(sessions, job_id, *UNAVAILABLE_FINAL)
+        await _fail(sessions, job_id, claim.user_id, *UNAVAILABLE_FINAL)
         return "failed"
     except (ExtractionError, StageError, EmbeddingError) as exc:
-        await _fail(sessions, job_id, exc.code, exc.message)
+        await _fail(sessions, job_id, claim.user_id, exc.code, exc.message)
         logger.info("ingestion failed", extra={**ids, "error_code": exc.code})
         return "failed"
     except Exception:
         logger.exception("ingestion crashed", extra=ids)  # traceback in logs only, never stored
-        await _fail(sessions, job_id, *INTERNAL_ERROR)
+        await _fail(sessions, job_id, claim.user_id, *INTERNAL_ERROR)
         return "failed"
     logger.info("ingestion %s", "completed" if stored else "discarded", extra=ids)
     return "completed" if stored else "discarded"
@@ -519,7 +535,7 @@ async def recover_stale_jobs(
     async with sessions() as session:
         stale_pending = (
             await session.execute(
-                select(IngestionJob.created_at, IngestionJob.id).where(
+                select(IngestionJob.created_at, IngestionJob.id, IngestionJob.user_id).where(
                     IngestionJob.status == "pending", IngestionJob.updated_at < pending_cutoff
                 )
             )
@@ -545,7 +561,7 @@ async def recover_stale_jobs(
             update(IngestionJob)
             .where(*stuck, IngestionJob.attempt < max_attempts)
             .values(status="pending", locked_at=None, updated_at=func.now())
-            .returning(IngestionJob.created_at, IngestionJob.id)
+            .returning(IngestionJob.created_at, IngestionJob.id, IngestionJob.user_id)
         )
         requeued_rows = requeued.all()
         await session.commit()
@@ -553,11 +569,11 @@ async def recover_stale_jobs(
     report.stale_pending = sorted(row.id for row in stale_pending)
     report.requeued = sorted(row.id for row in requeued_rows)
     # Oldest first, de-duplicated: deterministic order for a given database state.
-    candidates = {row.id: row.created_at for row in [*stale_pending, *requeued_rows]}
-    to_dispatch = sorted(candidates, key=lambda job_id: (candidates[job_id], job_id))
+    candidates = {row.id: (row.created_at, row.user_id) for row in [*stale_pending, *requeued_rows]}
+    to_dispatch = sorted(candidates, key=lambda job_id: (candidates[job_id][0], job_id))
 
     for job_id in to_dispatch:
-        if await dispatch_best_effort(dispatcher, job_id):
+        if await dispatch_best_effort(dispatcher, job_id, candidates[job_id][1]):
             report.dispatched.append(job_id)
         else:
             report.dispatch_failed.append(job_id)

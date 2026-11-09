@@ -17,7 +17,7 @@ from app.auth import security
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.db.models import User
-from app.db.session import get_session
+from app.db.session import get_session, set_tenant_context
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -50,6 +50,7 @@ async def get_current_user(
         raise _unauthenticated() from None
 
     # Load the user so disabled/deleted accounts lose access immediately.
+    await set_tenant_context(session, user_id)
     user = await session.get(User, user_id)
     if user is None or user.status != "active":
         raise _unauthenticated()

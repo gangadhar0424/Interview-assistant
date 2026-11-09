@@ -17,6 +17,12 @@ AI-dependent tests use **fake/recorded providers** by default (deterministic). L
 ## 2. Phase-Specific Targeted Tests
 Defined per phase in `PHASES.md`. During a phase run: (a) new tests for the change, (b) L0 on touched code, (c) tests selected by the impact matrix.
 
+### Phase 3 (security, reliability, observability)
+Run `tests/test_config.py`, `tests/test_rls.py`, the complete user-isolation suite, upload and SSRF
+tests, auth tests, worker recovery tests, `tests/test_health.py` (including `/metrics`), and
+`tests/test_logging_redaction.py`. `test_rls.py` and migration checks require a disposable real
+PostgreSQL database; a skipped or mocked test does not verify the RLS role/policies.
+
 ### Phase 9 (WebSocket gateway) targeted set
 `tests/test_realtime_schemas.py`, `test_realtime_tickets.py` (the Redis-integration test is marked `integration` and uses Redis database 15 and its own keys only), `test_realtime_limits.py`, `test_realtime_codegen.py` (drift of `packages/protocol`), `test_realtime_config.py`, `test_logging_redaction.py`, `test_realtime_gateway.py` (TestClient WebSocket, real DB, `FakeRedis` behind the production `TicketStore`), `test_realtime_live.py` (real uvicorn + `websockets` client). After changing `app/realtime/schemas.py` run `uv run python -m app.realtime.codegen` and commit the regenerated files. Changing a Q&A event or the SSE framer also requires `test_realtime_schemas.py` (payload parity).
 
@@ -38,7 +44,7 @@ How to decide what to rerun:
 | Area changed | Required tests | Also run if… |
 |---|---|---|
 | `auth/*` (passwords, tokens) | auth unit+integration, token rotation, rate limit, contract(auth), isolation smoke | token claims changed → all authenticated-endpoint contract tests |
-| Repository base / RLS / `user_id` scoping | **all isolation tests**, RLS tests, repo integration | always full isolation suite |
+| Repository base / RLS / `user_id` scoping | **all isolation tests**, `tests/test_rls.py`, migration up/down, repo integration | always full isolation suite |
 | DB schema / migration | migration up/down, affected repo tests, schema contract | touches `chunks` → retrieval + ingestion tests |
 | Upload validation / storage adapter | validation matrix, storage adapter tests, resume+doc API tests | storage keys changed → delete cascade tests |
 | Extractors / chunker | unit golden-file tests, ingestion integration | chunk shape changed → retrieval + embedding tests |
@@ -59,6 +65,7 @@ How to decide what to rerun:
 | Desktop client | client unit/component, WS mock integration, manual OS checklist | native (Rust) change → capture/keychain checklist |
 | Web UI only (no API change) | component tests, affected e2e flow | API client regenerated → contract tests |
 | Config/env/secrets | config loading unit, startup smoke | — |
+| Metrics and telemetry | health/metrics, AI router, worker and gateway tests | verify no user/content values occur in metric labels |
 | Infra/compose/Docker | compose smoke, health/readiness | — |
 | Docs only | none (link check) | — |
 
@@ -68,6 +75,9 @@ How to decide what to rerun:
 - **Provider ports:** one parameterized suite (streaming order, usage reporting, error mapping, cancellation, language handling) executed against every adapter using recorded fixtures.
 - **DB:** migration tests (upgrade/downgrade on seeded DB), schema snapshot.
 - Any change to API.md/ports requires updating contract tests in the same change.
+
+### Electron desktop MVP
+From `apps/desktop/`, run `npm run typecheck`, `npm test`, and `npm run build`. The Vitest suite covers backend URL policy, authentication/refresh, API error mapping, SSE chunk/order/termination/cancellation, secure token persistence, settings validation, renderer trust checks, window controls, and renderer stream-state handling. Use `docs/DESKTOP_MANUAL_CHECKLIST.md` for visible startup, tray, authentication, API, and interaction checks; the desktop test suite does not claim to replace a real Windows UI run.
 
 ## 6. Critical-Path Smoke Tests (fast, run on every PR touching backend/web; minutes)
 1. Health/readiness.
@@ -84,7 +94,7 @@ Run at: milestone ends (M1–M5), before release, after changes to shared/cross-
 ## 8. Mandatory Special Suites
 - **User isolation suite:** two (and three) user fixtures; every user-owned endpoint tested for list/get/update/delete/retrieve/WS/export cross-access; adversarial retrieval with *canary strings* planted in other users' and unselected documents that must never appear in prompts or outputs.
 - **Security suite:** auth brute-force/rate limit, JWT tampering/expiry, refresh reuse, upload spoofing, zip/PDF bombs, SSRF (private IPs, DNS rebinding, redirects, metadata endpoints), prompt-injection samples, log-redaction checks.
-- **AI quality evals (non-gating at first, gating after baselines):** retrieval relevance (recall@k on gold set), format/length conformance (word counts within bands), question-detector precision/recall incl. negatives and multilingual cases, STT WER samples, latency distributions vs budget.
+- **AI quality evals (non-gating at first, gating after baselines):** run `cd services/api; python -m tests.rag_evaluation` for the synthetic retrieval gold set (Precision@K, Recall@K, MRR, and fake-embedding latency). Pass manually adjudicated answer judgments with `--answers <json>` to measure answer/context relevance, faithfulness, unsupported-claim rate, hallucination-case rate, and answer latency. These answer metrics are human-scored; do not infer them from canned/fake-provider outputs.
 
 ## 9. Test Data & Environments
 Synthetic resumes/documents only (no real PII). Fixtures versioned in repo. Deterministic fake providers. Ephemeral Postgres/Redis and a per-test temporary storage directory. Flaky tests are quarantined with an owner and issue, not ignored.

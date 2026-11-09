@@ -52,10 +52,11 @@ Status values: **Proposed** (recommended, awaiting user confirmation), **Accepte
 - **Reasoning:** Bidirectional binary audio + JSON events; simple infra; fits Tauri. SSE retained as fallback for typed-answer streaming on web.
 - **Consequences:** Sticky connections, heartbeat/reconnect logic, ticket-based auth.
 
-## D-09 Desktop: Tauri 2 + React + TS — Accepted (subject to platform PoC; Electron fallback)
+## D-09 Desktop: Tauri 2 + React + TS — Superseded by D-47
 - **Alternatives:** Electron; native per-OS; PWA.
 - **Reasoning:** Small binaries, Rust-level access to audio/screenshot/keychain, React reuse. Risk: system-audio capture per OS and overlay behavior — validated in Phase 10/12 PoC; Electron is the fallback.
 - **Consequences:** Rust skill needed; webview differences across OS.
+- **Status note:** This was the accepted direction before the owner explicitly requested the Electron MVP. D-47 records the superseding implementation choice; this historical rationale does not authorize Tauri implementation.
 
 ## D-10 AI provider abstraction with capability-specific ports — Accepted
 - **Decision:** Separate LLM, Embedding, STT, Vision ports; adapters per provider; registry + policy allowlist + router with fallback/circuit breaker; models as config.
@@ -136,7 +137,8 @@ Status values: **Proposed** (recommended, awaiting user confirmation), **Accepte
 - **Reasoning:** Simplest operation for an internal single-node deployment; the interface keeps business logic independent of the backend so a later move to object storage is an adapter change plus a data migration, not a rewrite.
 - **Consequences:** (a) API and worker processes must see the same storage root (same host or shared mount); horizontal scale-out across hosts requires shared storage or the future object-storage implementation. (b) Backups of the storage volume must be taken and restored together with PostgreSQL (DB rows reference files). (c) Disk capacity monitoring and orphan-file cleanup (DB row without file, file without DB row) are required. (d) Encryption at rest relies on disk/volume-level encryption (see OQ-10 for application-level encryption). (e) Docker Compose no longer includes any object-storage service.
 
-## D-27 Row-Level Security deferred; application-layer isolation for Phase 3 — Accepted
+## D-27 Row-Level Security deferred; application-layer isolation for Phase 3 — Accepted, superseded by D-45
+- **Status note:** This earlier deferral was superseded by the owner-approved Phase 3 security hardening in D-45. The original decision remains below for history.
 - **Context:** D-14 calls for ownership checks plus Postgres RLS "where appropriate". RLS only protects when the API connects as a non-superuser, non-owner role (or tables use `FORCE ROW LEVEL SECURITY`) and every request sets `app.user_id` with `SET LOCAL`. Local dev and CI connect as the container superuser, and workers would need the same plumbing.
 - **Decision:** Phase 3 enforces ownership in the application layer only: the file repository requires `user_id` on every read/delete (no unscoped query exists), identity comes only from `CurrentUser`, foreign access is a uniform 404, and two-user tests (with mutation checks) cover list/download/delete. RLS is deferred to a dedicated hardening step (before multi-table retrieval in Phase 5 at the latest, or Phase 13) when a restricted DB role and per-request `SET LOCAL` plumbing can be added and tested for API and workers together.
 - **Alternatives:** Implement RLS now with a second DB role (rejected: widens Phase 3 into role/migration/connection plumbing); never use RLS (rejected: D-14 stays the target).
@@ -291,3 +293,27 @@ Status values: **Proposed** (recommended, awaiting user confirmation), **Accepte
 - **Contract additions (additive):** `session.ready.limits.resume_grace_seconds` and `resume_buffer_events`; settings `WS_RESUME_BUFFER_EVENTS` and `WS_RESUME_GRACE_SECONDS` (both approved defaults in D-41 decision 7). `WS_SEND_QUEUE_EVENTS` now bounds control messages only.
 - **Phase 9 closure:** load smoke (N concurrent real connections, default 50), live reconnect/resume tests on a real socket, mutation checks, full regression; Phase 9 exits when the owner accepts 9C.
 - **Still out of scope:** audio, transcripts, a Redis-backed channel/buffer or multi-worker resume (R-46), screenshots, `answer.regenerate`, the desktop client, any web-page change (the web stays on SSE).
+
+## D-44 OpenAI-compatible LLM adapter — Accepted (owner-requested implementation)
+- **Decision:** Add the official `openai` Python SDK as an adapter behind the existing `LLMProvider` port. Use its asynchronous Chat Completions API for both one-shot and streaming requests. `OPENAI_BASE_URL` selects the endpoint (default OpenAI; Ollama Cloud uses `https://ollama.com/v1`), and only the configured `OPENAI_MODEL` is in the server allowlist. OpenAI credentials use `OPENAI_API_KEY`; the Ollama Cloud host requires its separate `OLLAMA_API_KEY`, so an OpenAI key is never sent to Ollama. `OPENAI_TIMEOUT` configures the SDK request timeout. The adapter does not implement its own retries: the existing router owns fallback and circuit-breaker policy.
+- **Reliability and accounting:** Map SDK authentication, rate-limit, timeout, transport and server errors to the existing safe taxonomy. Close streams on completion/cancellation and close the provider-owned client at application shutdown. Record token counts only when the SDK response includes them; request duration/status remain the existing router's responsibility. Keep the fake provider and all existing Q&A persistence/streaming behavior.
+- **Validation:** Deterministic adapter tests use mocked HTTP responses only; a passing mock suite is not a live OpenAI test and does not establish model quality. No database or API contract migration is needed. Before sending interview content to a real account, configure and review that account's data-processing terms.
+- **Supersedes D-33 only for real LLM adapter availability:** the provider-neutral architecture and its OQ-4 caveats remain. This implementation request selects OpenAI and the SDK integration, but pricing, account retention/training settings, and production credential operations remain deployment responsibilities.
+
+## D-45 PostgreSQL tenant RLS and production configuration hardening — Accepted (Phase 3 owner-approved fixes)
+- **Context:** The Phase 3 security review identified weak production JWT-key validation, plaintext Redis configuration outside local development, and application-only tenant isolation. The owner selected the follow-up to fix all findings.
+- **Decision:** Migration `0008_tenant_rls` enables and forces RLS on implemented user-owned tables. Runtime database sessions enter the non-login `NOBYPASSRLS` `interview_app_runtime` role and set tenant identity transaction-locally. Login and refresh-token lookups have narrow transaction-local context; worker tenant identity is taken from the database-backed job. Cross-tenant recovery and reindexing use a separately configured maintenance connection. Non-local JWT keys must be URL-safe and sufficiently diverse; non-local Redis URLs must use TLS (`rediss://`).
+- **Deployment requirement:** The runtime login must be non-superuser/non-owner, must not have `BYPASSRLS`, and must be able to `SET ROLE interview_app_runtime`. Migration and maintenance identities are provisioned separately. RLS is not considered deployed until a real PostgreSQL role/isolation test passes.
+- **Supersedes:** D-27's RLS deferral. It does not change repository-level ownership checks, D-14, or the 404-on-foreign-resource behavior.
+
+## D-46 Prometheus metrics and privacy-safe telemetry — Accepted (Phase 3)
+- **Decision:** Use `prometheus-client` for low-cardinality process-local metrics exposed at `/metrics`: HTTP request counts/latency, LLM provider outcomes/latency, database errors, ingestion outcomes/duration, and normalized WebSocket disconnects. Worker logs include only job ID, outcome, and duration. No user/content/credential values are metric labels.
+- **Operational boundary:** The API metrics endpoint is not application-authenticated and must be restricted to trusted monitoring infrastructure. Metrics are per process; scrape every API replica. Worker metrics are not exposed through a scrape endpoint; structured worker logs are the current telemetry surface.
+- **Consequences:** No external monitoring backend is added. Queue age/depth, first-token latency, and distributed aggregation remain follow-up work; see `docs/OPERATIONS.md` and `docs/RISKS_AND_OPEN_QUESTIONS.md`.
+
+## D-47 Windows desktop MVP: Electron + React + TypeScript — Accepted (explicit owner request)
+- **Context:** The desktop MVP needs a visible floating window, tray/lifecycle controls, secure renderer isolation, typed Q&A over the existing API, and a Windows development/package path. The earlier D-09 selected Tauri for a later desktop phase.
+- **Decision:** Implement the desktop MVP in `apps/desktop/` using Electron, React, TypeScript, Zustand, Tailwind CSS, and Framer Motion. Electron main owns API requests and credentials; the renderer communicates through a narrow typed preload bridge with context isolation, sandboxing, and Node integration disabled. Use the existing SSE Q&A endpoint; the web app remains independent and unchanged.
+- **Credential handling:** Access tokens stay in main-process memory. The refresh token is extracted from the existing HttpOnly response cookie and persisted only through Electron `safeStorage` (Windows OS-backed encryption). If encryption is unavailable, persistence fails explicitly. No API key or provider credential is shipped to the desktop.
+- **Scope boundary:** This is the explicitly requested Windows MVP, not approval for hidden capture, audio/screenshot capture, stealth/evasion, or future desktop features. Signed distribution, auto-update, cross-platform QA, and audio remain out of scope.
+- **Supersedes:** D-09 for the current desktop implementation. Reconsider the platform only through a later explicit decision if requirements expand.

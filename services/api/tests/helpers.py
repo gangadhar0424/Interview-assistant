@@ -47,9 +47,14 @@ from pathlib import Path  # noqa: E402
 
 import docx  # noqa: E402
 import pymupdf  # noqa: E402
+from sqlalchemy import text as sql_text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # noqa: E402
 
-from app.db.session import create_engine, create_sessionmaker  # noqa: E402
+from app.db.session import (  # noqa: E402
+    create_engine,
+    create_maintenance_sessionmaker,
+    create_sessionmaker,
+)
 from app.embeddings.base import EmbeddingProvider  # noqa: E402
 from app.embeddings.fake import FakeEmbeddingProvider  # noqa: E402
 from app.storage.local import LocalFileStorage  # noqa: E402
@@ -62,7 +67,7 @@ class RecordingDispatcher:
         self.dispatched: list[uuid.UUID] = []
         self.fail = False
 
-    def dispatch(self, job_id: uuid.UUID) -> None:
+    def dispatch(self, job_id: uuid.UUID, user_id: uuid.UUID) -> None:
         if self.fail:
             raise ConnectionError("simulated queue outage")
         self.dispatched.append(job_id)
@@ -118,6 +123,40 @@ def run_async[T](
     return asyncio.run(go())
 
 
+def run_maintenance_async[T](
+    test_db_url: str, fn: Callable[[async_sessionmaker[AsyncSession]], Awaitable[T]]
+) -> T:
+    """Run an explicit maintenance operation using the test database admin connection."""
+
+    async def go() -> T:
+        engine = create_engine(test_db_url)
+        try:
+            return await fn(create_maintenance_sessionmaker(engine))
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(go())
+
+
+def job_owner_id(test_db_url: str, job_id: uuid.UUID) -> uuid.UUID:
+    async def go() -> uuid.UUID:
+        engine = create_engine(test_db_url)
+        try:
+            async with engine.connect() as connection:
+                result = await connection.execute(
+                    sql_text("SELECT user_id FROM ingestion_jobs WHERE id = :job_id"),
+                    {"job_id": job_id},
+                )
+                owner_id: uuid.UUID | None = result.scalar_one_or_none()
+                if owner_id is None:
+                    raise ValueError(f"test ingestion job {job_id} does not exist")
+                return owner_id
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(go())
+
+
 def run_worker(
     test_db_url: str,
     storage_root: Path,
@@ -132,12 +171,14 @@ def run_worker(
 
     storage = LocalFileStorage(storage_root)
     provider = embedder or FakeEmbeddingProvider()
+    owner_id = job_owner_id(test_db_url, job_id)
     outcome: str = run_async(
         test_db_url,
         lambda sessions: process_job(
             sessions,
             storage,
             job_id,
+            user_id=owner_id,
             embedder=provider,
             dispatcher=dispatcher,
             max_attempts=max_attempts,

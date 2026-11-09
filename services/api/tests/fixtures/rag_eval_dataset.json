@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "embedding_model": "fake-hash-v1",
+  "k": 5,
+  "chunks": [
+    {
+      "id": "resume-backend",
+      "source_type": "resume",
+      "text": "At Northstar Systems from 2021 to 2024, built Python and FastAPI backend services with PostgreSQL and Redis."
+    },
+    {
+      "id": "resume-latency",
+      "source_type": "resume",
+      "text": "Improved billing API p99 latency from 900 ms to 240 ms by adding database connection pooling."
+    },
+    {
+      "id": "resume-team",
+      "source_type": "resume",
+      "text": "Led a five-engineer team during migration of the internal billing service and coordinated weekly release reviews."
+    },
+    {
+      "id": "resume-aws",
+      "source_type": "resume",
+      "text": "Deployed event-driven ingestion workers to AWS SQS and S3 at Northstar Systems."
+    },
+    {
+      "id": "supporting-project",
+      "source_type": "document",
+      "text": "A personal project uses PostgreSQL, FastAPI, and automated integration tests."
+    },
+    {
+      "id": "education",
+      "source_type": "document",
+      "text": "Bachelor of Science in Information Systems, Western State University, 2019."
+    },
+    {
+      "id": "unselected-session-canary",
+      "source_type": "resume",
+      "selected": false,
+      "text": "UNSELECTED_SESSION_CANARY: this content must never enter the selected-session evaluation corpus."
+    }
+  ],
+  "cases": [
+    {
+      "id": "resume-backend-stack",
+      "category": "resume_specific",
+      "query": "What Python and FastAPI backend experience do I have with PostgreSQL?",
+      "relevant": ["resume-backend"]
+    },
+    {
+      "id": "resume-latency-result",
+      "category": "resume_specific",
+      "query": "How did I reduce p99 latency from 900 ms to 240 ms?",
+      "relevant": ["resume-latency"]
+    },
+    {
+      "id": "job-role-requirements",
+      "category": "job_description",
+      "query": "Which cloud platform and operations experience does the role require?",
+      "relevant": [],
+      "retrieval_applicable": false,
+      "job_description": "The role requires GCP, PostgreSQL, incident response, and experience operating high-throughput services. Kubernetes is preferred."
+    },
+    {
+      "id": "resume-vs-role-postgres",
+      "category": "multi_document",
+      "query": "Compare my PostgreSQL experience with the role's PostgreSQL requirement.",
+      "relevant": ["resume-backend", "supporting-project"],
+      "job_description": "The role requires GCP, PostgreSQL, incident response, and experience operating high-throughput services. Kubernetes is preferred."
+    },
+    {
+      "id": "project-and-education",
+      "category": "multi_document",
+      "query": "Summarize the supporting project and my education.",
+      "relevant": ["supporting-project", "education"]
+    },
+    {
+      "id": "unsupported-kubernetes",
+      "category": "no_supporting_information",
+      "query": "How many years of Kubernetes experience do I have?",
+      "relevant": []
+    },
+    {
+      "id": "ambiguous-system-design",
+      "category": "ambiguous",
+      "query": "Tell me about my system design experience.",
+      "relevant": []
+    },
+    {
+      "id": "irrelevant-hiking",
+      "category": "irrelevant",
+      "query": "What is my favorite season for hiking?",
+      "relevant": []
+    },
+    {
+      "id": "candidate-cloud-vs-role",
+      "category": "job_description",
+      "query": "What cloud platform experience do I have, and what cloud platform does the role require?",
+      "relevant": ["resume-aws"],
+      "job_description": "The role requires GCP, PostgreSQL, incident response, and experience operating high-throughput services. Kubernetes is preferred."
+    },
+    {
+      "id": "resume-leadership",
+      "category": "resume_specific",
+      "query": "What team leadership and migration experience do I have?",
+      "relevant": ["resume-team"]
+    }
+  ]
+}

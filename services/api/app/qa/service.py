@@ -33,13 +33,19 @@ from app.ai.types import StreamMeta, Token, Usage
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.models import SessionPreferences
+from app.db.session import set_tenant_context
 from app.embeddings.base import EmbeddingProvider
 from app.ingestion import repository as ingestion_repository
 from app.preferences.answer_config import CompiledPreferences
 from app.preferences.compiler import PreferenceCompiler, PreferencesInput
 from app.preferences.enums import QuestionType
 from app.preferences.errors import InvalidPreference
-from app.preferences.prompt_builder import PROMPT_VERSION, PromptBuilder, PromptInputs
+from app.preferences.prompt_builder import (
+    PROMPT_VERSION,
+    EvidencePassage,
+    PromptBuilder,
+    PromptInputs,
+)
 from app.preferences.sanitize import clean_text
 from app.qa import repository
 from app.qa.context import ContextConfig, retrieve_context, truncate
@@ -214,6 +220,7 @@ class QuestionAnswerer:
     ) -> _Prepared:
         """Transaction 1: validate everything, then create the question and streaming answer."""
         async with self._sessionmaker() as db:
+            await set_tenant_context(db, user_id)
             row = await sessions_repository.get_for_user(db, user_id, session_id)
             if row is None:
                 raise session_not_found()  # another user's session looks exactly like a missing one
@@ -296,6 +303,7 @@ class QuestionAnswerer:
     ) -> None:
         """Transaction 3: record the outcome (a fresh short session, never held while streaming)."""
         async with self._sessionmaker() as db:
+            await set_tenant_context(db, user_id)
             await repository.finish_answer(db, user_id, prepared.answer_id, result)
             if answered:
                 await repository.mark_question_answered(db, user_id, prepared.question_id)
@@ -341,6 +349,7 @@ class QuestionAnswerer:
             retrieval_started = self._clock()
             try:
                 async with self._sessionmaker() as db:
+                    await set_tenant_context(db, user_id)
                     hits = await retrieve_context(
                         db,
                         self._embedder,
@@ -364,7 +373,15 @@ class QuestionAnswerer:
                     question=question,
                     company_name=prepared.company_name,
                     job_description=prepared.job_description,
-                    context_passages=[hit.text for hit in hits],
+                    context_passages=[
+                        EvidencePassage(
+                            source_type=hit.source_type,
+                            source_id=hit.source_id,
+                            chunk_index=hit.chunk_index,
+                            text=hit.text,
+                        )
+                        for hit in hits
+                    ],
                     history=prepared.history,
                 ),
             )

@@ -29,6 +29,7 @@ from app.ai.types import (
     Usage,
 )
 from app.ai.usage import LoggingUsageSink, UsageRecord, UsageSink
+from app.core.metrics import llm_request_duration, llm_requests
 
 logger = logging.getLogger("app.ai.router")
 
@@ -104,12 +105,14 @@ class LLMRouter:
         usage: Usage | None,
         error: LLMError | None,
     ) -> None:
+        llm_requests.labels(entry.spec.id, error.code if error else "success").inc()
+        llm_request_duration.labels(entry.spec.id).observe(self._clock() - started)
         self._sink.record(
             UsageRecord(
                 provider=entry.spec.id,
                 model=model,
-                input_tokens=usage.input_tokens if usage else 0,
-                output_tokens=usage.output_tokens if usage else 0,
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
                 latency_ms=int((self._clock() - started) * 1000),
                 ok=error is None,
                 error_code=error.code if error else None,
