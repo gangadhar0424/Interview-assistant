@@ -131,7 +131,7 @@ class Rig:
         return row["user_id"]
 
     def registry_size(self) -> int:
-        return len(self.live.app.state.connection_registry)  # type: ignore[no-any-return]
+        return len(self.live.app.state.connection_registry)
 
 
 def say(ws: ClientConnection, text: str = "Tell me about yourself") -> None:

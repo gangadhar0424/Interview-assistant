@@ -125,7 +125,8 @@ def test_an_event_missed_while_detached_is_replayed_including_the_terminal_one(
         hello_with(second, resume_from_seq=head[-1]["seq"])
         tail = until(second, *TERMINAL)
     events = head + tail
-    assert_consecutive(events) and kinds(events)[-1] == "answer.done"
+    assert_consecutive(events)
+    assert kinds(events)[-1] == "answer.done"
     assert answers(world.run_sql)[0]["text"] == streamed_text(events)
 
 
@@ -440,11 +441,10 @@ def test_a_cancel_that_loses_the_race_with_the_final_commit_reports_the_complete
     async def finish_then_linger(
         self: Any, user_id: Any, prepared: Any, result: Any, **kw: Any
     ) -> Any:
-        outcome = await original(self, user_id, prepared, result, **kw)
+        await original(self, user_id, prepared, result, **kw)
         if result.status == "complete":
             committed.set()  # the final commit is in the database ...
             await asyncio.sleep(2.0)  # ... and the cancel arrives before `ask` knows it finished
-        return outcome
 
     monkeypatch.setattr(QuestionAnswerer, "_finish", finish_then_linger)
     with reconnect(world) as ws:
@@ -530,7 +530,7 @@ def test_the_server_shutdown_cancels_detached_generations(client: Any) -> None:
         async with app.router.lifespan_context(app):
             registry = app.state.session_channels
             channel = registry.get_or_create((uuid.uuid4(), uuid.uuid4()))
-            channel.generation = generation  # type: ignore[assignment]
+            channel.generation = generation
             channel.emit(lambda seq: adapter.to_message(AnswerDelta(uuid.uuid4(), 0, "x"), seq))
             assert len(registry) == 1 and generation.active
         assert generation.closed == 1 and not generation.active

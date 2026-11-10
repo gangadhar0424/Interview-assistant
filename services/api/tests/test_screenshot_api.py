@@ -75,7 +75,8 @@ def post(
     request_headers = {**headers}
     if content_type is not None:
         request_headers["Content-Type"] = content_type
-    return client.post(url(session_id), headers=request_headers, content=body)
+    response: Response = client.post(url(session_id), headers=request_headers, content=body)
+    return response
 
 
 @pytest.fixture
@@ -361,9 +362,7 @@ def test_a_client_that_disconnects_cancels_the_extraction() -> None:
         vision = VisionRouter([RegisteredVision(slow, fake_vision_spec("fake"))])
         from app.ai.vision import ImageInput
 
-        task = asyncio.create_task(
-            _extract(vision, ImageInput(make_png(), 64, 64))  # type: ignore[arg-type]
-        )
+        task = asyncio.create_task(_extract(vision, ImageInput(make_png(), 64, 64)))
         started = asyncio.get_event_loop().time()
         with pytest.raises(Exception) as raised:
             await _await_or_cancel(Request(0.3), task)  # type: ignore[arg-type]

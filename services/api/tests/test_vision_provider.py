@@ -206,7 +206,7 @@ def base_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 
 def settings() -> Settings:
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+    return Settings(_env_file=None)
 
 
 def test_vision_is_disabled_by_default_and_independent_of_text_providers(

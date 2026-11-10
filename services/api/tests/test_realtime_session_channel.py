@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app.qa.events import AnswerDelta
 from app.realtime import adapter
+from app.realtime import schemas as realtime_schemas
 from app.realtime import session_channel as sc
 from app.realtime.session_channel import SessionChannel, SessionChannels
 
@@ -318,10 +319,10 @@ def test_an_expired_or_attached_channel_is_never_expired_twice_or_while_attached
 def test_control_messages_go_only_to_the_attached_socket() -> None:
     async def scenario() -> None:
         channel = registry().get_or_create(key())
-        channel.send_control(adapter.proto.error_event("invalid_message", fatal=False))  # nobody
+        channel.send_control(realtime_schemas.error_event("invalid_message", fatal=False))  # nobody
         subscriber = FakeSubscriber()
         channel.attach(subscriber, None)
-        channel.send_control(adapter.proto.error_event("nothing_to_cancel", fatal=False))
+        channel.send_control(realtime_schemas.error_event("nothing_to_cancel", fatal=False))
         assert len(subscriber.controls) == 1
 
     run(scenario)
