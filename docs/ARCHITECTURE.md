@@ -209,9 +209,11 @@ Two-stage detector to keep latency low and avoid over-triggering:
 - Speaker awareness: use provider diarization or channel separation (system audio = interviewer, mic = candidate) where possible — channel separation is more reliable than diarization (PoC).
 - Evaluated on a labeled set: precision/recall of trigger, false-trigger rate (see TESTING_STRATEGY).
 
-## 10. Screenshot Pipeline (later)
+## 10. Screenshot Pipeline (Phase 11; MVP narrowed by D-51)
 `Client captures on explicit user action → POST /sessions/{id}/screenshots → validate (type PNG/JPEG/WebP, size ≤ 5 MB, dimensions, magic bytes; strip EXIF) → store (retention-limited) → VisionProvider (multimodal LLM direct, or OCR then text LLM) → extract question/code → retrieve → generate (streamed over WS)`.
 Modes selectable by config: (a) multimodal LLM end-to-end, (b) OCR → text. Provider-independent via `VisionProvider` port. Screenshots default to short retention (e.g., 24h–7d, configurable) and are deletable.
+
+**Phase 11 MVP (D-51, owner-approved; supersedes the storage/retention part above for the MVP).** Selected-display capture, PNG only, ≤ 5 MiB, **memory only, never persisted** (no table, no file, no migration). Flow: the desktop uploads the PNG as a raw body to `POST /sessions/{id}/screenshots`; the API validates it (signature, CRC-checked chunk walk, header dimensions, critical chunks only), passes it once to a `VisionProvider` (`app/ai/vision*.py`, a separate port: `LLMProvider` and `Message` are unchanged; an independent allow-list `VISION_ENABLED_PROVIDERS`, default empty), returns the extracted **text**, and drops the image. The user reviews and edits the text and presses Ask, which uses the existing question endpoint with `input_source = "screenshot"`; retrieval, prompting and SSE/WS streaming are unchanged. Only the deterministic fake vision provider exists; a real one needs a separate approval (privacy, retention, cost, provider terms). 11A is backend only; the desktop capture is 11B.
 
 ## 11. Desktop Client Architecture
 - **Current MVP (D-47):** Electron main/preload/React-renderer application in `apps/desktop/`. Main owns credentials and backend requests; preload exposes typed IPC; renderer is isolated and sandboxed. The UI implements login/signup, session selection, typed SSE Q&A, cancellation, history, copy, connection status, floating-window controls, tray, and backend settings.

@@ -72,7 +72,13 @@ async def ask_question(
     limits: LimitsDep,
 ) -> Response:
     slot = limits.admit(current.id)  # 429 before any work; the slot is released exactly once
-    stream = answerer.ask(current.id, session_id, body.text, body.question_type_override)
+    stream = answerer.ask(
+        current.id,
+        session_id,
+        body.text,
+        body.question_type_override,
+        input_source=body.input_source,
+    )
     try:
         # Runs validation and the first short transaction. A refusal (404, 409, 422) raises here,
         # before the response starts, so the client gets a normal JSON error with that status.

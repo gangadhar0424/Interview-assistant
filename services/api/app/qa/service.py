@@ -219,7 +219,12 @@ class QuestionAnswerer:
     # ------------------------------------------------------------------ steps
 
     async def _prepare(
-        self, user_id: uuid.UUID, session_id: uuid.UUID, question: str, override: str | None
+        self,
+        user_id: uuid.UUID,
+        session_id: uuid.UUID,
+        question: str,
+        override: str | None,
+        input_source: str = "typed",
     ) -> _Prepared:
         """Transaction 1: validate everything, then create the question and streaming answer."""
         async with self._sessionmaker() as db:
@@ -268,6 +273,7 @@ class QuestionAnswerer:
                 question_type=compiled.answer.question_type.value,
                 generation_config=snapshot,
                 prompt_version=PROMPT_VERSION,
+                source=input_source,
             )
             await db.commit()
         return _Prepared(
@@ -377,11 +383,14 @@ class QuestionAnswerer:
         session_id: uuid.UUID,
         text: str,
         question_type_override: str | None = None,
+        input_source: str = "typed",
     ) -> AsyncGenerator[QaEvent, None]:
         started = self._clock()
         question = self._clean_question(text)
         override = self._parse_override(question_type_override)
-        prepared = await self._prepare(user_id, session_id, question, override)
+        if input_source not in ("typed", "screenshot"):  # never trust a caller-supplied value
+            raise AppError(422, "validation_error", "input_source is not valid.")
+        prepared = await self._prepare(user_id, session_id, question, override, input_source)
         run = _Run()
         try:
             yield QuestionCreated(prepared.question_id, prepared.answer_id)

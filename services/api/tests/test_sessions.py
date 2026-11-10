@@ -720,7 +720,8 @@ def test_deleting_a_resume_keeps_the_session_and_its_label(kit: Kit) -> None:
 def test_deferred_endpoints_do_not_exist(kit: Kit) -> None:
     sid = kit.make()["id"]
     # `questions` exists since 8B (test_qa_api.py); it is no longer deferred.
-    for path in ("start", "end", "screenshots"):
+    # `screenshots` exists since Phase 11A (tests/test_screenshot_api.py); it is no longer deferred.
+    for path in ("start", "end"):
         r = kit.client.post(f"{SESSIONS}/{sid}/{path}", headers=kit.headers, json={})
         assert r.status_code in (404, 405), path
     # job-import was asserted absent here in 7B; it exists since 7C (test_job_import_api.py).

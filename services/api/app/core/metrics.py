@@ -40,6 +40,11 @@ websocket_disconnects = Counter(
     "WebSocket disconnects by normalized close class",
     ("reason",),
 )
+screenshot_extractions = Counter(
+    "interview_screenshot_extractions",
+    "Screenshot extraction outcomes (status only; never content)",
+    ("status",),
+)
 answer_grounding_checks = Counter(
     "interview_answer_grounding_checks",
     "Citation-integrity check outcomes for completed answers (not a grounding guarantee)",

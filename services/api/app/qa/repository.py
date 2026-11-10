@@ -45,12 +45,13 @@ async def create_question_with_answer(
     question_type: str,
     generation_config: dict[str, Any],
     prompt_version: str,
+    source: str = "typed",
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """Insert the question and its `streaming` answer; `user_id` is the authenticated user."""
     question = DetectedQuestion(
         session_id=session_id,
         user_id=user_id,
-        source="typed",
+        source=source,
         kind="explicit",
         raw_text=text,
         question_type=question_type,

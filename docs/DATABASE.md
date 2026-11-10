@@ -126,7 +126,7 @@ Index: `(session_id, detected_at)`.
 Index: `(question_id)`, `(session_id, created_at)`.
 **`grounding_check jsonb NULL` (migration 0009, D-48):** the content-free result of the post-generation *citation-integrity check* of a **completed** answer: `{v, status, shown_count, valid_ids[], unknown_ids[], malformed_count}` with `status` one of `ok`, `invalid_citations`, `no_citations`, `check_error`. It holds evidence-tag numbers and counts only, never answer text, excerpts, source IDs or chunk text. SQL `NULL` means not checked (answer still streaming, cancelled or errored, or created before 0009). A CHECK (`ck_generated_answers_grounding_check_object`) allows only NULL or a JSON object. It is **not** proof that an answer is grounded and is not exposed through any API schema. Additive and nullable; existing rows are not rewritten; downgrade drops the constraint and the column. Row-level security and the runtime role's table grants already cover the table.
 
-### screenshots (later phase)
+### screenshots (later phase; **not created in the Phase 11 MVP, D-51:** screenshots are memory-only, so there is no table, column or migration; `detected_questions.source = 'screenshot'` already exists)
 `id, session_id, user_id, storage_key, mime_type, size_bytes, sha256, status, extracted_text (sensitive) NULL, expires_at, created_at`. Index `(expires_at)` for retention sweeps.
 
 ### audit_events

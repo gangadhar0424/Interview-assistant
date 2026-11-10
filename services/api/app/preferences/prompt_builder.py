@@ -155,6 +155,15 @@ def wrap_untrusted(label: str, text: str, *, neutralize_tags: bool = False) -> s
     return f"<<<BEGIN UNTRUSTED:{label}>>>\n{body}\n<<<END UNTRUSTED:{label}>>>"
 
 
+def build_vision_extraction_prompt() -> str:
+    """Instructions for a vision provider reading a screenshot (Phase 11A, D-51).
+
+    The text lives in a template file like every other prompt; the image itself is passed
+    separately, never here."""
+    # A separate template family, outside the immutable released answer-prompt versions v1/v2.
+    return _read("vision", "v1/extract_question.md")
+
+
 class PromptBuilder:
     def __init__(self, version: str = PROMPT_VERSION) -> None:
         if not (TEMPLATES_ROOT / version).is_dir():

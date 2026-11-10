@@ -95,6 +95,18 @@ class Settings(BaseSettings):
     llm_breaker_failure_threshold: int = Field(default=3, ge=1, le=50)
     llm_breaker_cooldown_seconds: float = Field(default=30.0, gt=0, le=3600)
 
+    # --- Screenshot input (Phase 11A, D-51) ---
+    # Vision providers are a SEPARATE allow-list from the text LLM providers; empty (the default)
+    # disables screenshot upload. Only the deterministic `fake` provider exists.
+    vision_enabled_providers: str = ""
+    vision_fallback_chain: str = ""
+    vision_request_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    screenshot_max_bytes: int = Field(default=5 * 1024 * 1024, ge=10_000, le=10 * 1024 * 1024)
+    screenshot_max_long_edge: int = Field(default=4096, ge=64, le=16384)
+    screenshot_max_pixels: int = Field(default=16_000_000, ge=4096, le=100_000_000)
+    screenshot_rate_limit_per_minute: int = Field(default=6, ge=1, le=600)
+    screenshot_max_concurrent: int = Field(default=1, ge=1, le=10)
+
     # --- Answer preferences (Phase 7A, D-34) ---
     # Word targets per answer length. The compiler turns them into prompt guidance and into a
     # `max_output_tokens` budget (words x tokens-per-word, with a multiplier for Hindi/Telugu).
@@ -320,6 +332,23 @@ class Settings(BaseSettings):
             raise ValueError("LLM_FALLBACK_CHAIN may only list providers in LLM_ENABLED_PROVIDERS")
         return self
 
+    @model_validator(mode="after")
+    def _vision_settings(self) -> Self:
+        from app.ai.vision_router import KNOWN_VISION_PROVIDER_IDS
+
+        enabled = self.vision_enabled_provider_list
+        if len(set(enabled)) != len(enabled):
+            raise ValueError("VISION_ENABLED_PROVIDERS contains duplicates")
+        if any(p not in KNOWN_VISION_PROVIDER_IDS for p in enabled):
+            raise ValueError("VISION_ENABLED_PROVIDERS contains an unknown provider id")
+        if self.app_env != "local" and "fake" in enabled:
+            raise ValueError("the fake vision provider may only be enabled with APP_ENV=local")
+        if any(p not in enabled for p in self.vision_fallback_chain_list):
+            raise ValueError(
+                "VISION_FALLBACK_CHAIN may only list providers in VISION_ENABLED_PROVIDERS"
+            )
+        return self
+
     @field_validator("openai_model")
     @classmethod
     def _openai_model_not_blank(cls, value: str) -> str:
@@ -331,6 +360,14 @@ class Settings(BaseSettings):
     @property
     def llm_enabled_provider_list(self) -> list[str]:
         return [p.strip() for p in self.llm_enabled_providers.split(",") if p.strip()]
+
+    @property
+    def vision_enabled_provider_list(self) -> list[str]:
+        return [p.strip() for p in self.vision_enabled_providers.split(",") if p.strip()]
+
+    @property
+    def vision_fallback_chain_list(self) -> list[str]:
+        return [p.strip() for p in self.vision_fallback_chain.split(",") if p.strip()]
 
     @property
     def llm_fallback_chain_list(self) -> list[str]:

@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -11,6 +12,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.ai.registry import build_registry
 from app.ai.router import LLMRouter, RouterConfig
+from app.ai.vision_router import VisionRouterConfig, build_vision_router
 from app.api import health
 from app.api.v1.router import router as v1_router
 from app.core.body_limit import BodySizeLimitMiddleware
@@ -29,6 +31,8 @@ from app.qa.service import QuestionAnswerer
 from app.realtime.limits import ConnectionRegistry
 from app.realtime.session_channel import SessionChannels
 from app.realtime.tickets import TicketStore
+from app.screenshots.limits import ScreenshotLimits
+from app.screenshots.service import ScreenshotExtractor
 from app.storage.local import LocalFileStorage
 
 logger = logging.getLogger("app.request")
@@ -90,6 +94,24 @@ def create_app() -> FastAPI:
         )
         app.state.question_limits = QuestionLimits(
             settings.qa_rate_limit_per_minute, settings.qa_max_concurrent_generations
+        )
+        # Screenshot input (Phase 11A, D-51): a separate vision allow-list, empty by default.
+        # Images are memory-only; nothing is stored.
+        vision_router = build_vision_router(
+            settings.vision_enabled_provider_list,
+            settings.vision_fallback_chain_list or None,
+            VisionRouterConfig(
+                request_timeout_seconds=settings.vision_request_timeout_seconds,
+                breaker_failure_threshold=settings.llm_breaker_failure_threshold,
+                breaker_cooldown_seconds=settings.llm_breaker_cooldown_seconds,
+            ),
+        )
+        app.state.vision_router = vision_router
+        app.state.screenshot_extractor = ScreenshotExtractor(
+            app.state.sessionmaker, settings, vision_router
+        )
+        app.state.screenshot_limits = ScreenshotLimits(
+            settings.screenshot_rate_limit_per_minute, settings.screenshot_max_concurrent
         )
         app.state.dispatcher = DramatiqDispatcher()  # imports the queue lazily on first dispatch
         # WebSocket gateway (Phase 9A, D-41). Tickets always live in Redis (the client connects
@@ -176,6 +198,13 @@ def create_app() -> FastAPI:
             "/api/v1/resumes": settings.resume_max_bytes + mib,
             "/api/v1/documents": settings.document_max_bytes + mib,
         },
+        # Screenshots are a raw body (not multipart), so only a small framing allowance is added.
+        pattern_limits=[
+            (
+                re.compile(r"/api/v1/sessions/[0-9a-fA-F-]{36}/screenshots"),
+                settings.screenshot_max_bytes + 64 * 1024,
+            )
+        ],
     )
 
     app.include_router(health.router)

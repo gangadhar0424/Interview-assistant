@@ -543,8 +543,11 @@ def test_an_unexpected_failure_inside_the_stream_becomes_a_generic_answer_error(
             session_id: uuid.UUID,
             text: str,
             question_type_override: str | None = None,
+            input_source: str = "typed",
         ) -> Any:
-            async for event in super().ask(user_id, session_id, text, question_type_override):
+            async for event in super().ask(
+                user_id, session_id, text, question_type_override, input_source
+            ):
                 yield event
                 if isinstance(event, RetrievalDone):
                     raise RuntimeError("secret-internal-detail /etc/passwd")

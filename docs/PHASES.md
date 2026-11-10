@@ -109,6 +109,7 @@ Rules: each phase is independently testable; do not start a phase without explic
 - **Targeted tests:** desktop unit tests, strict TypeScript check, production build, Windows startup/package smoke, and [desktop manual QA checklist](./DESKTOP_MANUAL_CHECKLIST.md). WebSocket, cross-OS and capture tests are deferred with those features.
 
 ## Phase 11 — Screenshot Input
+> **Status: MVP plan APPROVED (D-51). Phase 11A (backend) is implemented and awaiting owner review; 11B (desktop) is NOT started; 11C is optional and unapproved.** 11A: `VisionProvider` port + deterministic fake (no real vision provider), `POST /sessions/{id}/screenshots` (PNG only, memory only, no storage/migration), `input_source` on questions; see [PHASE_11_PLAN.md](./PHASE_11_PLAN.md). Original plan note: the architecture and implementation plan (proposed MVP, privacy/security design, API proposal, 11A backend / 11B desktop / 11C optional split, test strategy, open questions) is in [PHASE_11_PLAN.md](./PHASE_11_PLAN.md) and awaits owner review. The scope below is the original roadmap text and is refined, not replaced, by that plan.
 - **Objective:** User-initiated screenshot → answer.
 - **Scope:** native capture trigger, upload endpoint, validation/EXIF strip, `VisionProvider` port + adapters, question extraction, retention job.
 - **Dependencies:** Phase 10, Phase 6.

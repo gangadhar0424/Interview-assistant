@@ -6,6 +6,7 @@ config, retrieved chunk ids or any provider internals.
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +20,8 @@ class QuestionCreate(BaseModel):
     # only stops absurd payloads from being processed at all.
     text: str = Field(min_length=1, max_length=20000)
     question_type_override: str | None = Field(default=None, max_length=64)
+    # Where the text came from (Phase 11A, D-51): only recorded on the question.
+    input_source: Literal["typed", "screenshot"] = "typed"
 
 
 class AnswerOut(BaseModel):

@@ -6,6 +6,8 @@ the declared Content-Length and also counts the bytes actually received.
 """
 
 import json
+import re
+from collections.abc import Sequence
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -15,12 +17,28 @@ class _BodyTooLarge(Exception):
 
 
 class BodySizeLimitMiddleware:
-    def __init__(self, app: ASGIApp, limits: dict[str, int]) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        limits: dict[str, int],
+        pattern_limits: Sequence[tuple[re.Pattern[str], int]] = (),
+    ) -> None:
         self.app = app
         self.limits = limits  # exact request path -> maximum body bytes (POST only)
+        # Full-match path patterns for paths that carry an id (e.g. /sessions/<id>/screenshots).
+        self.pattern_limits = tuple(pattern_limits)
+
+    def _limit_for(self, path: str) -> int | None:
+        exact = self.limits.get(path)
+        if exact is not None:
+            return exact
+        for pattern, limit in self.pattern_limits:
+            if pattern.fullmatch(path):
+                return limit
+        return None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        limit = self.limits.get(scope.get("path", "")) if scope["type"] == "http" else None
+        limit = self._limit_for(scope.get("path", "")) if scope["type"] == "http" else None
         if limit is None or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
