@@ -154,7 +154,7 @@ ClientMessage = Annotated[
     ClientHello | Ping | QuestionSubmit | AnswerCancel, Field(discriminator="type")
 ]
 CLIENT_MESSAGE_TYPES = frozenset({"client.hello", "ping", "question.submit", "answer.cancel"})
-client_adapter: TypeAdapter[Any] = TypeAdapter(ClientMessage)  # type: ignore[arg-type]
+client_adapter: TypeAdapter[Any] = TypeAdapter(ClientMessage)
 
 
 # ============================================================================ server -> client
@@ -304,7 +304,7 @@ ServerMessage = Annotated[
     | AnswerCancelled,
     Field(discriminator="type"),
 ]
-server_adapter: TypeAdapter[Any] = TypeAdapter(ServerMessage)  # type: ignore[arg-type]
+server_adapter: TypeAdapter[Any] = TypeAdapter(ServerMessage)
 
 
 # ============================================================================ helpers
