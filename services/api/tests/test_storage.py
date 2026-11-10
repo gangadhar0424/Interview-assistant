@@ -162,6 +162,11 @@ def test_files_and_directories_are_private_on_posix(
     root = tmp_path / "root"
     assert (root / key).stat().st_mode & 0o777 == 0o600
     assert (root / "uploads").stat().st_mode & 0o777 == 0o700
+    # every directory on the way to the file is private, not only the last one
+    for directory in (root / key).parents:
+        if directory == root:
+            break
+        assert directory.stat().st_mode & 0o777 == 0o700, directory
 
 
 def test_purge_stale_temp_removes_only_old_part_files(

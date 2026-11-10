@@ -65,6 +65,24 @@ class LocalFileStorage(FileStorage):
             raise InvalidStorageKey("storage key escapes the storage root")
         return path
 
+    def _make_private_dirs(self, directory: Path) -> None:
+        """Create `directory` and every missing ancestor below the root with mode 0700.
+
+        `Path.mkdir(parents=True, mode=...)` applies the mode to the last directory only; the
+        intermediate ones (here `uploads/` and `uploads/<user>/`) would get the default mode
+        (typically 0755, listable by other local users). Each level is therefore created
+        explicitly and chmod-ed, which is also independent of the process umask.
+        """
+        root = self._ensure_root()
+        missing: list[Path] = []
+        current = directory
+        while current != root and not current.exists() and current != current.parent:
+            missing.append(current)
+            current = current.parent
+        for path in reversed(missing):
+            path.mkdir(mode=_DIR_MODE, exist_ok=True)
+            os.chmod(path, _DIR_MODE)
+
     def _tmp_dir(self) -> Path:
         tmp = self._ensure_root() / "tmp"
         tmp.mkdir(exist_ok=True, mode=_DIR_MODE)
@@ -169,7 +187,7 @@ class _LocalPendingUpload(PendingUpload):
     def commit(self) -> StoredFile:
         self._finish_writing()
         target = self._storage._resolve(self._key)
-        target.parent.mkdir(parents=True, exist_ok=True, mode=_DIR_MODE)
+        self._storage._make_private_dirs(target.parent)
         os.replace(self._tmp_path, target)  # atomic: readers never see a partial file
         self._committed = True
         return StoredFile(key=self._key, size=self._size, sha256=self._hash.hexdigest())
