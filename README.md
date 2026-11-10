@@ -86,7 +86,7 @@ npm test
 npm run build
 npm run package:win
 ```
-The desktop app has its own Settings page for the backend URL; production URLs must use HTTPS. It uses the existing API authentication and SSE question endpoint. Refresh credentials are stored through Windows OS-backed Electron `safeStorage`; API/provider keys are never placed in the desktop app. See [desktop architecture](docs/DESKTOP_ARCHITECTURE.md), [Windows development instructions](docs/DESKTOP_WINDOWS.md), and the [manual QA checklist](docs/DESKTOP_MANUAL_CHECKLIST.md). Audio and screenshot capture are not implemented.
+The desktop app has its own Settings page for the backend URL; production URLs must use HTTPS. It uses the existing API authentication and SSE question endpoint. Refresh credentials are stored through Windows OS-backed Electron `safeStorage`; API/provider keys are never placed in the desktop app. See [desktop architecture](docs/DESKTOP_ARCHITECTURE.md), [Windows development instructions](docs/DESKTOP_WINDOWS.md), and the [manual QA checklist](docs/DESKTOP_MANUAL_CHECKLIST.md). Sessions can be created from the desktop (Phase 11.5): **New session** on the Sessions page (company, job description, one ready resume, ready documents, answer style); files are still uploaded in the web app, and with no ready resume the form says so and shows the web link. Audio capture is not implemented. Screenshot input (Phase 11B) is opt-in and off by default: with it enabled in Settings, a Capture button shows a cancellable 3-second countdown, a preview and an explicit send step; the image is held in memory only and discarded after text extraction, and you press Ask yourself. It needs a backend with a vision provider enabled (only the deterministic fake exists).
 
 ## Stop / reset
 ```powershell

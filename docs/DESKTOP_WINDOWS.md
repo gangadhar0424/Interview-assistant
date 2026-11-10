@@ -50,7 +50,7 @@ Release builds apply Electron fuses (see D-49). `ELECTRON_RUN_AS_NODE`, `NODE_OP
 - Access credentials remain in the Electron main process. The refresh credential is encrypted by Electron `safeStorage` using Windows OS-backed protection.
 - The renderer does not receive tokens and cannot make arbitrary network requests through the preload bridge.
 - Questions and selected-session materials are sent to the configured backend. Do not configure an untrusted backend.
-- No audio, screenshot, or other background capture is included.
+- No audio or background capture is included. Screenshot input (Phase 11B) is off by default; when the user turns it on, a screenshot is captured only after an explicit Capture and a cancellable countdown, is kept in memory only, and is discarded after text extraction. It needs a backend with `VISION_ENABLED_PROVIDERS` set (only the deterministic `fake` provider exists, `APP_ENV=local`).
 
 ## Dependency audit note
 
