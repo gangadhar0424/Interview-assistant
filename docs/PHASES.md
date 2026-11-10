@@ -126,6 +126,8 @@ Rules: each phase is independently testable; do not start a phase without explic
 - **Acceptance:** see the plan (§11): create through the existing API, new session visible without restart, explicit ready resume, backend limits respected, no dead end without a resume, safe errors, tokens never in the renderer, typed Q&A and screenshots unchanged, no backend/migration/dependency change, typecheck/tests/build/package smoke pass.
 - **Targeted tests:** desktop unit/IPC tests (sender and input validation, error mapping, no-ready-resume, refresh after create, regressions), a live check of the real client against a local backend with fake providers, packaged-app smoke, owner manual checklist.
 
+> **Phase 12 pre-flight (2026-11-10): a combined 12A + 12B "Live Audio to Answer" batch is PROPOSED, not approved and not started.** See [PHASE_12_PLAN.md](./PHASE_12_PLAN.md) and proposed D-53 (utterance-at-a-time speech-to-text behind a fake `STTProvider`, heuristic question detection feeding the existing Q&A path, no transcript table, no WebSocket change, no migration; needs an owner-approved audio-only permission change). The separate PoC-2/PoC-3 phases are replaced by a short spike at the start of the batch.
+
 ## Phase 12A — Real-Time Transcription
 - **Objective:** Audio → stored transcript.
 - **Scope:** audio capture (mic first, then system audio per OS), `STTProvider` port + adapters, VAD, utterance segmentation, transcript persistence, transcript UI. **Requires PoC-2/PoC-3 first.**
