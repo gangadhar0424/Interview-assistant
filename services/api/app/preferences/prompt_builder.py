@@ -54,9 +54,24 @@ class PromptInputs:
 
 
 @dataclass(frozen=True, slots=True)
+class EvidenceRef:
+    """One evidence entry exactly as rendered into the prompt (prompt v2): the tag number the model
+    may cite, plus the metadata printed in a long-form tag. `source_id` and `chunk_index` are None
+    for a plain-text passage, which is tagged `[E<n>]` without metadata."""
+
+    tag: int
+    source_type: str | None
+    source_id: UUID | None
+    chunk_index: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class BuiltPrompt:
     messages: list[Message]
     prompt_version: str
+    # The tags actually rendered, in prompt order. Empty for v1 (no tags). This is the only place
+    # tag numbers are decided, so a post-generation check never re-derives the numbering.
+    evidence: tuple[EvidenceRef, ...] = ()
 
 
 @lru_cache(maxsize=512)
@@ -112,8 +127,31 @@ def neutralize_delimiters(text: str) -> str:
     return text.replace("<<<", _OPEN_LOOKALIKE).replace(">>>", _CLOSE_LOOKALIKE)
 
 
-def wrap_untrusted(label: str, text: str) -> str:
-    body = neutralize_delimiters(clean_text(text)) or NONE_PROVIDED
+# An evidence tag is a trust signal: only this builder creates one. Any look-alike inside text that
+# a user, a job posting or a document supplied is rewritten so it cannot be read, or cited, as
+# candidate evidence. Only the head of the tag is matched (`[E1`, any case, spaces or a line break
+# after the bracket, full-width and corner-bracket look-alikes), so `[E1]`, `[E1 | resume | ...]`
+# and an unclosed tag are all covered, and `[E1]` still becomes exactly `[quoted evidence tag]`.
+_EVIDENCE_TAG_HEAD = re.compile(
+    r"[\[\uFF3B\u3010\u3014\u27E6]\s*[Ee\uFF25\uFF45]\s*[0-9\uFF10-\uFF19]+"
+)
+_QUOTED_TAG_HEAD = "[quoted evidence tag"
+EVIDENCE_TAG_HEAD = _EVIDENCE_TAG_HEAD  # shared with the post-generation citation check
+
+
+def neutralize_evidence_tags(text: str) -> str:
+    """Rewrite anything that looks like the head of an evidence tag (pure, idempotent). Call it
+    after `clean_text`, so invisible characters cannot be used to hide a tag from the match."""
+    return _EVIDENCE_TAG_HEAD.sub(_QUOTED_TAG_HEAD, text)
+
+
+def wrap_untrusted(label: str, text: str, *, neutralize_tags: bool = False) -> str:
+    """Delimit untrusted text as data. `neutralize_tags` is set for every channel except the
+    candidate material, whose genuine evidence tags are created by `PromptBuilder.build` itself."""
+    body = clean_text(text)
+    if neutralize_tags:
+        body = neutralize_evidence_tags(body)
+    body = neutralize_delimiters(body) or NONE_PROVIDED
     return f"<<<BEGIN UNTRUSTED:{label}>>>\n{body}\n<<<END UNTRUSTED:{label}>>>"
 
 
@@ -148,6 +186,7 @@ class PromptBuilder:
         if not clean_text(inputs.question):
             raise PromptError("question must not be empty")
         material_entries: list[str] = []
+        evidence: list[EvidenceRef] = []
         for index, passage in enumerate(inputs.context_passages, 1):
             if isinstance(passage, EvidencePassage):
                 if passage.source_type not in ("resume", "document") or passage.chunk_index < 0:
@@ -156,33 +195,53 @@ class PromptBuilder:
                     raise PromptError("invalid evidence metadata")
                 text = clean_text(passage.text)
                 if text and self.version == "v2":
-                    text = re.sub(r"\[E\d+\]", "[quoted evidence tag]", text, flags=re.IGNORECASE)
+                    text = neutralize_evidence_tags(text)
                     material_entries.append(
                         f"[E{index} | {passage.source_type} | source {passage.source_id} "
                         f"| chunk {passage.chunk_index}] {text}"
+                    )
+                    evidence.append(
+                        EvidenceRef(
+                            index, passage.source_type, passage.source_id, passage.chunk_index
+                        )
                     )
                 elif text:
                     material_entries.append(text)
             else:
                 text = clean_text(passage)
+                if text and self.version == "v2":
+                    text = neutralize_evidence_tags(text)
                 if text:
                     material_entries.append(f"[E{index}] {text}" if self.version == "v2" else text)
+                    if self.version == "v2":
+                        evidence.append(EvidenceRef(index, None, None, None))
         material = "\n\n".join(material_entries)
         exchanges = "\n\n".join(
             f"Q: {clean_text(q)}\nA: {clean_text(a)}" for q, a in inputs.history
         )
+        # v1 has no evidence tags: its output stays byte-for-byte unchanged
+        tags = self.version == "v2"
         user = _render(
             self._t("user.md"),
             {
-                "company_block": wrap_untrusted("company_name", inputs.company_name),
-                "job_block": wrap_untrusted("job_description", inputs.job_description),
+                "company_block": wrap_untrusted(
+                    "company_name", inputs.company_name, neutralize_tags=tags
+                ),
+                "job_block": wrap_untrusted(
+                    "job_description", inputs.job_description, neutralize_tags=tags
+                ),
                 "material_block": wrap_untrusted("candidate_material", material),
-                "history_block": wrap_untrusted("previous_exchanges", exchanges),
-                "style_block": wrap_untrusted("style_preferences", config.extra_instructions),
-                "question_block": wrap_untrusted("question", inputs.question),
+                "history_block": wrap_untrusted(
+                    "previous_exchanges", exchanges, neutralize_tags=tags
+                ),
+                "style_block": wrap_untrusted(
+                    "style_preferences", config.extra_instructions, neutralize_tags=tags
+                ),
+                "question_block": wrap_untrusted("question", inputs.question, neutralize_tags=tags),
             },
         )
         return BuiltPrompt(
             messages=[Message("system", self._system(config)), Message("user", user)],
             prompt_version=self.version,
+            evidence=tuple(evidence),
         )

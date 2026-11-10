@@ -32,6 +32,7 @@ from app.ai.router import LLMRouter, Selection
 from app.ai.types import StreamMeta, Token, Usage
 from app.core.config import Settings
 from app.core.errors import AppError
+from app.core.metrics import answer_grounding_checks
 from app.db.models import SessionPreferences
 from app.db.session import set_tenant_context
 from app.embeddings.base import EmbeddingProvider
@@ -43,6 +44,7 @@ from app.preferences.errors import InvalidPreference
 from app.preferences.prompt_builder import (
     PROMPT_VERSION,
     EvidencePassage,
+    EvidenceRef,
     PromptBuilder,
     PromptInputs,
 )
@@ -58,6 +60,7 @@ from app.qa.events import (
     QuestionCreated,
     RetrievalDone,
 )
+from app.qa.grounding import GroundingCheck, check_citations
 from app.retrieval.service import MAX_QUERY_CHARS
 from app.sessions import repository as sessions_repository
 from app.sessions.materials import is_ready
@@ -328,6 +331,44 @@ class QuestionAnswerer:
             **extra,
         )
 
+    @staticmethod
+    def _citation_check(
+        evidence: Sequence[EvidenceRef], answer_text: str, prepared: _Prepared
+    ) -> dict[str, Any]:
+        """Citation-integrity check of the finished answer; it can never fail or change it.
+
+        Record-and-observe only: a structural check of evidence tags against what this request's
+        prompt rendered. It is NOT proof that the answer is grounded. Any error inside the check
+        (or its telemetry) is swallowed and recorded as `check_error`. Only counts and tag numbers
+        are logged, never answer text.
+        """
+        try:
+            check = check_citations(answer_text, evidence)
+            answer_grounding_checks.labels(status=check.status).inc()
+            logger.info(
+                "citation integrity checked",
+                extra={
+                    "session_id": str(prepared.session_id),
+                    "question_id": str(prepared.question_id),
+                    "answer_id": str(prepared.answer_id),
+                    "grounding_status": check.status,
+                    "shown_count": check.shown_count,
+                    "valid_count": len(check.valid_ids),
+                    "unknown_count": len(check.unknown_ids),
+                    "malformed_count": check.malformed_count,
+                },
+            )
+            return check.to_json()
+        except Exception as exc:  # noqa: BLE001 - the check must never affect the answer
+            try:
+                logger.warning(
+                    "citation integrity check failed", extra={"error_type": type(exc).__name__}
+                )
+                answer_grounding_checks.labels(status="check_error").inc()
+            except Exception:  # noqa: BLE001, S110 - telemetry is best effort
+                pass
+            return GroundingCheck.errored(len(evidence)).to_json()
+
     # -------------------------------------------------------------------- main
 
     async def ask(
@@ -421,10 +462,12 @@ class QuestionAnswerer:
             if not "".join(run.parts).strip() or run.meta is None:
                 raise _Failed(EMPTY_ANSWER, SAFE_MESSAGES[EMPTY_ANSWER], True)
             total_ms = self._ms(started)
+            # Streaming is over: every delta is already out and nothing below changes the text.
+            grounding_check = self._citation_check(prompt.evidence, "".join(run.parts), prepared)
             await self._finish(
                 user_id,
                 prepared,
-                self._result("complete", run, total_ms),
+                self._result("complete", run, total_ms, grounding_check=grounding_check),
                 answered=True,
             )
             run.finished = True

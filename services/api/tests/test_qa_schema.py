@@ -65,6 +65,7 @@ def test_tables_have_exactly_the_typed_qa_columns(world: QaWorld) -> None:
         "id", "question_id", "session_id", "user_id", "text", "generation_config", "prompt_version",
         "provider", "model", "retrieved_chunk_ids", "input_tokens", "output_tokens", "retrieval_ms",
         "first_token_ms", "total_ms", "fallback_used", "status", "error_code", "created_at",
+        "grounding_check",
     }  # fmt: skip
 
 
@@ -88,12 +89,12 @@ def test_expected_indexes_exist(world: QaWorld) -> None:
     }
 
 
-def test_migration_chain_has_a_single_head_at_0008() -> None:
+def test_migration_chain_has_a_single_head_at_0009() -> None:
     cfg = Config(str(API_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(API_DIR / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0008"]
-    for rev, parent in (("0008", "0007"), ("0007", "0006")):
+    assert script.get_heads() == ["0009"]
+    for rev, parent in (("0009", "0008"), ("0008", "0007"), ("0007", "0006")):
         revision = script.get_revision(rev)
         assert revision is not None and revision.down_revision == parent
 
@@ -183,6 +184,29 @@ def test_valid_answer_statuses_and_zero_metrics_are_accepted(world: QaWorld) -> 
         world.answer(qid, sid, status=status)
     world.answer(qid, sid, retrieval_ms=0, first_token_ms=0, total_ms=0, input_tokens=0)
     assert world.n("generated_answers") == len(ANSWER_STATUSES) + 1
+
+
+def test_grounding_check_is_nullable_and_null_by_default(world: QaWorld) -> None:
+    sid = world.session()
+    qid = world.question(sid)
+    aid = world.answer(qid, sid)
+    row = world.run_sql(
+        "SELECT grounding_check IS NULL AS is_null FROM generated_answers WHERE id = :i", i=aid
+    )
+    assert row[0]["is_null"] is True  # SQL NULL: never checked (not JSON null)
+
+
+def test_grounding_check_accepts_a_json_object_and_rejects_other_json(world: QaWorld) -> None:
+    sid = world.session()
+    qid = world.question(sid)
+    aid = world.answer(qid, sid)
+    update = "UPDATE generated_answers SET grounding_check = CAST(:g AS jsonb) WHERE id = :i"
+    world.run_sql(update, g='{"v": 1, "status": "ok"}', i=aid)
+    stored = world.run_sql("SELECT grounding_check FROM generated_answers WHERE id = :i", i=aid)
+    assert stored[0]["grounding_check"] == {"v": 1, "status": "ok"}
+    for bad in ("[1, 2]", '"ok"', "5", "null"):
+        with pytest.raises(IntegrityError):
+            world.run_sql(update, g=bad, i=aid)
 
 
 def test_chunk_ids_are_stored_as_an_array_without_foreign_keys(world: QaWorld) -> None:

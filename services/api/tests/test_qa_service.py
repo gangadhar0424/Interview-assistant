@@ -1117,3 +1117,48 @@ def test_closing_the_answer_closes_the_provider_stream_immediately(
         return provider.closed
 
     assert run_async(test_db_url, go) is True
+
+
+# ------------------------------------------- citation-integrity check (Issue 2): persistence
+
+
+def test_the_citation_check_result_is_persisted_without_changing_the_answer(
+    scenario: Scenario, run_sql: RunSql
+) -> None:
+    """DB-backed: needs the project's test database. A forged tag is recorded, never acted on."""
+    reply = "I led the billing migration. Evidence (not spoken): [E1], [E99]"
+    events = scenario.ask(make_router([RecordingProvider(reply_fn=lambda m: reply)]))
+    assert isinstance(events[-1], AnswerDone)
+    (answer,) = answers(run_sql)
+    assert answer["status"] == "complete" and answer["text"] == reply  # text is stored unchanged
+    check = answer["grounding_check"]
+    assert check["v"] == 1 and check["status"] == "invalid_citations"
+    assert check["unknown_ids"] == [99] and check["valid_ids"] == [1]
+    assert set(check) == {
+        "v",
+        "status",
+        "shown_count",
+        "valid_ids",
+        "unknown_ids",
+        "malformed_count",
+    }
+    assert reply not in repr(check) and "billing" not in repr(check)  # no answer content stored
+
+
+def test_a_cancelled_answer_has_no_citation_check_row_value(
+    scenario: Scenario, run_sql: RunSql
+) -> None:
+    scenario.ask(
+        make_router([RecordingProvider()]), stop_after=lambda e: isinstance(e, AnswerDelta)
+    )
+    (answer,) = answers(run_sql)
+    assert answer["status"] == "cancelled" and answer["grounding_check"] is None  # SQL NULL
+
+
+def test_the_citation_check_is_not_exposed_through_the_history_api(
+    scenario: Scenario, client: TestClient, alice: dict[str, str]
+) -> None:
+    scenario.ask(make_router([RecordingProvider(reply_fn=lambda m: "Answer [E1]")]))
+    response = client.get(f"/api/v1/sessions/{scenario.session}/questions", headers=alice)
+    assert response.status_code == 200, response.text
+    assert "grounding" not in response.text and "unknown_ids" not in response.text

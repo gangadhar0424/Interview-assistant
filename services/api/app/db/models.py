@@ -436,6 +436,10 @@ class GeneratedAnswer(Base):
             "(output_tokens IS NULL OR output_tokens >= 0)",
             name="metrics_non_negative",
         ),
+        CheckConstraint(
+            "grounding_check IS NULL OR jsonb_typeof(grounding_check) = 'object'",
+            name="grounding_check_object",
+        ),
         Index("ix_generated_answers_question_id", "question_id"),
         Index("ix_generated_answers_session_id_created_at", "session_id", "created_at"),
     )
@@ -470,6 +474,12 @@ class GeneratedAnswer(Base):
     fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="streaming")
     error_code: Mapped[str | None] = mapped_column(String(64))
+    # Citation-integrity check of a completed answer (tag numbers and counts only, never text).
+    # NULL for answers that were not checked (streaming, cancelled, error, or created before 0009).
+    # It is not proof that the answer is grounded.
+    grounding_check: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

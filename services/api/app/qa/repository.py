@@ -32,6 +32,8 @@ class AnswerResult:
     first_token_ms: int | None = None
     total_ms: int | None = None
     retrieved_chunk_ids: list[uuid.UUID] = field(default_factory=list)
+    # Content-free citation-integrity summary (`app.qa.grounding`); None when not checked.
+    grounding_check: dict[str, Any] | None = None
 
 
 async def create_question_with_answer(
@@ -117,6 +119,7 @@ async def finish_answer(
             first_token_ms=result.first_token_ms,
             total_ms=result.total_ms,
             retrieved_chunk_ids=result.retrieved_chunk_ids,
+            grounding_check=result.grounding_check,
         )
         .returning(GeneratedAnswer.id)
     )
