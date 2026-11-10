@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { isTrustedRenderer } from "../src/main/ipc-security";
 import { SecureRefreshTokenStore } from "../src/main/secure-refresh-store";
@@ -64,7 +65,8 @@ describe("desktop settings", () => {
 });
 
 describe("IPC renderer allowlist", () => {
-  const htmlPath = "C:\\assistant\\dist\\renderer\\index.html";
+  // Platform-neutral: a Windows-only literal path breaks on the Linux CI runner.
+  const htmlPath = join(tmpdir(), "assistant", "dist", "renderer", "index.html");
 
   it("accepts only the configured development origin and renderer page", () => {
     expect(
@@ -79,8 +81,10 @@ describe("IPC renderer allowlist", () => {
   });
 
   it("accepts only the packaged renderer file", () => {
-    expect(isTrustedRenderer("file:///C:/assistant/dist/renderer/index.html", undefined, htmlPath)).toBe(true);
-    expect(isTrustedRenderer("file:///C:/assistant/other.html", undefined, htmlPath)).toBe(false);
+    expect(isTrustedRenderer(pathToFileURL(htmlPath).href, undefined, htmlPath)).toBe(true);
+    expect(
+      isTrustedRenderer(pathToFileURL(join(tmpdir(), "assistant", "other.html")).href, undefined, htmlPath),
+    ).toBe(false);
     expect(isTrustedRenderer("https://example.com", undefined, htmlPath)).toBe(false);
   });
 });
