@@ -48,10 +48,10 @@ export default function App() {
         </div>
         <div className="window-actions no-drag">
           <button
-            aria-label="Minimize to tray"
+            aria-label="Minimize"
             className="window-control"
             onClick={() => void window.desktop.app.minimize()}
-            title="Minimize to tray"
+            title="Minimize"
           >
             −
           </button>

@@ -6,7 +6,8 @@ import type { SafeStoragePort } from "./secure-refresh-store";
 import { SecureRefreshTokenStore } from "./secure-refresh-store";
 import { SettingsStore } from "./settings-store";
 import { isTrustedRenderer } from "./ipc-security";
-import type { DesktopError, DesktopResult, DesktopSettings, StreamMessage } from "../shared/contracts";
+import { validateCopyText, validateSettingsPatch } from "./ipc-validation";
+import type { DesktopError, DesktopResult, StreamMessage } from "../shared/contracts";
 import { applyWindowSettings, setExpanded } from "./window-controller";
 
 type IpcDependencies = {
@@ -29,41 +30,12 @@ function failure<T>(error: DesktopError): DesktopResult<T> {
   return { ok: false, error };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function sendToRenderer(window: BrowserWindow, message: StreamMessage): void {
   if (!window.isDestroyed()) window.webContents.send("stream:message", message);
 }
 
 function validateId(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value);
-}
-
-function validateSettingsPatch(value: unknown): Partial<DesktopSettings> {
-  if (!isRecord(value)) throw new Error("Settings must be an object.");
-  const patch: Partial<DesktopSettings> = {};
-  if ("backendBaseUrl" in value) {
-    if (typeof value.backendBaseUrl !== "string") throw new Error("Backend URL must be text.");
-    patch.backendBaseUrl = value.backendBaseUrl;
-  }
-  if ("alwaysOnTop" in value) {
-    if (typeof value.alwaysOnTop !== "boolean") throw new Error("Always-on-top must be on or off.");
-    patch.alwaysOnTop = value.alwaysOnTop;
-  }
-  if ("opacity" in value) {
-    if (typeof value.opacity !== "number") throw new Error("Opacity must be a number.");
-    patch.opacity = value.opacity;
-  }
-  if ("expanded" in value) {
-    if (typeof value.expanded !== "boolean") throw new Error("Expanded must be on or off.");
-    patch.expanded = value.expanded;
-  }
-  if (Object.keys(value).some((key) => !["backendBaseUrl", "alwaysOnTop", "opacity", "expanded"].includes(key))) {
-    throw new Error("Unsupported setting.");
-  }
-  return patch;
 }
 
 function isSessionExpired(error: unknown): boolean {
@@ -151,10 +123,7 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
   handle("app:minimize", () => window.minimize());
   handle("app:close-to-tray", () => window.hide());
   handle("app:copy-text", (_event, text) => {
-    if (typeof text !== "string" || text.length > 100_000) {
-      throw new Error("The text is too large to copy.");
-    }
-    clipboard.writeText(text);
+    clipboard.writeText(validateCopyText(text));
   });
 
   handle("auth:get-state", async () => ({ user: await api.initialize() }));
