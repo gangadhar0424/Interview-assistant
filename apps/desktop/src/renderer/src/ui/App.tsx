@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useDesktopStore } from "../store";
+import { ScreenshotPanel } from "./ScreenshotPanel";
 
 type Page = "home" | "assistant" | "history" | "settings";
 
@@ -16,6 +17,7 @@ export default function App() {
   const user = useDesktopStore((state) => state.user);
   const initialize = useDesktopStore((state) => state.initialize);
   const handleStreamMessage = useDesktopStore((state) => state.handleStreamMessage);
+  const handleCaptureEvent = useDesktopStore((state) => state.handleCaptureEvent);
   const expireSession = useDesktopStore((state) => state.expireSession);
   const checkBackend = useDesktopStore((state) => state.checkBackend);
   const checked = useRef(false);
@@ -26,10 +28,12 @@ export default function App() {
     checked.current = true;
     void initialize();
     const unsubscribeStream = window.desktop.onStreamMessage(handleStreamMessage);
+    const unsubscribeCapture = window.desktop.onCaptureEvent(handleCaptureEvent);
     const unsubscribeExpired = window.desktop.onSessionExpired(expireSession);
     const interval = window.setInterval(() => void checkBackend(), 15_000);
     return () => {
       unsubscribeStream();
+      unsubscribeCapture();
       unsubscribeExpired();
       window.clearInterval(interval);
     };
@@ -243,6 +247,9 @@ function AssistantPage() {
   const cancel = useDesktopStore((state) => state.cancel);
   const reportError = useDesktopStore((state) => state.reportError);
   const error = useDesktopStore((state) => state.error);
+  const screenshotEnabled = useDesktopStore(
+    (state) => state.settings?.screenshotInputEnabled === true,
+  );
   const [question, setQuestion] = useState("");
   const [copied, setCopied] = useState(false);
   const streaming =
@@ -344,6 +351,8 @@ function AssistantPage() {
               )}
             </div>
           </form>
+
+          {screenshotEnabled && <ScreenshotPanel ready={selected?.status === "ready"} />}
 
           {liveAnswer && <LiveAnswerCard answer={liveAnswer} onCopy={() => void copyAnswer()} copied={copied} />}
         </>
@@ -587,6 +596,21 @@ function SettingsPage() {
         </button>
       </section>
 
+      <section className="settings-section">
+        <h2>Screenshot input</h2>
+        <ToggleRow
+          checked={settings.screenshotInputEnabled}
+          label="Allow capturing a screenshot"
+          onChange={(screenshotInputEnabled) => void updateSettings({ screenshotInputEnabled })}
+          description="Off by default. When on, a Capture button appears in the Assistant. Turning it on asks for confirmation."
+        />
+        <p className="settings-help">
+          A capture happens only when you press Capture, after a 3-second countdown you can cancel.
+          You see the image before it is sent; it is kept in memory only and discarded after text
+          extraction. The server may forward it to an AI provider to read the text.
+        </p>
+      </section>
+
       <section className="settings-section settings-account">
         <h2>Account</h2>
         <p className="settings-help">Sign out removes the saved refresh credential from this device.</p>
@@ -595,7 +619,8 @@ function SettingsPage() {
         </button>
       </section>
       <p className="privacy-footnote">
-        Questions are sent only when you submit them. This app does not capture audio or screenshots.
+        Questions are sent only when you submit them. This app does not capture audio. Screenshots
+        are captured only if you turn on screenshot input and press Capture.
       </p>
     </div>
   );

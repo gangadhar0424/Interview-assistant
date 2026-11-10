@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   alwaysOnTop: true,
   opacity: 0.96,
   expanded: false,
+  screenshotInputEnabled: false,
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -24,7 +25,9 @@ function validateSettings(value: unknown): DesktopSettings {
     !Number.isFinite(value.opacity) ||
     value.opacity < 0.65 ||
     value.opacity > 1 ||
-    typeof value.backendBaseUrl !== "string"
+    typeof value.backendBaseUrl !== "string" ||
+    // Files written before Phase 11B have no such field: that means off.
+    (value.screenshotInputEnabled !== undefined && typeof value.screenshotInputEnabled !== "boolean")
   ) {
     throw new Error("Desktop settings file is invalid.");
   }
@@ -33,6 +36,7 @@ function validateSettings(value: unknown): DesktopSettings {
     alwaysOnTop: value.alwaysOnTop,
     opacity: value.opacity,
     expanded: value.expanded,
+    screenshotInputEnabled: value.screenshotInputEnabled === true,
   };
 }
 

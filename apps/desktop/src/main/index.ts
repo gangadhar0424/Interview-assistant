@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage, Tray, ipcMain, safeStorage } from "electron";
 import { join } from "node:path";
+import { captureElectronDisplay, listElectronDisplays, makeElectronPreview } from "./capture-electron";
+import type { IndicatorState } from "./capture-service";
 import { registerDesktopIpc } from "./ipc";
 import { SettingsStore } from "./settings-store";
 import { isTrustedRenderer } from "./ipc-security";
@@ -11,6 +13,37 @@ let quitting = false;
 let disposeIpc: (() => void) | null = null;
 
 const settingsStore = new SettingsStore(join(app.getPath("userData"), "settings.json"));
+
+const TRAY_TOOLTIPS: Record<IndicatorState, string> = {
+  idle: "Interview Assistant — visible desktop assistant",
+  countdown: "Interview Assistant — a screenshot will be captured shortly (cancel in the app)",
+  capturing: "Interview Assistant — capturing the screen…",
+  held: "Interview Assistant — holding a screenshot in memory (not sent)",
+};
+
+/** Main-process-owned, renderer-independent indication that a capture is happening. */
+function setCaptureIndicator(state: IndicatorState): void {
+  tray?.setToolTip(TRAY_TOOLTIPS[state]);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(state === "capturing");
+}
+
+/** Native confirmation before screenshot input is turned on (a compromised renderer cannot fake it). */
+async function confirmScreenshotConsent(window: BrowserWindow): Promise<boolean> {
+  const result = await dialog.showMessageBox(window, {
+    type: "warning",
+    title: "Turn on screenshot input?",
+    message: "Screenshot input captures everything visible on the display you choose.",
+    detail:
+      "The image is shown to you first, sent to your Interview Assistant server only when you confirm, " +
+      "and may be forwarded to an AI provider to read the text. It is not saved and is discarded after " +
+      "text extraction. Close anything private before capturing.",
+    buttons: ["Turn on", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
+}
 
 function reportStartupFailure(): void {
   dialog.showErrorBox(
@@ -74,6 +107,13 @@ function createWindow(): BrowserWindow {
     secureTokenPath: join(app.getPath("userData"), "refresh-token.bin"),
     rendererHtmlPath,
     devServerUrl: process.env.ELECTRON_RENDERER_URL,
+    captureHost: {
+      listDisplays: listElectronDisplays,
+      captureDisplay: captureElectronDisplay,
+      makePreview: makeElectronPreview,
+      setIndicator: setCaptureIndicator,
+    },
+    confirmScreenshotConsent: () => confirmScreenshotConsent(window),
   });
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL).catch(reportStartupFailure);

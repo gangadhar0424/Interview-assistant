@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge, DesktopResult, DesktopSettings, StreamMessage } from "../shared/contracts";
+import type {
+  CaptureDisplay,
+  CaptureEvent,
+  DesktopBridge,
+  DesktopResult,
+  DesktopSettings,
+  ExtractionResult,
+  StreamMessage,
+} from "../shared/contracts";
 
 const bridge: DesktopBridge = {
   app: {
@@ -27,10 +35,26 @@ const bridge: DesktopBridge = {
   sessions: {
     list: () => ipcRenderer.invoke("sessions:list"),
     questions: (sessionId) => ipcRenderer.invoke("sessions:questions", sessionId),
-    startQuestion: (requestId, sessionId, text) =>
-      ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text),
+    startQuestion: (requestId, sessionId, text, extractionId) =>
+      extractionId === undefined
+        ? ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text)
+        : ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text, extractionId),
     cancelQuestion: (requestId) =>
       ipcRenderer.invoke("sessions:stream-cancel", requestId),
+  },
+  capture: {
+    listDisplays: () =>
+      ipcRenderer.invoke("capture:list-displays") as Promise<DesktopResult<CaptureDisplay[]>>,
+    start: (displayId, sessionId) =>
+      ipcRenderer.invoke("capture:start", displayId, sessionId) as Promise<DesktopResult<void>>,
+    cancel: () => ipcRenderer.invoke("capture:cancel") as Promise<DesktopResult<void>>,
+    extract: (captureId) =>
+      ipcRenderer.invoke("capture:extract", captureId) as Promise<DesktopResult<ExtractionResult>>,
+  },
+  onCaptureEvent: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: CaptureEvent) => listener(event);
+    ipcRenderer.on("capture:event", wrapped);
+    return () => ipcRenderer.removeListener("capture:event", wrapped);
   },
   onStreamMessage: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, message: StreamMessage) =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateCopyText, validateSettingsPatch } from "../src/main/ipc-validation";
+import { isDisplayId, isUuid, validateCopyText, validateSettingsPatch } from "../src/main/ipc-validation";
 
 describe("settings patch validation", () => {
   it("accepts in-range opacity and known keys", () => {
@@ -39,5 +39,25 @@ describe("copy text validation", () => {
     expect(() => validateCopyText({})).toThrow("Only text can be copied.");
     expect(() => validateCopyText("a".repeat(100_001))).toThrow("The text is too large to copy.");
     expect(validateCopyText("a".repeat(100_000))).toHaveLength(100_000);
+  });
+});
+
+describe("screenshot-related validation (Phase 11B)", () => {
+  it("accepts a boolean screenshot setting and rejects anything else", () => {
+    expect(validateSettingsPatch({ screenshotInputEnabled: true })).toEqual({ screenshotInputEnabled: true });
+    for (const value of ["true", 1, null, {}]) {
+      expect(() => validateSettingsPatch({ screenshotInputEnabled: value })).toThrow("Screenshot input must be on or off.");
+    }
+  });
+
+  it("validates ids used by the capture channels", () => {
+    expect(isUuid("11111111-2222-4333-8444-555555555555")).toBe(true);
+    for (const value of ["x", "", 5, null, "11111111-2222-4333-8444-55555555555g", "../../etc/passwd"]) {
+      expect(isUuid(value)).toBe(false);
+    }
+    expect(isDisplayId("2528732444")).toBe(true);
+    for (const value of ["", "abc", "12 34", "1".repeat(13), 12, "-1", "1;2"]) {
+      expect(isDisplayId(value)).toBe(false);
+    }
   });
 });

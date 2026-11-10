@@ -3,6 +3,8 @@ export type DesktopSettings = {
   alwaysOnTop: boolean;
   opacity: number;
   expanded: boolean;
+  /** Opt-in (default false). Turning it on needs a native confirmation from the main process. */
+  screenshotInputEnabled: boolean;
 };
 
 export type DesktopUser = {
@@ -116,6 +118,47 @@ export type StreamMessage =
 
 export type AuthState = { user: DesktopUser | null };
 
+// ---- Screenshot input (Phase 11B, D-51). Capture lives only in the main process. ----
+
+/** A display the user may choose. Names only: no thumbnails are taken to build the picker. */
+export type CaptureDisplay = {
+  id: string;
+  label: string;
+  primary: boolean;
+  width: number;
+  height: number;
+};
+
+export type CaptureCancelReason =
+  | "user"
+  | "window"
+  | "disabled"
+  | "signed_out"
+  | "session"
+  | "expired"
+  | "navigation"
+  | "error";
+
+/** Pushed by the main process. The full image never leaves main; `previewDataUrl` is a small thumbnail. */
+export type CaptureEvent =
+  | { type: "countdown"; seconds: number; displayLabel: string }
+  | {
+      type: "captured";
+      captureId: string;
+      previewDataUrl: string;
+      width: number;
+      height: number;
+      bytes: number;
+    }
+  | { type: "cancelled"; reason: CaptureCancelReason; message: string };
+
+export type ExtractionResult = {
+  /** Single-use token proving the text came from a completed screenshot flow. */
+  extractionId: string;
+  text: string;
+  truncated: boolean;
+};
+
 export type DesktopBridge = {
   app: {
     getSettings(): Promise<DesktopResult<DesktopSettings>>;
@@ -141,9 +184,20 @@ export type DesktopBridge = {
       requestId: string,
       sessionId: string,
       text: string,
+      extractionId?: string,
     ): Promise<DesktopResult<void>>;
     cancelQuestion(requestId: string): Promise<DesktopResult<void>>;
   };
+  capture: {
+    listDisplays(): Promise<DesktopResult<CaptureDisplay[]>>;
+    /** Starts the cancellable countdown; the image is captured only when it completes. */
+    start(displayId: string, sessionId: string): Promise<DesktopResult<void>>;
+    /** Cancels a countdown or discards a held capture. */
+    cancel(): Promise<DesktopResult<void>>;
+    /** Sends the held image (after the user saw the preview) and returns editable text. */
+    extract(captureId: string): Promise<DesktopResult<ExtractionResult>>;
+  };
+  onCaptureEvent(listener: (event: CaptureEvent) => void): () => void;
   onStreamMessage(listener: (message: StreamMessage) => void): () => void;
   onSessionExpired(listener: () => void): () => void;
 };

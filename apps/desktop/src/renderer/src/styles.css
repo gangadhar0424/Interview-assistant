@@ -151,6 +151,17 @@ select.field-control { color-scheme: dark; }
 .text-button { padding: 4px; border: 0; background: transparent; color: #83dce7; font-size: 8px; cursor: pointer; }
 .text-button:hover { color: #c0fbff; }
 .text-button:disabled { opacity: .4; cursor: not-allowed; }
+.capture-panel { margin-top: 13px; padding: 11px; border: 1px solid rgba(251,191,36,.2); border-radius: 13px; background: rgba(251,191,36,.04); }
+.capture-heading { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.capture-hint { color: #8b9bb0; font-size: 8px; line-height: 1.5; }
+.capture-step { display: flex; flex-direction: column; gap: 8px; }
+.capture-display { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 9px; color: #d7e3f2; font-size: 9px; cursor: pointer; }
+.capture-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.capture-banner { display: flex; flex-direction: column; gap: 5px; padding: 9px 10px; border: 1px solid rgba(251,191,36,.28); border-radius: 10px; background: rgba(251,191,36,.07); color: #f3dca6; font-size: 9px; line-height: 1.5; }
+.capture-banner span { color: #c9b78a; font-size: 8px; }
+.capture-banner-live { border-color: rgba(251,113,133,.5); background: rgba(251,113,133,.09); color: #ffc2cc; }
+.capture-preview { width: 100%; max-height: 220px; object-fit: contain; border: 1px solid var(--border); border-radius: 9px; background: #02060c; }
+.capture-notice { padding: 0 0 8px; }
 .inline-error { padding: 0 12px; color: #ff9cac; font-size: 8px; }
 
 .history-select { margin: -7px 0 9px; }

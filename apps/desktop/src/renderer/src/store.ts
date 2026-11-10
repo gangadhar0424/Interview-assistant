@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type {
   AnswerMetrics,
   BackendStatus,
+  CaptureDisplay,
+  CaptureEvent,
   DesktopError,
   DesktopResult,
   DesktopSettings,
@@ -26,6 +28,22 @@ type LiveAnswer = {
   errorMessage: string | null;
 };
 
+/** Screenshot flow state (Phase 11B). The full image never reaches the renderer; only a thumbnail. */
+export type CaptureUi =
+  | { phase: "idle" }
+  | { phase: "choosing"; displays: CaptureDisplay[] }
+  | { phase: "countdown"; seconds: number; displayLabel: string }
+  | {
+      phase: "held";
+      captureId: string;
+      previewDataUrl: string;
+      width: number;
+      height: number;
+      bytes: number;
+    }
+  | { phase: "extracting" }
+  | { phase: "review"; extractionId: string; text: string; truncated: boolean };
+
 type AppState = {
   initialized: boolean;
   user: DesktopUser | null;
@@ -35,6 +53,8 @@ type AppState = {
   selectedSessionId: string | null;
   history: QuestionItem[];
   liveAnswer: LiveAnswer | null;
+  capture: CaptureUi;
+  captureNotice: string | null;
   busy: boolean;
   error: string | null;
   initialize(): Promise<void>;
@@ -45,7 +65,14 @@ type AppState = {
   refreshSessions(): Promise<void>;
   selectSession(sessionId: string): Promise<void>;
   loadHistory(): Promise<void>;
-  ask(question: string): Promise<void>;
+  ask(question: string, extractionId?: string): Promise<void>;
+  openCapture(): Promise<void>;
+  startCapture(displayId: string): Promise<void>;
+  cancelCapture(): Promise<void>;
+  sendCapture(): Promise<void>;
+  setReviewText(text: string): void;
+  askFromScreenshot(): Promise<void>;
+  handleCaptureEvent(event: CaptureEvent): void;
   cancel(): Promise<void>;
   handleStreamMessage(message: StreamMessage): void;
   expireSession(): void;
@@ -142,6 +169,8 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   selectedSessionId: null,
   history: [],
   liveAnswer: null,
+  capture: { phase: "idle" },
+  captureNotice: null,
   busy: false,
   error: null,
   initialize: async () => {
@@ -193,6 +222,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     } catch (error) {
       set({ error: safeMessage(error) });
     } finally {
+      void window.desktop.capture.cancel().catch(() => undefined);
       set({
         busy: false,
         user: null,
@@ -200,6 +230,8 @@ export const useDesktopStore = create<AppState>((set, get) => ({
         selectedSessionId: null,
         history: [],
         liveAnswer: null,
+        capture: { phase: "idle" },
+        captureNotice: null,
       });
     }
   },
@@ -227,6 +259,8 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     }
   },
   selectSession: async (sessionId) => {
+    // A screenshot belongs to the session it was captured for: changing session discards it.
+    if (get().capture.phase !== "idle") await get().cancelCapture();
     set({ selectedSessionId: sessionId, history: [], liveAnswer: null });
     await get().loadHistory();
   },
@@ -243,7 +277,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       set({ error: safeMessage(error) });
     }
   },
-  ask: async (question) => {
+  ask: async (question, extractionId) => {
     const sessionId = get().selectedSessionId;
     if (!sessionId) {
       set({ error: "Select a session before asking a question." });
@@ -267,7 +301,15 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       },
     });
     try {
-      const result = await window.desktop.sessions.startQuestion(requestId, sessionId, question);
+      const result =
+        extractionId === undefined
+          ? await window.desktop.sessions.startQuestion(requestId, sessionId, question)
+          : await window.desktop.sessions.startQuestion(
+              requestId,
+              sessionId,
+              question,
+              extractionId,
+            );
       if (!result.ok) {
         set((state) => ({
           liveAnswer: state.liveAnswer
@@ -338,6 +380,8 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       selectedSessionId: null,
       history: [],
       liveAnswer: null,
+      capture: { phase: "idle" },
+      captureNotice: null,
       error: "Your session expired. Sign in again to continue.",
     });
   },
@@ -349,6 +393,114 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     } catch (error) {
       set({ error: safeMessage(error) });
       return false;
+    }
+  },
+  openCapture: async () => {
+    set({ captureNotice: null });
+    if (!get().selectedSessionId) {
+      set({ captureNotice: "Select a session before capturing a screenshot." });
+      return;
+    }
+    try {
+      const displays = unwrap<CaptureDisplay[]>(await window.desktop.capture.listDisplays());
+      if (displays.length === 0) {
+        set({ captureNotice: "No display is available to capture." });
+        return;
+      }
+      set({ capture: { phase: "choosing", displays } });
+    } catch (error) {
+      set({ captureNotice: safeMessage(error) });
+    }
+  },
+  startCapture: async (displayId) => {
+    const sessionId = get().selectedSessionId;
+    if (!sessionId) {
+      set({ captureNotice: "Select a session before capturing a screenshot." });
+      return;
+    }
+    set({ captureNotice: null });
+    try {
+      unwrap<void>(await window.desktop.capture.start(displayId, sessionId));
+    } catch (error) {
+      set({ capture: { phase: "idle" }, captureNotice: safeMessage(error) });
+    }
+  },
+  cancelCapture: async () => {
+    set({ capture: { phase: "idle" }, captureNotice: null });
+    try {
+      await window.desktop.capture.cancel();
+    } catch {
+      // Nothing is held in the renderer; the main process discards on its own triggers too.
+    }
+  },
+  sendCapture: async () => {
+    const current = get().capture;
+    if (current.phase !== "held") return;
+    const captureId = current.captureId;
+    // The thumbnail is dropped immediately: from here on the image is only in the main process.
+    set({ capture: { phase: "extracting" }, captureNotice: null });
+    try {
+      const result = unwrap<{ extractionId: string; text: string; truncated: boolean }>(
+        await window.desktop.capture.extract(captureId),
+      );
+      if (get().capture.phase !== "extracting") return; // cancelled meanwhile
+      set({
+        capture: {
+          phase: "review",
+          extractionId: result.extractionId,
+          text: result.text,
+          truncated: result.truncated,
+        },
+      });
+    } catch (error) {
+      if (get().capture.phase === "extracting") {
+        set({ capture: { phase: "idle" }, captureNotice: safeMessage(error) });
+      }
+    }
+  },
+  setReviewText: (text) => {
+    const current = get().capture;
+    if (current.phase === "review") set({ capture: { ...current, text } });
+  },
+  askFromScreenshot: async () => {
+    const current = get().capture;
+    if (current.phase !== "review") return;
+    const text = current.text.trim();
+    if (!text) {
+      set({ captureNotice: "There is no text to ask. Edit it or discard the screenshot." });
+      return;
+    }
+    // Only now, on an explicit press of Ask, does the existing question flow begin.
+    set({ capture: { phase: "idle" }, captureNotice: null });
+    await get().ask(text, current.extractionId);
+  },
+  handleCaptureEvent: (event) => {
+    switch (event.type) {
+      case "countdown":
+        set({
+          capture: { phase: "countdown", seconds: event.seconds, displayLabel: event.displayLabel },
+          captureNotice: null,
+        });
+        return;
+      case "captured":
+        if (get().capture.phase !== "countdown") return;
+        set({
+          capture: {
+            phase: "held",
+            captureId: event.captureId,
+            previewDataUrl: event.previewDataUrl,
+            width: event.width,
+            height: event.height,
+            bytes: event.bytes,
+          },
+        });
+        return;
+      case "cancelled":
+        set({
+          capture: { phase: "idle" },
+          captureNotice: event.reason === "user" ? null : event.message,
+        });
+        return;
     }
   },
   reportError: (message) => set({ error: message }),

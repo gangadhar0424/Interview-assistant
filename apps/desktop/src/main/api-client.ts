@@ -231,12 +231,13 @@ export class DesktopApiClient {
     text: string,
     signal: AbortSignal,
     onEvent: (event: QaEvent) => void,
+    inputSource?: "screenshot",
   ): Promise<void> {
     const path = `/api/v1/sessions/${encodeURIComponent(sessionId)}/questions`;
-    let response = await this.authenticatedStream(path, text, signal);
+    let response = await this.authenticatedStream(path, text, signal, inputSource);
     if (response.status === 401) {
       await this.refreshSession();
-      response = await this.rawQuestionStream(path, text, signal);
+      response = await this.rawQuestionStream(path, text, signal, inputSource);
     }
     if (!response.ok) throw await responseError(response);
     const contentType = response.headers.get("Content-Type") ?? "";
@@ -250,7 +251,16 @@ export class DesktopApiClient {
     await consumeSse(response, onEvent);
   }
 
-  private async authenticatedStream(path: string, text: string, signal: AbortSignal) {
+  /**
+   * Phase 11A endpoint: a raw `image/png` body (never multipart), authenticated in the main process.
+   * The PNG is never logged or stored here; the caller wipes it afterwards.
+   */
+  async extractScreenshot(
+    sessionId: string,
+    png: Uint8Array,
+    signal: AbortSignal,
+  ): Promise<{ text: string; truncated: boolean }> {
+    const path = `/api/v1/sessions/${encodeURIComponent(sessionId)}/screenshots`;
     if (!this.accessToken) {
       throw new DesktopApiError({
         kind: "http",
@@ -259,10 +269,57 @@ export class DesktopApiClient {
         message: "Sign in again to continue.",
       });
     }
-    return this.rawQuestionStream(path, text, signal);
+    const send = () =>
+      this.request(path, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken ?? ""}`,
+          "Content-Type": "image/png",
+        },
+        body: png as unknown as BodyInit,
+        signal,
+      });
+    let response = await send();
+    if (response.status === 401) {
+      await this.refreshSession();
+      response = await send();
+    }
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw errorFromResponse(response, payload);
+    const body = payload as { extracted_text?: unknown; truncated?: unknown } | null;
+    if (typeof body?.extracted_text !== "string" || typeof body.truncated !== "boolean") {
+      throw new DesktopApiError({
+        kind: "unknown",
+        code: "bad_response",
+        message: "The server sent an unexpected response.",
+      });
+    }
+    return { text: body.extracted_text, truncated: body.truncated };
   }
 
-  private async rawQuestionStream(path: string, text: string, signal: AbortSignal) {
+  private async authenticatedStream(
+    path: string,
+    text: string,
+    signal: AbortSignal,
+    inputSource?: "screenshot",
+  ) {
+    if (!this.accessToken) {
+      throw new DesktopApiError({
+        kind: "http",
+        status: 401,
+        code: "not_authenticated",
+        message: "Sign in again to continue.",
+      });
+    }
+    return this.rawQuestionStream(path, text, signal, inputSource);
+  }
+
+  private async rawQuestionStream(
+    path: string,
+    text: string,
+    signal: AbortSignal,
+    inputSource?: "screenshot",
+  ) {
     return this.request(path, {
       method: "POST",
       headers: {
@@ -270,7 +327,9 @@ export class DesktopApiClient {
         Accept: "text/event-stream",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text }),
+      // Typed questions keep the exact body they always had; only a completed screenshot flow
+      // adds `input_source`.
+      body: JSON.stringify(inputSource ? { text, input_source: inputSource } : { text }),
       signal,
     });
   }

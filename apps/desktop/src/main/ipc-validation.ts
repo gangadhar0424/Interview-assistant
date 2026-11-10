@@ -33,7 +33,14 @@ export function validateSettingsPatch(value: unknown): Partial<DesktopSettings> 
     if (typeof value.expanded !== "boolean") throw new Error("Expanded must be on or off.");
     patch.expanded = value.expanded;
   }
-  if (Object.keys(value).some((key) => !["backendBaseUrl", "alwaysOnTop", "opacity", "expanded"].includes(key))) {
+  if ("screenshotInputEnabled" in value) {
+    if (typeof value.screenshotInputEnabled !== "boolean") {
+      throw new Error("Screenshot input must be on or off.");
+    }
+    patch.screenshotInputEnabled = value.screenshotInputEnabled;
+  }
+  const known = ["backendBaseUrl", "alwaysOnTop", "opacity", "expanded", "screenshotInputEnabled"];
+  if (Object.keys(value).some((key) => !known.includes(key))) {
     throw new Error("Unsupported setting.");
   }
   return patch;
@@ -44,4 +51,15 @@ export function validateCopyText(value: unknown): string {
   if (typeof value !== "string") throw new Error("Only text can be copied.");
   if (value.length > MAX_COPY_LENGTH) throw new Error("The text is too large to copy.");
   return value;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID.test(value);
+}
+
+/** A display id is the operating system's numeric id as text (never a name or a path). */
+export function isDisplayId(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9]{1,12}$/.test(value);
 }
