@@ -7,6 +7,7 @@ import type { SafeStoragePort } from "./secure-refresh-store";
 import { SecureRefreshTokenStore } from "./secure-refresh-store";
 import { SettingsStore } from "./settings-store";
 import { isTrustedRenderer } from "./ipc-security";
+import { hasErrors, parseDraft, toCreateBody, validateDraft } from "../shared/session-form";
 import {
   isDisplayId,
   isUuid,
@@ -251,6 +252,25 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     });
     return undefined;
   }, true);
+  // ---- Desktop session creation (Phase 11.5). Narrow channels; the renderer never calls the API. ----
+  handle("sessions:create-options", async () => {
+    const [resumes, documents, options] = await Promise.all([
+      api.listFiles("resumes"),
+      api.listFiles("documents"),
+      api.getSessionOptions(),
+    ]);
+    return { resumes, documents, options };
+  }, true);
+  handle("sessions:create", async (_event, input) => {
+    const draft = parseDraft(input); // exact keys and types, or a safe refusal
+    const issues = validateDraft(draft, null);
+    if (hasErrors(issues)) {
+      throw new Error(Object.values(issues)[0] ?? "The session details are not valid.");
+    }
+    // The backend stays authoritative for readiness, ownership, limits and the enum values.
+    return api.createSession(toCreateBody(draft));
+  }, true);
+
   // ---- Screenshot input channels (Phase 11B). Named and validated; no generic capture API. ----
   handle("capture:list-displays", () => capture.listDisplays(), true);
   handle("capture:start", async (_event, displayId, sessionId) => {

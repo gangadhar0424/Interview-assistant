@@ -1,3 +1,5 @@
+import type { SessionDraft, SessionOptions } from "./session-form";
+
 export type DesktopSettings = {
   backendBaseUrl: string;
   alwaysOnTop: boolean;
@@ -19,6 +21,8 @@ export type DesktopError = {
   status?: number;
   code?: string;
   retryAfterSeconds?: number;
+  /** Backend validation hints (field name + the backend's own fixed message); never user input. */
+  fieldErrors?: Array<{ field: string; message: string }>;
 };
 
 export type DesktopResult<T> =
@@ -37,6 +41,21 @@ export type SessionSummary = {
   updated_at: string;
   resume: { id: string | null; filename: string };
   document_count: number;
+};
+
+/** A resume or document the user may select (Phase 11.5). Names and status only: never content. */
+export type FileOption = {
+  id: string;
+  filename: string;
+  size_bytes: number;
+  created_at: string;
+  status: "ready" | "processing" | "failed";
+};
+
+export type CreateSessionOptions = {
+  resumes: FileOption[];
+  documents: FileOption[];
+  options: SessionOptions;
 };
 
 export type SessionList = {
@@ -187,6 +206,10 @@ export type DesktopBridge = {
       extractionId?: string,
     ): Promise<DesktopResult<void>>;
     cancelQuestion(requestId: string): Promise<DesktopResult<void>>;
+    /** Ready/not-ready resumes and documents plus the answer-style options (Phase 11.5). */
+    createOptions(): Promise<DesktopResult<CreateSessionOptions>>;
+    /** Validates in main, then calls the existing `POST /sessions`. */
+    create(draft: SessionDraft): Promise<DesktopResult<SessionSummary>>;
   };
   capture: {
     listDisplays(): Promise<DesktopResult<CaptureDisplay[]>>;

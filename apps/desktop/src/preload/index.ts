@@ -4,8 +4,10 @@ import type {
   CaptureEvent,
   DesktopBridge,
   DesktopResult,
+  CreateSessionOptions,
   DesktopSettings,
   ExtractionResult,
+  SessionSummary,
   StreamMessage,
 } from "../shared/contracts";
 
@@ -41,6 +43,10 @@ const bridge: DesktopBridge = {
         : ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text, extractionId),
     cancelQuestion: (requestId) =>
       ipcRenderer.invoke("sessions:stream-cancel", requestId),
+    createOptions: () =>
+      ipcRenderer.invoke("sessions:create-options") as Promise<DesktopResult<CreateSessionOptions>>,
+    create: (draft) =>
+      ipcRenderer.invoke("sessions:create", draft) as Promise<DesktopResult<SessionSummary>>,
   },
   capture: {
     listDisplays: () =>

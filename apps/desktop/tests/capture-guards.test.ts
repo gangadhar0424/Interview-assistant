@@ -94,6 +94,8 @@ describe("the preload bridge stays narrow", () => {
         "capture:extract",
         "capture:list-displays",
         "capture:start",
+        "sessions:create",
+        "sessions:create-options",
         "sessions:list",
         "sessions:questions",
         "sessions:stream-cancel",
@@ -171,5 +173,25 @@ describe("settings", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("desktop session creation stays inside the existing security model (Phase 11.5)", () => {
+  it("adds no browser-launch, generic API channel, logging or storage for form content", () => {
+    expect(where(/openExternal|shell\./)).toEqual([]); // no new Electron capability
+    for (const rel of ["shared/session-form.ts", "renderer/src/ui/CreateSessionPage.tsx"]) {
+      const text = sources.find((s) => s.rel === rel)?.text ?? "";
+      expect(text, rel).not.toMatch(/console\.|localStorage|sessionStorage|indexedDB|document\.cookie|from "electron"/);
+    }
+    const store = sources.find((s) => s.rel === "renderer/src/store.ts")?.text ?? "";
+    expect(store).not.toMatch(/localStorage|sessionStorage|indexedDB|console\./);
+    const main = sources.filter((s) => s.rel.startsWith("main/")).map((s) => s.text).join("\n");
+    expect(main).not.toMatch(/console\./); // the main process never logs request or form content
+  });
+
+  it("the preload exposes create only as two named, argument-light functions", () => {
+    const preload = sources.find((s) => s.rel === "preload/index.ts")?.text ?? "";
+    expect(preload).toContain('invoke("sessions:create-options")');
+    expect(preload).toMatch(/create: \(draft\) =>\s+ipcRenderer\.invoke\("sessions:create", draft\)/);
   });
 });

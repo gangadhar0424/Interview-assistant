@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useDesktopStore } from "../store";
+import { CreateSessionPage } from "./CreateSessionPage";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 
-type Page = "home" | "assistant" | "history" | "settings";
+type Page = "home" | "create" | "assistant" | "history" | "settings";
 
 const navigation: Array<{ id: Page; label: string; icon: string }> = [
   { id: "home", label: "Sessions", icon: "⌂" },
@@ -101,7 +102,18 @@ export default function App() {
               key={page}
               transition={{ duration: 0.16 }}
             >
-              {page === "home" && <HomePage openAssistant={() => setPage("assistant")} />}
+              {page === "home" && (
+                <HomePage
+                  openAssistant={() => setPage("assistant")}
+                  openCreate={() => setPage("create")}
+                />
+              )}
+              {page === "create" && (
+                <CreateSessionPage
+                  onCancel={() => setPage("home")}
+                  onCreated={() => setPage("assistant")}
+                />
+              )}
               {page === "assistant" && <AssistantPage />}
               {page === "history" && <HistoryPage />}
               {page === "settings" && <SettingsPage />}
@@ -166,7 +178,13 @@ function PageHeading({
   );
 }
 
-function HomePage({ openAssistant }: { openAssistant: () => void }) {
+function HomePage({
+  openAssistant,
+  openCreate,
+}: {
+  openAssistant: () => void;
+  openCreate: () => void;
+}) {
   const sessions = useDesktopStore((state) => state.sessions);
   const selectedSessionId = useDesktopStore((state) => state.selectedSessionId);
   const selectSession = useDesktopStore((state) => state.selectSession);
@@ -178,9 +196,14 @@ function HomePage({ openAssistant }: { openAssistant: () => void }) {
     <div className="page-scroll">
       <PageHeading
         action={
-          <button className="icon-button" disabled={busy} onClick={() => void refreshSessions()}>
-            ↻ <span className="sr-only">Refresh sessions</span>
-          </button>
+          <div className="heading-actions">
+            <button className="button button-primary" onClick={openCreate} type="button">
+              New session
+            </button>
+            <button className="icon-button" disabled={busy} onClick={() => void refreshSessions()}>
+              ↻ <span className="sr-only">Refresh sessions</span>
+            </button>
+          </div>
         }
         description="Choose a prepared session to open your floating assistant."
         eyebrow="YOUR WORKSPACE"
@@ -192,9 +215,11 @@ function HomePage({ openAssistant }: { openAssistant: () => void }) {
           <div className="empty-orbit">✦</div>
           <h2>No sessions yet</h2>
           <p>
-            Create an interview session in the web app first. Your prepared sessions will appear
-            here automatically.
+            Create your first interview session here. Your sessions will appear in this list.
           </p>
+          <button className="button button-primary" onClick={openCreate} type="button">
+            New session
+          </button>
           <div className="connection-note">
             <span className="connection-dot connection-connected" />
             This desktop app connects to your existing backend.

@@ -151,6 +151,26 @@ select.field-control { color-scheme: dark; }
 .text-button { padding: 4px; border: 0; background: transparent; color: #83dce7; font-size: 8px; cursor: pointer; }
 .text-button:hover { color: #c0fbff; }
 .text-button:disabled { opacity: .4; cursor: not-allowed; }
+.heading-actions { display: flex; align-items: center; gap: 8px; }
+.create-form { display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; }
+.create-field { display: flex; flex-direction: column; gap: 5px; }
+.create-description { min-height: 110px; resize: vertical; }
+.create-group { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
+.create-choice { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 9px; color: #d7e3f2; font-size: 9px; cursor: pointer; overflow-wrap: anywhere; }
+.create-choice-disabled { opacity: .55; cursor: not-allowed; }
+.create-choice em { color: #a9b5c5; font-style: normal; }
+.create-style { padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.03); }
+.create-style-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.create-style-summary { margin: 3px 0 0; color: #c9d6e5; font-size: 9px; }
+.create-style-fields { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.create-guidance { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid rgba(251,191,36,.28); border-radius: 12px; background: rgba(251,191,36,.06); color: #f3dca6; font-size: 9px; line-height: 1.6; }
+.create-guidance h2 { margin: 0; font-size: 11px; }
+.create-guidance p { margin: 0; }
+.create-file-status { margin: 0; padding-left: 16px; color: #c9b78a; }
+.create-link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.create-link { padding: 5px 7px; border-radius: 7px; background: rgba(0,0,0,.35); color: #d7e3f2; font-size: 9px; overflow-wrap: anywhere; }
+.field-error { color: #ff9cac; font-size: 8px; }
+.create-error { padding: 0 0 8px; }
 .capture-panel { margin-top: 13px; padding: 11px; border: 1px solid rgba(251,191,36,.2); border-radius: 13px; background: rgba(251,191,36,.04); }
 .capture-heading { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
 .capture-hint { color: #8b9bb0; font-size: 8px; line-height: 1.5; }

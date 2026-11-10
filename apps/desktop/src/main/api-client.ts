@@ -1,5 +1,6 @@
 import type {
   AnswerItem,
+  FileOption,
   DesktopError,
   DesktopSettings,
   DesktopUser,
@@ -28,7 +29,22 @@ export class DesktopApiError extends Error {
   }
 }
 
-type ErrorEnvelope = { error?: { code?: string; message?: string } };
+type ErrorEnvelope = {
+  error?: { code?: string; message?: string; details?: unknown };
+};
+
+/** Only the backend's own field hints (name + fixed message), capped; never anything else. */
+function fieldErrorsFrom(details: unknown): Array<{ field: string; message: string }> | undefined {
+  if (!Array.isArray(details)) return undefined;
+  const hints: Array<{ field: string; message: string }> = [];
+  for (const item of details.slice(0, 10)) {
+    const record = item as { field?: unknown; message?: unknown } | null;
+    if (typeof record?.field === "string" && typeof record.message === "string") {
+      hints.push({ field: record.field.slice(0, 60), message: record.message.slice(0, 200) });
+    }
+  }
+  return hints.length ? hints : undefined;
+}
 
 function isLoopback(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
@@ -72,6 +88,9 @@ function errorFromResponse(response: Response, payload: unknown): DesktopApiErro
     code: error?.code ?? "unknown_error",
     message: error?.message ?? "The server could not complete the request.",
     ...(Number.isFinite(retry) && retry > 0 ? { retryAfterSeconds: Math.ceil(retry) } : {}),
+    ...(error?.code === "validation_error" && fieldErrorsFrom(error.details)
+      ? { fieldErrors: fieldErrorsFrom(error.details) as Array<{ field: string; message: string }> }
+      : {}),
   });
 }
 
@@ -206,6 +225,104 @@ export class DesktopApiClient {
       cursor = page.next_cursor;
     }
     return items;
+  }
+
+  /** Resumes or documents with a ready/processing/failed status (ready = extraction AND indexing done). */
+  async listFiles(kind: "resumes" | "documents"): Promise<FileOption[]> {
+    type Raw = {
+      id: string;
+      filename: string;
+      size_bytes: number;
+      created_at: string;
+      ingestion?: { status?: string } | null;
+      indexing?: { status?: string } | null;
+    };
+    const page = await this.authenticatedJson<{ items: Raw[] }>(`/api/v1/${kind}?limit=200`);
+    return (page.items ?? []).map((item) => {
+      const stages = [item.ingestion?.status, item.indexing?.status];
+      const status: FileOption["status"] = stages.includes("failed")
+        ? "failed"
+        : stages.every((stage) => stage === "completed")
+          ? "ready"
+          : "processing";
+      return {
+        id: item.id,
+        filename: item.filename,
+        size_bytes: item.size_bytes,
+        created_at: item.created_at,
+        status,
+      };
+    });
+  }
+
+  /** The preference values the backend offers (the only source of truth for the form). */
+  async getSessionOptions(): Promise<{
+    languages: string[];
+    question_types: string[];
+    formats: string[];
+    lengths: string[];
+    tones: string[];
+  }> {
+    const raw = await this.authenticatedJson<Record<string, unknown>>("/api/v1/ai/options");
+    const list = (key: string): string[] =>
+      Array.isArray(raw[key]) ? (raw[key] as unknown[]).filter((v): v is string => typeof v === "string") : [];
+    return {
+      languages: list("languages"),
+      question_types: list("question_types"),
+      formats: list("formats"),
+      lengths: list("lengths"),
+      tones: list("tones"),
+    };
+  }
+
+  /** `POST /api/v1/sessions` with an already validated body; returns the new session's summary. */
+  async createSession(body: Record<string, unknown>): Promise<SessionSummary> {
+    const send = () =>
+      this.request("/api/v1/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken ?? ""}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    if (!this.accessToken) {
+      throw new DesktopApiError({
+        kind: "http",
+        status: 401,
+        code: "not_authenticated",
+        message: "Sign in again to continue.",
+      });
+    }
+    let response = await send();
+    if (response.status === 401) {
+      await this.refreshSession();
+      response = await send();
+    }
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw errorFromResponse(response, payload);
+    const created = payload as Partial<SessionSummary> | null;
+    if (typeof created?.id !== "string" || typeof created.status !== "string") {
+      throw new DesktopApiError({
+        kind: "unknown",
+        code: "bad_response",
+        message: "The server sent an unexpected response.",
+      });
+    }
+    // Only the summary fields go back to the renderer: the backend's detail also carries the job
+    // description and preferences, which the form already has and must not be echoed onward.
+    const summary = created as SessionSummary;
+    return {
+      id: summary.id,
+      type: summary.type,
+      title: summary.title ?? null,
+      company_name: summary.company_name,
+      status: summary.status,
+      created_at: summary.created_at,
+      updated_at: summary.updated_at,
+      resume: summary.resume,
+      document_count: summary.document_count ?? 0,
+    };
   }
 
   async listQuestions(sessionId: string): Promise<QuestionItem[]> {

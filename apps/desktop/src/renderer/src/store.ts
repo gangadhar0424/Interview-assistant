@@ -1,7 +1,15 @@
 import { create } from "zustand";
+import {
+  defaultDraft,
+  hasErrors,
+  validateDraft,
+  type DraftErrors,
+  type SessionDraft,
+} from "../../shared/session-form";
 import type {
   AnswerMetrics,
   BackendStatus,
+  CreateSessionOptions,
   CaptureDisplay,
   CaptureEvent,
   DesktopError,
@@ -53,6 +61,12 @@ type AppState = {
   selectedSessionId: string | null;
   history: QuestionItem[];
   liveAnswer: LiveAnswer | null;
+  errorKind: ErrorKind | null;
+  createOptions: CreateSessionOptions | null;
+  createDraft: SessionDraft;
+  createStatus: "idle" | "loading" | "ready" | "submitting";
+  createError: string | null;
+  createFieldErrors: DraftErrors;
   capture: CaptureUi;
   captureNotice: string | null;
   busy: boolean;
@@ -76,14 +90,75 @@ type AppState = {
   cancel(): Promise<void>;
   handleStreamMessage(message: StreamMessage): void;
   expireSession(): void;
+  loadCreateOptions(): Promise<void>;
+  updateDraft(patch: Partial<SessionDraft>): void;
+  resetCreate(): void;
+  submitCreate(): Promise<string | null>;
   updateSettings(patch: Partial<DesktopSettings>): Promise<boolean>;
   reportError(message: string): void;
   clearError(): void;
 };
 
+/** An error from the main process that keeps its kind and code (so "network" is not lost). */
+export class StoreError extends Error {
+  constructor(
+    message: string,
+    readonly kind?: DesktopError["kind"],
+    readonly code?: string,
+    readonly fieldErrors?: DesktopError["fieldErrors"],
+  ) {
+    super(message);
+    this.name = "StoreError";
+  }
+}
+
 function unwrap<T>(result: DesktopResult<T>): T {
-  if (!result.ok) throw new Error(result.error.message);
+  if (!result.ok) {
+    throw new StoreError(result.error.message, result.error.kind, result.error.code, result.error.fieldErrors);
+  }
   return result.data;
+}
+
+type ErrorKind = "network" | "other";
+
+/** The banner text plus where it came from, so a later success can clear only a network error. */
+function errorState(error: unknown): { error: string; errorKind: ErrorKind } {
+  return {
+    error: safeMessage(error),
+    errorKind: error instanceof StoreError && error.kind === "network" ? "network" : "other",
+  };
+}
+
+const isNetworkError = (error: unknown): boolean =>
+  error instanceof StoreError && error.kind === "network";
+
+/** Backend field names (as in the validation hints) to form fields. */
+const BACKEND_FIELDS: Record<string, keyof SessionDraft> = {
+  company_name: "company",
+  title: "title",
+  job_description: "description",
+  resume_id: "resumeId",
+  document_ids: "documentIds",
+  "preferences.language": "language",
+  "preferences.question_type": "questionType",
+  "preferences.answer_format": "format",
+  "preferences.answer_length": "length",
+  "preferences.answer_tone": "tone",
+  "preferences.extra_instructions": "extra",
+};
+
+function createErrorMessage(error: unknown): string {
+  if (!(error instanceof StoreError)) return safeMessage(error);
+  const messages: Record<string, string> = {
+    material_not_ready: "A selected resume or document is still being processed. Wait until it is ready, then try again.",
+    material_not_found: "A selected resume or document is no longer available. Refresh the list and choose again.",
+    duplicate_material: "Each document can only be chosen once.",
+    too_many_documents: "You chose more documents than are allowed.",
+    validation_error: "Some details were not accepted. Check the highlighted fields.",
+    invalid_provider_selection: "The answer provider is not available. Try again.",
+    rate_limited: "Too many requests. Please wait a moment and try again.",
+  };
+  return (error.code && messages[error.code]) || error.message;
 }
 
 function answerError(code: string): string {
@@ -169,6 +244,12 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   selectedSessionId: null,
   history: [],
   liveAnswer: null,
+  errorKind: null,
+  createOptions: null,
+  createDraft: defaultDraft(null),
+  createStatus: "idle",
+  createError: null,
+  createFieldErrors: {},
   capture: { phase: "idle" },
   captureNotice: null,
   busy: false,
@@ -184,7 +265,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       if (auth.user) await get().refreshSessions();
       set({ initialized: true });
     } catch (error) {
-      set({ error: safeMessage(error), initialized: true });
+      set({ ...errorState(error), initialized: true });
     } finally {
       set({ busy: false });
     }
@@ -196,7 +277,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       set({ user });
       await get().refreshSessions();
     } catch (error) {
-      set({ error: safeMessage(error) });
+      set(errorState(error));
       throw error;
     } finally {
       set({ busy: false });
@@ -209,7 +290,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       set({ user });
       await get().refreshSessions();
     } catch (error) {
-      set({ error: safeMessage(error) });
+      set(errorState(error));
       throw error;
     } finally {
       set({ busy: false });
@@ -220,7 +301,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     try {
       unwrap<void>(await window.desktop.auth.logout());
     } catch (error) {
-      set({ error: safeMessage(error) });
+      set(errorState(error));
     } finally {
       void window.desktop.capture.cancel().catch(() => undefined);
       set({
@@ -232,6 +313,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
         liveAnswer: null,
         capture: { phase: "idle" },
         captureNotice: null,
+        ...clearedCreate(),
       });
     }
   },
@@ -239,9 +321,10 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     set({ connection: "checking" });
     try {
       const result = await window.desktop.app.checkBackend();
-      set({ connection: result.ok ? "connected" : "unavailable" });
+      if (result.ok) markReachable(set);
+      else set({ connection: "unavailable" });
     } catch (error) {
-      set({ connection: "unavailable", error: safeMessage(error) });
+      set({ connection: "unavailable", ...errorState(error) });
     }
   },
   refreshSessions: async () => {
@@ -253,9 +336,13 @@ export const useDesktopStore = create<AppState>((set, get) => ({
           ? selected
           : (sessions[0]?.id ?? null);
       set({ sessions, selectedSessionId });
+      // The backend answered: show it as connected now and drop a stale network error banner,
+      // without waiting for the periodic health check.
+      markReachable(set);
       if (selectedSessionId) await get().loadHistory();
     } catch (error) {
-      set({ error: safeMessage(error) });
+      set(errorState(error));
+      if (isNetworkError(error)) set({ connection: "unavailable" });
     }
   },
   selectSession: async (sessionId) => {
@@ -273,8 +360,10 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     try {
       const history = unwrap<QuestionItem[]>(await window.desktop.sessions.questions(sessionId));
       if (get().selectedSessionId === sessionId) set({ history });
+      markReachable(set);
     } catch (error) {
-      set({ error: safeMessage(error) });
+      set(errorState(error));
+      if (isNetworkError(error)) set({ connection: "unavailable" });
     }
   },
   ask: async (question, extractionId) => {
@@ -345,7 +434,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       }));
       void get().loadHistory();
     } catch (error) {
-      set({ error: safeMessage(error) });
+      set(errorState(error));
     }
   },
   handleStreamMessage: (message) => {
@@ -382,7 +471,9 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       liveAnswer: null,
       capture: { phase: "idle" },
       captureNotice: null,
+      ...clearedCreate(),
       error: "Your session expired. Sign in again to continue.",
+      errorKind: "other",
     });
   },
   updateSettings: async (patch) => {
@@ -391,7 +482,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       set({ settings });
       return true;
     } catch (error) {
-      set({ error: safeMessage(error) });
+      set(errorState(error));
       return false;
     }
   },
@@ -503,10 +594,100 @@ export const useDesktopStore = create<AppState>((set, get) => ({
         return;
     }
   },
-  reportError: (message) => set({ error: message }),
-  clearError: () => set({ error: null }),
+  loadCreateOptions: async () => {
+    set({ createStatus: "loading", createError: null });
+    try {
+      const loaded = unwrap<CreateSessionOptions>(await window.desktop.sessions.createOptions());
+      const ready = new Set(loaded.resumes.filter((r) => r.status === "ready").map((r) => r.id));
+      const readyDocs = new Set(loaded.documents.filter((d) => d.status === "ready").map((d) => d.id));
+      const current = get().createDraft;
+      const defaults = defaultDraft(loaded.options);
+      const offered = (value: string, list: string[]) => (list.includes(value) ? value : undefined);
+      set({
+        createOptions: loaded,
+        createStatus: "ready",
+        createDraft: {
+          ...current,
+          resumeId: current.resumeId && ready.has(current.resumeId) ? current.resumeId : null,
+          documentIds: current.documentIds.filter((id) => readyDocs.has(id)),
+          language: offered(current.language, loaded.options.languages) ?? defaults.language,
+          questionType: offered(current.questionType, loaded.options.question_types) ?? defaults.questionType,
+          format: offered(current.format, loaded.options.formats) ?? defaults.format,
+          length: offered(current.length, loaded.options.lengths) ?? defaults.length,
+          tone: offered(current.tone, loaded.options.tones) ?? defaults.tone,
+        },
+      });
+      markReachable(set);
+    } catch (error) {
+      set({ createStatus: "idle", createError: createErrorMessage(error) });
+      if (isNetworkError(error)) set({ connection: "unavailable" });
+    }
+  },
+  updateDraft: (patch) =>
+    set((state) => {
+      const next = { ...state.createDraft, ...patch };
+      // Editing a field clears that field's message (and the general one).
+      const cleared = { ...state.createFieldErrors };
+      for (const key of Object.keys(patch)) delete cleared[key as keyof SessionDraft];
+      return { createDraft: next, createFieldErrors: cleared, createError: null };
+    }),
+  resetCreate: () => set(clearedCreate(get().createOptions)),
+  submitCreate: async () => {
+    const { createDraft: draft, createOptions: loaded } = get();
+    if (!loaded) return null;
+    const ready = new Set(loaded.resumes.filter((r) => r.status === "ready").map((r) => r.id));
+    const readyDocs = new Set(loaded.documents.filter((d) => d.status === "ready").map((d) => d.id));
+    const issues = validateDraft(draft, loaded.options, ready, readyDocs);
+    if (hasErrors(issues)) {
+      set({ createFieldErrors: issues, createError: "Fix the highlighted fields and try again." });
+      return null;
+    }
+    set({ createStatus: "submitting", createError: null, createFieldErrors: {} });
+    try {
+      const created = unwrap<SessionSummary>(await window.desktop.sessions.create(draft));
+      markReachable(set);
+      await get().refreshSessions();
+      await get().selectSession(created.id);
+      set(clearedCreate(get().createOptions));
+      return created.id;
+    } catch (error) {
+      const fieldErrors: DraftErrors = {};
+      if (error instanceof StoreError) {
+        for (const hint of error.fieldErrors ?? []) {
+          const key = BACKEND_FIELDS[hint.field];
+          if (key) fieldErrors[key] = hint.message;
+        }
+      }
+      set({ createStatus: "ready", createError: createErrorMessage(error), createFieldErrors: fieldErrors });
+      if (isNetworkError(error)) set({ connection: "unavailable" });
+      return null;
+    }
+  },
+  reportError: (message) => set({ error: message, errorKind: "other" }),
+  clearError: () => set({ error: null, errorKind: null }),
 }));
 
 function safeMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong. Please try again.";
+}
+
+type StoreSet = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
+
+/** The backend answered: mark it connected now and drop a stale network-error banner. */
+function markReachable(set: StoreSet): void {
+  set((state) => ({
+    connection: "connected",
+    ...(state.errorKind === "network" ? { error: null, errorKind: null } : {}),
+  }));
+}
+
+/** A fresh, empty create-session state (the draft lives in memory only and is never persisted). */
+function clearedCreate(options: CreateSessionOptions | null = null) {
+  return {
+    createDraft: defaultDraft(options?.options ?? null),
+    createStatus: options ? ("ready" as const) : ("idle" as const),
+    createError: null,
+    createFieldErrors: {} as DraftErrors,
+    ...(options ? {} : { createOptions: null }),
+  };
 }
