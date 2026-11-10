@@ -9,6 +9,8 @@
 
 The desktop MVP does not require an API/provider key on the desktop. Configure AI provider credentials only on the backend.
 
+> **Troubleshooting:** if the app exits immediately with `bad option: --remote-debugging-port` (or similar), the environment variable `ELECTRON_RUN_AS_NODE=1` is set (it is inherited from some VS Code-hosted terminals) and makes Electron behave like plain Node. Unset it (`Remove-Item Env:ELECTRON_RUN_AS_NODE` in PowerShell) before launching.
+
 ## Run in development
 
 From the repository root in PowerShell:
@@ -34,10 +36,13 @@ npm run build
 ```powershell
 cd apps/desktop
 npm ci
+$env:CSC_IDENTITY_AUTO_DISCOVERY = "false"   # unsigned local build
 npm run package:win
 ```
 
-The NSIS installer is written under `apps/desktop/release/`. It is an unsigned development package and must not be distributed as a production release. Code signing and auto-update are deferred.
+The NSIS installer is written under `apps/desktop/release/`. It is an unsigned development package and must not be distributed as a production release. Code signing and auto-update are deferred pending owner approval. The full release process, fuse verification, installer testing and rollback notes are in [DESKTOP_RELEASE.md](./DESKTOP_RELEASE.md).
+
+Release builds apply Electron fuses (see D-49). `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and `--inspect` are not honoured by the packaged app. `npm run dev` is unaffected, but note that the dev server (only) allows inline styles; the packaged CSP is `style-src 'self'`.
 
 ## Authentication and data handling
 
@@ -49,5 +54,4 @@ The NSIS installer is written under `apps/desktop/release/`. It is an unsigned d
 
 ## Dependency audit note
 
-The checked production dependency set has no npm audit findings. The development/build dependency tree currently reports six **moderate** transitive advisories in the Electron Builder/minimatch chain; there are no high or critical findings. The suggested automated fix would downgrade Electron Builder across a major version, so it was not applied blindly. Reassess that dependency chain before distributing installers.
-
+The checked production dependency set has no npm audit findings. The development/build dependency tree reports six **moderate** transitive findings that are one advisory (GHSA-g3hv-75wg-m249, `minimatch` DoS) propagated through the Electron Builder chain; there are no high or critical findings and none affect the packaged app. `npm audit fix --force` would downgrade Electron Builder across a major version, and a `minimatch@11` override cascades into packages that need the minimatch 3 API, so neither was applied. Re-run `npm audit` after each Electron Builder update. Details: [PHASE_10B_REPORT.md](./PHASE_10B_REPORT.md).

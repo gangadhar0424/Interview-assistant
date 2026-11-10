@@ -24,7 +24,7 @@ Use a non-production account and synthetic interview data. Start the API and pre
 - [ ] Expand/collapse the window and verify the preference survives restart.
 - [ ] Adjust opacity; the window remains clearly visible (minimum 65%).
 - [ ] Toggle always-on-top and verify both states.
-- [ ] Minimize, restore, close-to-tray, show from tray, and explicitly quit.
+- [ ] Minimize (title-bar "−" goes to the taskbar, not the tray), restore, close-to-tray ("×", hides to the tray), show from tray, and explicitly quit. With always-on-top **off**, note whether the window is ever found minimized and what preceded it (open observation from Phase 10A, not reproduced in 10B).
 - [ ] Confirm closing the window leaves a visible tray affordance and does not silently terminate.
 
 ## Typed question, streaming, cancellation and history
