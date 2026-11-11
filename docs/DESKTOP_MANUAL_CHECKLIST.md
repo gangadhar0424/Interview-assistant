@@ -68,3 +68,14 @@ Use a non-production account and synthetic interview data. Start the API and pre
 - [ ] Disable the setting while a preview is held: it disappears. Stop the backend / disable vision: a clear error and no leftover image.
 - [ ] Typed questions behave exactly as before.
 
+
+## Phase 12 — Live audio (manual, real Windows PC)
+1. Fresh profile: audio is OFF; no mic prompt/indicator at launch (`audioInputEnabled` false).
+2. Turn on audio: native consent dialog appears; Cancel keeps it off; Turn on enables the panel.
+3. Start (microphone): tray tooltip says RECORDING, in-app indicator visible; speak a question — transcript line appears, "Answer this question?" confirm shows; confirming streams an answer (history shows input source audio).
+4. Stop: indicator clears, Windows mic-in-use icon disappears within seconds.
+5. Hide/minimize window, sign out, switch session, disable audio during listening: capture stops each time.
+6. Denied mic permission in Windows privacy settings: clear error, nothing stuck "listening".
+7. System audio source: play a video with speech; transcript matches; no screen picker/video capture; Stop works.
+8. Confirm nothing is written to disk (no wav/transcript files in userData) and logs contain no transcript text.
+9. Auto-answer toggle is OFF by default; when ON, only detected questions answer.
