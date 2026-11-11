@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging, request_id_ctx
 from app.core.metrics import http_request_duration, http_requests
+from app.core.security_headers import apply_security_headers
 from app.db.session import create_engine, create_sessionmaker
 from app.embeddings.factory import build_embedding_provider
 from app.ingestion.dispatch import DramatiqDispatcher
@@ -177,6 +178,7 @@ def create_app() -> FastAPI:
             response = await call_next(request)
             status_code = response.status_code
             response.headers["x-request-id"] = request_id
+            apply_security_headers(request.url.path, response.headers)
             logger.info(
                 "request",
                 extra={

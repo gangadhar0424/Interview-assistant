@@ -52,6 +52,9 @@ not an RLS verification.
 
 ## Remaining risks and controls
 
+- **Web CSP has no script policy (Phase 13A, D-54):** the web app sends framing, base-URI, form-action and object restrictions but no `script-src`/`style-src`, because Next.js needs per-request nonces and dynamic rendering for that. Injected inline script would therefore not be blocked by CSP. Keep the web app on a trusted network and revisit before wider exposure.
+- **Scanner coverage (Phase 13A):** CodeQL, gitleaks, `pip-audit` and `npm audit` run in `.github/workflows/security.yml`. Triage results are in the Phase 13A report, not here.
+
 - **Process-local coordination:** job-import and Q&A rate/concurrency limits, WebSocket connection
   caps, and detached WebSocket replay state are per API process. Their limits multiply across
   replicas; WebSocket resume requires routing a reconnect to the process holding the channel.

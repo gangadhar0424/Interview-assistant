@@ -78,6 +78,8 @@ Identical to resumes under `/documents` (`POST /documents`, `GET /documents`, `G
 ## 7. Operational
 `GET /health` (liveness, no auth), `GET /ready` (dependency readiness, no auth), `GET /metrics` (Prometheus text, no application auth; expose only on a trusted monitoring network). Metrics are process-local; scrape each API process.
 
+**Security headers (Phase 13A, D-54):** every HTTP response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` (omitted on `/docs` and `/redoc`). `/api/v1/auth/*` responses also carry `Cache-Control: no-store`. A header a route sets itself (for example the file download's `Cache-Control: private, no-store`) is not overwritten. HSTS is the TLS proxy's responsibility.
+
 ## 8. WebSocket (Phase 9A ✅ handshake, heartbeat, limits; 9B ✅ Q&A, cancel, backpressure; 9C ✅ resume; Phase 9 accepted)
 Endpoint: `GET /api/v1/ws/sessions/{session_id}?ticket=<single-use>` over WSS (obtain the ticket with `POST /auth/ws-ticket`). Frames are **JSON text** envelopes `{ "type": "...", "id": "...", "seq": n, "ts": ms, "payload": {...} }`. Binary frames are not supported in Phase 9 (audio is a later phase); a binary frame closes the socket with `1003`. Contract source of truth: the Pydantic models in `app/realtime/schemas.py`, exported to `packages/protocol/protocol.schema.json` and `packages/protocol/src/index.ts` (generated, committed, drift-tested; regenerate with `python -m app.realtime.codegen` from `services/api`).
 

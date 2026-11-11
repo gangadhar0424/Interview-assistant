@@ -1,6 +1,7 @@
 import path from "node:path";
 import { loadEnvConfig } from "@next/env";
 import type { NextConfig } from "next";
+import { SECURITY_HEADERS } from "./lib/security-headers";
 
 // Load the monorepo-root .env (shared with the API). Next has already loaded apps/web/.env*
 // and caches that result, so forceReload (4th argument) is required to read the root file.
@@ -17,6 +18,10 @@ const apiInternalUrl = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: "/:path*", headers: SECURITY_HEADERS.map((h) => ({ ...h })) }];
+  },
   // The browser only ever talks to the web origin. Proxying /api/* keeps the HttpOnly refresh
   // cookie same-origin (no CORS, no third-party-cookie issues, SameSite=Lax is sufficient).
   async rewrites() {
