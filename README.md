@@ -21,7 +21,7 @@ File storage is NOT a compose service: uploads use local persistent storage behi
 cd services/api
 uv sync                                        # install deps
 uv run alembic upgrade head                    # apply all migrations, including tenant RLS
-uv run uvicorn app.main:get_app --factory --reload --port 8000   # deployment: add --ws-max-size 65536 (R-47)
+uv run uvicorn app.main:get_app --factory --reload --port 8000   # deployment: add --ws-max-size 65536 (R-47) and --no-proxy-headers (auth limits, see docs/OPERATIONS.md)
 # in another terminal:
 curl http://localhost:8000/health              # liveness (never depends on infra)
 curl http://localhost:8000/ready               # Postgres + Redis (503 if either is down)
