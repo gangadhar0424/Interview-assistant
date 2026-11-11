@@ -48,6 +48,7 @@ function bridge() {
       startQuestion: vi.fn(async () => ok(undefined)),
     },
     capture: { cancel: vi.fn(async () => ok(undefined)) },
+    audio: { start: vi.fn(async () => ok(undefined)), stop: vi.fn(async () => ok(undefined)), sendChunk: vi.fn() },
   };
 }
 

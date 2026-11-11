@@ -2,13 +2,16 @@ import { randomUUID } from "node:crypto";
 import type { BrowserWindow, IpcMain, IpcMainInvokeEvent } from "electron";
 import { clipboard } from "electron";
 import { DesktopApiClient, DesktopApiError, asDesktopError } from "./api-client";
+import { AudioRefusal, AudioService, type AudioIndicator } from "./audio-service";
 import { CaptureRefusal, CaptureService, type CaptureHost } from "./capture-service";
+import type { AudioGateState, AudioSource } from "./media-permissions";
 import type { SafeStoragePort } from "./secure-refresh-store";
 import { SecureRefreshTokenStore } from "./secure-refresh-store";
 import { SettingsStore } from "./settings-store";
 import { isTrustedRenderer } from "./ipc-security";
 import { hasErrors, parseDraft, toCreateBody, validateDraft } from "../shared/session-form";
 import {
+  isAudioSource,
   isDisplayId,
   isUuid,
   validateCopyText,
@@ -27,6 +30,12 @@ type IpcDependencies = {
   devServerUrl: string | undefined;
   /** Electron-bound screen/tray pieces for screenshot input (Phase 11B). */
   captureHost: CaptureHost;
+  /** Electron-bound tray/taskbar indication for audio input (Phase 12). */
+  audioHost: { setIndicator(state: AudioIndicator, source: AudioSource | null): void };
+  /** Lets the media-permission handlers (index.ts) read the live audio state; set here. */
+  audioGate: { read: () => AudioGateState };
+  /** Native (main-process) confirmation shown before audio input is turned on. */
+  confirmAudioConsent: () => Promise<boolean>;
   /** Native (main-process) confirmation shown before screenshot input is turned on. */
   confirmScreenshotConsent: () => Promise<boolean>;
 };
@@ -55,7 +64,7 @@ function isSessionExpired(error: unknown): boolean {
 
 function safeError(error: unknown): DesktopError {
   if (error instanceof DesktopApiError) return error.details;
-  if (error instanceof CaptureRefusal) {
+  if (error instanceof CaptureRefusal || error instanceof AudioRefusal) {
     return { kind: "invalid_input", code: error.code, message: error.message };
   }
   if (error instanceof Error && error.message.startsWith("Could not ")) {
@@ -78,6 +87,9 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     devServerUrl,
     captureHost,
     confirmScreenshotConsent,
+    audioHost,
+    audioGate,
+    confirmAudioConsent,
   } = deps;
   const tokenStore = new SecureRefreshTokenStore(secureTokenPath, safeStorage);
   let settings = settingsStore.load();
@@ -104,14 +116,54 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     },
     now: () => Date.now(),
   });
-  const notifySessionExpired = (): void => {
+  // Live audio (Phase 12, D-53): capture runs in the renderer (Chromium's media APIs), but the
+  // permission, the on/off state, segmentation, buffers, upload and wiping are all here in main.
+  const audio = new AudioService({
+    isEnabled: () => settings.audioInputEnabled,
+    isSignedIn: () => api.getUser() !== null,
+    windowState: () => ({
+      visible: !window.isDestroyed() && window.isVisible(),
+      focused: !window.isDestroyed() && window.isFocused(),
+      minimized: !window.isDestroyed() && window.isMinimized(),
+    }),
+    sessionReady: async (sessionId) =>
+      (await api.listSessions()).some((item) => item.id === sessionId && item.status === "ready"),
+    transcribe: async (wav, sessionId, signal) => {
+      try {
+        return await api.transcribeUtterance(sessionId, wav, signal);
+      } catch (error) {
+        if (isSessionExpired(error) && !window.isDestroyed()) notifySessionExpired();
+        throw error;
+      }
+    },
+    describeError: (error) => asDesktopError(error).message,
+    isFatal: (error) => error instanceof DesktopApiError && error.details.code === "stt_unavailable",
+    emit: (event) => {
+      if (!window.isDestroyed()) window.webContents.send("audio:event", event);
+    },
+    setIndicator: (state, source) => audioHost.setIndicator(state, source),
+    now: () => Date.now(),
+  });
+  audioGate.read = () => audio.gate();
+  function notifySessionExpired(): void {
     capture.discard("signed_out");
+    audio.stop("signed_out");
     if (!window.isDestroyed()) window.webContents.send("auth:expired");
+  }
+  // Window cleanup: a held image or a live capture never survives the window being hidden, closed
+  // or reloaded.
+  const onWindowHidden = () => {
+    capture.discard("window");
+    audio.stop("window");
   };
-  // Window cleanup: a held image never survives the window being hidden, closed or reloaded.
-  const onWindowHidden = () => capture.discard("window");
-  const onWindowClosed = () => capture.dispose();
-  const onNavigated = () => capture.discard("navigation");
+  const onWindowClosed = () => {
+    capture.dispose();
+    audio.dispose();
+  };
+  const onNavigated = () => {
+    capture.discard("navigation");
+    audio.stop("navigation");
+  };
   window.on("hide", onWindowHidden);
   window.on("minimize", onWindowHidden);
   window.on("closed", onWindowClosed);
@@ -149,8 +201,13 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     if (patch.screenshotInputEnabled === true && !settings.screenshotInputEnabled) {
       if (!(await confirmScreenshotConsent())) throw new Error("Screenshot input was not turned on.");
     }
+    // Same for audio: turning it ON needs a native confirmation the renderer cannot fake or skip.
+    if (patch.audioInputEnabled === true && !settings.audioInputEnabled) {
+      if (!(await confirmAudioConsent())) throw new Error("Audio input was not turned on.");
+    }
     const next = settingsStore.update(patch);
     if (!next.screenshotInputEnabled) capture.discard("disabled");
+    if (!next.audioInputEnabled) audio.stop("disabled");
     const backendChanged = next.backendBaseUrl !== settings.backendBaseUrl;
     if (backendChanged) {
       for (const stream of streams.values()) stream.controller.abort();
@@ -194,6 +251,7 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
   });
   handle("auth:logout", async () => {
     capture.discard("signed_out");
+    audio.stop("signed_out");
     for (const stream of streams.values()) stream.controller.abort();
     streams.clear();
     await api.logout();
@@ -213,12 +271,12 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     }
     if (streams.has(requestId)) throw new Error("This answer is already running.");
     // `input_source = screenshot` only follows a completed screenshot extraction in this session.
-    let fromScreenshot = false;
+    let inputSource: "screenshot" | "audio" | undefined;
     if (extractionId !== undefined) {
-      if (!isUuid(extractionId) || !capture.consumeExtraction(extractionId, sessionId)) {
-        throw new Error("The screenshot text is no longer available. Capture again.");
-      }
-      fromScreenshot = true;
+      if (!isUuid(extractionId)) throw new Error("The text is no longer available. Capture it again.");
+      if (capture.consumeExtraction(extractionId, sessionId)) inputSource = "screenshot";
+      else if (audio.consumeUtterance(extractionId, sessionId)) inputSource = "audio";
+      else throw new Error("The text is no longer available. Capture it again.");
     }
     const controller = new AbortController();
     streams.set(requestId, { controller, senderId: event.sender.id });
@@ -234,12 +292,13 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
             if (qaEvent.type === "question.created") questionStarted = true;
             sendToRenderer(window, { requestId, event: qaEvent });
           },
-          fromScreenshot ? "screenshot" : undefined,
+          inputSource,
         )
         .catch((error: unknown) => {
           // The question never started (refused or failed early): the user may simply try again.
-          if (fromScreenshot && !questionStarted && extractionId !== undefined) {
-            capture.restoreExtraction(extractionId, sessionId);
+          if (inputSource && !questionStarted && extractionId !== undefined) {
+            if (inputSource === "screenshot") capture.restoreExtraction(extractionId, sessionId);
+            else audio.restoreUtterance(extractionId, sessionId);
           }
           if (controller.signal.aborted) {
             sendToRenderer(window, { requestId, cancelled: true });
@@ -284,6 +343,22 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     if (!isUuid(captureId)) throw new Error("That screenshot is no longer available.");
     return capture.extract(captureId);
   }, true);
+  // ---- Live audio channels (Phase 12). Named and validated; chunks are one-way and ignored unless
+  // listening was started here. ----
+  handle("audio:start", async (_event, source, sessionId) => {
+    if (!isAudioSource(source) || !validateId(sessionId)) {
+      throw new Error("Choose an audio source and a session.");
+    }
+    await audio.start(source, sessionId);
+  }, true);
+  handle("audio:stop", () => audio.stop("user"), true);
+  const onAudioChunk = (event: { senderFrame?: { url?: string } | null }, data: unknown): void => {
+    const url = event.senderFrame?.url ?? "";
+    if (!isTrustedRenderer(url, devServerUrl, rendererHtmlPath)) return; // untrusted: ignored
+    audio.pushChunk(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
+  };
+  ipcMain.on("audio:chunk", onAudioChunk as never);
+
   handle("sessions:stream-cancel", (event, requestId) => {
     if (typeof requestId !== "string") throw new Error("The stream request is invalid.");
     const active = streams.get(requestId);
@@ -302,6 +377,8 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
 
   return () => {
     capture.dispose();
+    audio.dispose();
+    ipcMain.removeListener("audio:chunk", onAudioChunk as never);
     window.removeListener("hide", onWindowHidden);
     window.removeListener("minimize", onWindowHidden);
     window.removeListener("closed", onWindowClosed);

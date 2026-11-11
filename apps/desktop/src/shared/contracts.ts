@@ -7,6 +7,8 @@ export type DesktopSettings = {
   expanded: boolean;
   /** Opt-in (default false). Turning it on needs a native confirmation from the main process. */
   screenshotInputEnabled: boolean;
+  /** Opt-in (default false). Turning it on needs a native confirmation from the main process. */
+  audioInputEnabled: boolean;
 };
 
 export type DesktopUser = {
@@ -171,6 +173,36 @@ export type CaptureEvent =
     }
   | { type: "cancelled"; reason: CaptureCancelReason; message: string };
 
+// ---- Live audio input (Phase 12, D-53). Capture runs in the renderer; control lives in main. ----
+
+export type AudioSourceId = "microphone" | "system";
+
+export type AudioStopReason =
+  | "user"
+  | "window"
+  | "disabled"
+  | "signed_out"
+  | "session"
+  | "navigation"
+  | "timeout"
+  | "limit"
+  | "unavailable"
+  | "error";
+
+/** Pushed by the main process. Audio itself never travels to the renderer, only text. */
+export type AudioEvent =
+  | { type: "state"; state: "arming" | "listening" | "idle"; source: AudioSourceId | null }
+  | {
+      type: "utterance";
+      id: string;
+      text: string;
+      truncated: boolean;
+      isQuestion: boolean;
+      confidence: number;
+    }
+  | { type: "notice"; message: string }
+  | { type: "stopped"; reason: AudioStopReason; message: string };
+
 export type ExtractionResult = {
   /** Single-use token proving the text came from a completed screenshot flow. */
   extractionId: string;
@@ -220,6 +252,14 @@ export type DesktopBridge = {
     /** Sends the held image (after the user saw the preview) and returns editable text. */
     extract(captureId: string): Promise<DesktopResult<ExtractionResult>>;
   };
+  audio: {
+    /** Arms capture (permission is granted only now); the renderer then starts the stream. */
+    start(source: AudioSourceId, sessionId: string): Promise<DesktopResult<void>>;
+    stop(): Promise<DesktopResult<void>>;
+    /** One-way PCM16 16 kHz mono frame; ignored by main unless listening was started. */
+    sendChunk(chunk: ArrayBuffer): void;
+  };
+  onAudioEvent(listener: (event: AudioEvent) => void): () => void;
   onCaptureEvent(listener: (event: CaptureEvent) => void): () => void;
   onStreamMessage(listener: (message: StreamMessage) => void): () => void;
   onSessionExpired(listener: () => void): () => void;

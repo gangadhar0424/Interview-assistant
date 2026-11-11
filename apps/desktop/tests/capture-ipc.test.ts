@@ -63,6 +63,7 @@ function sse(frames: string): Response {
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "capture-ipc-"));
   const handlers = new Map<string, Handler>();
+  const listeners = new Map<string, Handler>();
   const windowListeners = new Map<string, Array<() => void>>();
   const contentsListeners = new Map<string, Array<() => void>>();
   const sent: Array<{ channel: string; payload: unknown }> = [];
@@ -145,6 +146,8 @@ function setup() {
     ipcMain: {
       handle: (channel: string, fn: Handler) => handlers.set(channel, fn),
       removeHandler: (channel: string) => handlers.delete(channel),
+      on: (channel: string, fn: Handler) => listeners.set(channel, fn),
+      removeListener: (channel: string) => listeners.delete(channel),
     } as never,
     window: win as never,
     settings: new SettingsStore(join(dir, "settings.json")),
@@ -158,6 +161,9 @@ function setup() {
     devServerUrl: undefined,
     captureHost,
     confirmScreenshotConsent: consent,
+    audioHost: { setIndicator: vi.fn() },
+    audioGate: { read: () => ({ state: "idle" as const, source: null }) },
+    confirmAudioConsent: async () => true,
   });
   void stored;
 

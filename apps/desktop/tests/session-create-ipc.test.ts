@@ -103,7 +103,7 @@ function setup() {
   });
   vi.stubGlobal("fetch", fakeFetch);
   const dispose = registerDesktopIpc({
-    ipcMain: { handle: (channel: string, fn: Handler) => handlers.set(channel, fn), removeHandler: (channel: string) => handlers.delete(channel) } as never,
+    ipcMain: { handle: (channel: string, fn: Handler) => handlers.set(channel, fn), removeHandler: (channel: string) => handlers.delete(channel), on: () => undefined, removeListener: () => undefined } as never,
     window: win as never,
     settings: new SettingsStore(join(dir, "settings.json")),
     safeStorage: { isEncryptionAvailable: () => true, encryptString: (v: string) => Buffer.from(v), decryptString: (v: Buffer) => v.toString() },
@@ -112,6 +112,9 @@ function setup() {
     devServerUrl: undefined,
     captureHost: { listDisplays: () => [], captureDisplay: async () => null, makePreview: () => ({ dataUrl: "", width: 0, height: 0 }), setIndicator: vi.fn() },
     confirmScreenshotConsent: async () => true,
+    audioHost: { setIndicator: vi.fn() },
+    audioGate: { read: () => ({ state: "idle" as const, source: null }) },
+    confirmAudioConsent: async () => true,
   });
   const trusted = { senderFrame: { url: TRUSTED }, sender: { id: 1 } };
   const untrusted = { senderFrame: { url: "https://evil.example/" }, sender: { id: 2 } };

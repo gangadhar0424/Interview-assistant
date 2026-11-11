@@ -227,6 +227,67 @@ export class DesktopApiClient {
     return items;
   }
 
+  /**
+   * Phase 12 endpoint: one utterance as a raw `audio/wav` body (never multipart), authenticated in
+   * the main process. The audio is never logged or stored here; the caller wipes it afterwards.
+   */
+  async transcribeUtterance(
+    sessionId: string,
+    wav: Uint8Array,
+    signal: AbortSignal,
+  ): Promise<{ text: string; truncated: boolean; isQuestion: boolean; confidence: number }> {
+    const path = `/api/v1/sessions/${encodeURIComponent(sessionId)}/transcribe`;
+    if (!this.accessToken) {
+      throw new DesktopApiError({
+        kind: "http",
+        status: 401,
+        code: "not_authenticated",
+        message: "Sign in again to continue.",
+      });
+    }
+    const send = () =>
+      this.request(path, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken ?? ""}`,
+          "Content-Type": "audio/wav",
+        },
+        body: wav as unknown as BodyInit,
+        signal,
+      });
+    let response = await send();
+    if (response.status === 401) {
+      await this.refreshSession();
+      response = await send();
+    }
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw errorFromResponse(response, payload);
+    const body = payload as {
+      text?: unknown;
+      truncated?: unknown;
+      is_question?: unknown;
+      confidence?: unknown;
+    } | null;
+    if (
+      typeof body?.text !== "string" ||
+      typeof body.truncated !== "boolean" ||
+      typeof body.is_question !== "boolean" ||
+      typeof body.confidence !== "number"
+    ) {
+      throw new DesktopApiError({
+        kind: "unknown",
+        code: "bad_response",
+        message: "The server sent an unexpected response.",
+      });
+    }
+    return {
+      text: body.text,
+      truncated: body.truncated,
+      isQuestion: body.is_question,
+      confidence: body.confidence,
+    };
+  }
+
   /** Resumes or documents with a ready/processing/failed status (ready = extraction AND indexing done). */
   async listFiles(kind: "resumes" | "documents"): Promise<FileOption[]> {
     type Raw = {
@@ -348,7 +409,7 @@ export class DesktopApiClient {
     text: string,
     signal: AbortSignal,
     onEvent: (event: QaEvent) => void,
-    inputSource?: "screenshot",
+    inputSource?: "screenshot" | "audio",
   ): Promise<void> {
     const path = `/api/v1/sessions/${encodeURIComponent(sessionId)}/questions`;
     let response = await this.authenticatedStream(path, text, signal, inputSource);
@@ -418,7 +479,7 @@ export class DesktopApiClient {
     path: string,
     text: string,
     signal: AbortSignal,
-    inputSource?: "screenshot",
+    inputSource?: "screenshot" | "audio",
   ) {
     if (!this.accessToken) {
       throw new DesktopApiError({
@@ -435,7 +496,7 @@ export class DesktopApiClient {
     path: string,
     text: string,
     signal: AbortSignal,
-    inputSource?: "screenshot",
+    inputSource?: "screenshot" | "audio",
   ) {
     return this.request(path, {
       method: "POST",

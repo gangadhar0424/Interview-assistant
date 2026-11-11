@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  AudioEvent,
   CaptureDisplay,
   CaptureEvent,
   DesktopBridge,
@@ -56,6 +57,17 @@ const bridge: DesktopBridge = {
     cancel: () => ipcRenderer.invoke("capture:cancel") as Promise<DesktopResult<void>>,
     extract: (captureId) =>
       ipcRenderer.invoke("capture:extract", captureId) as Promise<DesktopResult<ExtractionResult>>,
+  },
+  audio: {
+    start: (source, sessionId) =>
+      ipcRenderer.invoke("audio:start", source, sessionId) as Promise<DesktopResult<void>>,
+    stop: () => ipcRenderer.invoke("audio:stop") as Promise<DesktopResult<void>>,
+    sendChunk: (chunk) => ipcRenderer.send("audio:chunk", chunk),
+  },
+  onAudioEvent: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: AudioEvent) => listener(event);
+    ipcRenderer.on("audio:event", wrapped);
+    return () => ipcRenderer.removeListener("audio:event", wrapped);
   },
   onCaptureEvent: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, event: CaptureEvent) => listener(event);

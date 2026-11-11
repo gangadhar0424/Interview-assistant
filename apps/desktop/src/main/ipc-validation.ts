@@ -39,7 +39,20 @@ export function validateSettingsPatch(value: unknown): Partial<DesktopSettings> 
     }
     patch.screenshotInputEnabled = value.screenshotInputEnabled;
   }
-  const known = ["backendBaseUrl", "alwaysOnTop", "opacity", "expanded", "screenshotInputEnabled"];
+  if ("audioInputEnabled" in value) {
+    if (typeof value.audioInputEnabled !== "boolean") {
+      throw new Error("Audio input must be on or off.");
+    }
+    patch.audioInputEnabled = value.audioInputEnabled;
+  }
+  const known = [
+    "backendBaseUrl",
+    "alwaysOnTop",
+    "opacity",
+    "expanded",
+    "screenshotInputEnabled",
+    "audioInputEnabled",
+  ];
   if (Object.keys(value).some((key) => !known.includes(key))) {
     throw new Error("Unsupported setting.");
   }
@@ -62,4 +75,9 @@ export function isUuid(value: unknown): value is string {
 /** A display id is the operating system's numeric id as text (never a name or a path). */
 export function isDisplayId(value: unknown): value is string {
   return typeof value === "string" && /^[0-9]{1,12}$/.test(value);
+}
+
+/** The only audio sources the app can start (never a device id or a free-form value). */
+export function isAudioSource(value: unknown): value is "microphone" | "system" {
+  return value === "microphone" || value === "system";
 }

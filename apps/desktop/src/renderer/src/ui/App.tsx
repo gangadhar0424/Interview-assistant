@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useDesktopStore } from "../store";
 import { CreateSessionPage } from "./CreateSessionPage";
+import { AudioPanel } from "./AudioPanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 
 type Page = "home" | "create" | "assistant" | "history" | "settings";
@@ -19,6 +20,7 @@ export default function App() {
   const initialize = useDesktopStore((state) => state.initialize);
   const handleStreamMessage = useDesktopStore((state) => state.handleStreamMessage);
   const handleCaptureEvent = useDesktopStore((state) => state.handleCaptureEvent);
+  const handleAudioEvent = useDesktopStore((state) => state.handleAudioEvent);
   const expireSession = useDesktopStore((state) => state.expireSession);
   const checkBackend = useDesktopStore((state) => state.checkBackend);
   const checked = useRef(false);
@@ -30,15 +32,17 @@ export default function App() {
     void initialize();
     const unsubscribeStream = window.desktop.onStreamMessage(handleStreamMessage);
     const unsubscribeCapture = window.desktop.onCaptureEvent(handleCaptureEvent);
+    const unsubscribeAudio = window.desktop.onAudioEvent(handleAudioEvent);
     const unsubscribeExpired = window.desktop.onSessionExpired(expireSession);
     const interval = window.setInterval(() => void checkBackend(), 15_000);
     return () => {
       unsubscribeStream();
       unsubscribeCapture();
+      unsubscribeAudio();
       unsubscribeExpired();
       window.clearInterval(interval);
     };
-  }, [initialize, handleStreamMessage, expireSession, checkBackend]);
+  }, [initialize, handleStreamMessage, handleAudioEvent, expireSession, checkBackend]);
 
   if (!initialized) return <LoadingScreen />;
   if (!user) return <LoginScreen />;
@@ -275,6 +279,7 @@ function AssistantPage() {
   const screenshotEnabled = useDesktopStore(
     (state) => state.settings?.screenshotInputEnabled === true,
   );
+  const audioEnabled = useDesktopStore((state) => state.settings?.audioInputEnabled === true);
   const [question, setQuestion] = useState("");
   const [copied, setCopied] = useState(false);
   const streaming =
@@ -378,6 +383,7 @@ function AssistantPage() {
           </form>
 
           {screenshotEnabled && <ScreenshotPanel ready={selected?.status === "ready"} />}
+          {audioEnabled && <AudioPanel ready={selected?.status === "ready"} />}
 
           {liveAnswer && <LiveAnswerCard answer={liveAnswer} onCopy={() => void copyAnswer()} copied={copied} />}
         </>
@@ -633,6 +639,22 @@ function SettingsPage() {
           A capture happens only when you press Capture, after a 3-second countdown you can cancel.
           You see the image before it is sent; it is kept in memory only and discarded after text
           extraction. The server may forward it to an AI provider to read the text.
+        </p>
+      </section>
+
+      <section className="settings-section">
+        <h2>Audio input</h2>
+        <ToggleRow
+          checked={settings.audioInputEnabled}
+          label="Allow listening for questions"
+          onChange={(audioInputEnabled) => void updateSettings({ audioInputEnabled })}
+          description="Off by default. When on, Listen buttons appear in the Assistant. Turning it on asks for confirmation."
+        />
+        <p className="settings-help">
+          Listening happens only after you press Start and stops when you press Stop, hide the
+          window or sign out. A recording indicator is always shown. Short phrases are sent to your
+          server to be turned into text; audio and the transcript are never saved. Other people's
+          voices may be captured: follow local law and the interview platform's rules.
         </p>
       </section>
 

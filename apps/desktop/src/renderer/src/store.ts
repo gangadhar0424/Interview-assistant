@@ -6,8 +6,11 @@ import {
   type DraftErrors,
   type SessionDraft,
 } from "../../shared/session-form";
+import { startAudioCapture, type ActiveCapture } from "./audio/capture";
 import type {
   AnswerMetrics,
+  AudioEvent,
+  AudioSourceId,
   BackendStatus,
   CreateSessionOptions,
   CaptureDisplay,
@@ -37,6 +40,32 @@ type LiveAnswer = {
 };
 
 /** Screenshot flow state (Phase 11B). The full image never reaches the renderer; only a thumbnail. */
+export type AudioLine = {
+  id: string;
+  text: string;
+  truncated: boolean;
+  isQuestion: boolean;
+  confidence: number;
+  asked: boolean;
+};
+
+/** Live audio UI state. Transcript lines exist in memory only and vanish on stop/sign-out. */
+export type AudioUi = {
+  state: "idle" | "arming" | "listening";
+  source: AudioSourceId | null;
+  lines: AudioLine[];
+  notice: string | null;
+};
+
+const MAX_UI_LINES = 200;
+const IDLE_AUDIO: AudioUi = { state: "idle", source: null, lines: [], notice: null };
+let activeCapture: ActiveCapture | null = null;
+
+function endLocalCapture(): void {
+  activeCapture?.stop();
+  activeCapture = null;
+}
+
 export type CaptureUi =
   | { phase: "idle" }
   | { phase: "choosing"; displays: CaptureDisplay[] }
@@ -69,6 +98,7 @@ type AppState = {
   createFieldErrors: DraftErrors;
   capture: CaptureUi;
   captureNotice: string | null;
+  audio: AudioUi;
   busy: boolean;
   error: string | null;
   initialize(): Promise<void>;
@@ -87,6 +117,12 @@ type AppState = {
   setReviewText(text: string): void;
   askFromScreenshot(): Promise<void>;
   handleCaptureEvent(event: CaptureEvent): void;
+  startAudio(source: AudioSourceId): Promise<void>;
+  stopAudio(): Promise<void>;
+  askFromAudio(lineId: string): Promise<void>;
+  dismissAudioLine(lineId: string): void;
+  clearAudioLines(): void;
+  handleAudioEvent(event: AudioEvent): void;
   cancel(): Promise<void>;
   handleStreamMessage(message: StreamMessage): void;
   expireSession(): void;
@@ -252,6 +288,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   createFieldErrors: {},
   capture: { phase: "idle" },
   captureNotice: null,
+  audio: IDLE_AUDIO,
   busy: false,
   error: null,
   initialize: async () => {
@@ -304,7 +341,10 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       set(errorState(error));
     } finally {
       void window.desktop.capture.cancel().catch(() => undefined);
+      endLocalCapture();
+      void window.desktop.audio.stop().catch(() => undefined);
       set({
+        audio: IDLE_AUDIO,
         busy: false,
         user: null,
         sessions: [],
@@ -348,7 +388,8 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   selectSession: async (sessionId) => {
     // A screenshot belongs to the session it was captured for: changing session discards it.
     if (get().capture.phase !== "idle") await get().cancelCapture();
-    set({ selectedSessionId: sessionId, history: [], liveAnswer: null });
+    if (get().audio.state !== "idle") await get().stopAudio();
+    set({ audio: IDLE_AUDIO, selectedSessionId: sessionId, history: [], liveAnswer: null });
     await get().loadHistory();
   },
   loadHistory: async () => {
@@ -591,6 +632,84 @@ export const useDesktopStore = create<AppState>((set, get) => ({
           capture: { phase: "idle" },
           captureNotice: event.reason === "user" ? null : event.message,
         });
+        return;
+    }
+  },
+  startAudio: async (source) => {
+    const sessionId = get().selectedSessionId;
+    if (!sessionId) {
+      set((s) => ({ audio: { ...s.audio, notice: "Select a session before listening." } }));
+      return;
+    }
+    set((s) => ({ audio: { ...s.audio, notice: null } }));
+    try {
+      // Main validates, shows the indicator and only then grants the media permission.
+      unwrap<void>(await window.desktop.audio.start(source, sessionId));
+      activeCapture = await startAudioCapture(source, (chunk) => window.desktop.audio.sendChunk(chunk));
+    } catch (error) {
+      endLocalCapture();
+      void window.desktop.audio.stop().catch(() => undefined);
+      const denied = error instanceof DOMException;
+      set((s) => ({
+        audio: {
+          ...s.audio,
+          state: "idle",
+          source: null,
+          notice: denied ? "Audio capture was not allowed or no device was found." : safeMessage(error),
+        },
+      }));
+    }
+  },
+  stopAudio: async () => {
+    endLocalCapture();
+    try {
+      await window.desktop.audio.stop();
+    } catch {
+      /* main also stops on window/sign-out; the state event is authoritative */
+    }
+  },
+  askFromAudio: async (lineId) => {
+    const line = get().audio.lines.find((l) => l.id === lineId);
+    if (!line || line.asked) return;
+    set((s) => ({
+      audio: { ...s.audio, lines: s.audio.lines.map((l) => (l.id === lineId ? { ...l, asked: true } : l)) },
+    }));
+    // Only on this explicit press does the existing question flow begin (input_source = audio).
+    await get().ask(line.text, line.id);
+  },
+  dismissAudioLine: (lineId) =>
+    set((s) => ({ audio: { ...s.audio, lines: s.audio.lines.filter((l) => l.id !== lineId) } })),
+  clearAudioLines: () => set((s) => ({ audio: { ...s.audio, lines: [] } })),
+  handleAudioEvent: (event) => {
+    switch (event.type) {
+      case "state":
+        if (event.state === "idle") endLocalCapture();
+        set((s) => ({ audio: { ...s.audio, state: event.state, source: event.source } }));
+        return;
+      case "utterance":
+        set((s) => ({
+          audio: {
+            ...s.audio,
+            lines: [
+              ...s.audio.lines,
+              {
+                id: event.id,
+                text: event.text,
+                truncated: event.truncated,
+                isQuestion: event.isQuestion,
+                confidence: event.confidence,
+                asked: false,
+              },
+            ].slice(-MAX_UI_LINES),
+          },
+        }));
+        return;
+      case "notice":
+        set((s) => ({ audio: { ...s.audio, notice: event.message } }));
+        return;
+      case "stopped":
+        endLocalCapture();
+        set((s) => ({ audio: { ...s.audio, state: "idle", source: null, notice: event.message } }));
         return;
     }
   },

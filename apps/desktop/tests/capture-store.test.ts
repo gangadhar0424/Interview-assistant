@@ -22,6 +22,7 @@ function bridge() {
       startQuestion: vi.fn(async () => ok(undefined)),
       cancelQuestion: vi.fn(async () => ok(undefined)),
     },
+    audio: { start: vi.fn(async () => ok(undefined)), stop: vi.fn(async () => ok(undefined)), sendChunk: vi.fn() },
     capture: {
       listDisplays: vi.fn(async () =>
         ok([{ id: "1", label: "Display 1 (primary) · 1920×1080", primary: true, width: 1920, height: 1080 }]),

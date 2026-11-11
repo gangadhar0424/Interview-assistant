@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   opacity: 0.96,
   expanded: false,
   screenshotInputEnabled: false,
+  audioInputEnabled: false,
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -27,7 +28,8 @@ function validateSettings(value: unknown): DesktopSettings {
     value.opacity > 1 ||
     typeof value.backendBaseUrl !== "string" ||
     // Files written before Phase 11B have no such field: that means off.
-    (value.screenshotInputEnabled !== undefined && typeof value.screenshotInputEnabled !== "boolean")
+    (value.screenshotInputEnabled !== undefined && typeof value.screenshotInputEnabled !== "boolean") ||
+    (value.audioInputEnabled !== undefined && typeof value.audioInputEnabled !== "boolean")
   ) {
     throw new Error("Desktop settings file is invalid.");
   }
@@ -37,6 +39,7 @@ function validateSettings(value: unknown): DesktopSettings {
     opacity: value.opacity,
     expanded: value.expanded,
     screenshotInputEnabled: value.screenshotInputEnabled === true,
+    audioInputEnabled: value.audioInputEnabled === true,
   };
 }
 

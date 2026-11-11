@@ -1,16 +1,26 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage, Tray, ipcMain, safeStorage } from "electron";
 import { join } from "node:path";
+import type { AudioIndicator } from "./audio-service";
 import { captureElectronDisplay, listElectronDisplays, makeElectronPreview } from "./capture-electron";
 import type { IndicatorState } from "./capture-service";
 import { registerDesktopIpc } from "./ipc";
 import { SettingsStore } from "./settings-store";
 import { isTrustedRenderer } from "./ipc-security";
+import {
+  decideDisplayMedia,
+  decideMediaPermission,
+  IDLE_GATE,
+  type AudioGateState,
+  type AudioSource,
+} from "./media-permissions";
 import { applyWindowSettings, closeToTray, setExpanded } from "./window-controller";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let disposeIpc: (() => void) | null = null;
+// Read by the media-permission handlers below; the live audio service (ipc.ts) replaces `read`.
+const audioGate: { read: () => AudioGateState } = { read: () => IDLE_GATE };
 
 const settingsStore = new SettingsStore(join(app.getPath("userData"), "settings.json"));
 
@@ -25,6 +35,38 @@ const TRAY_TOOLTIPS: Record<IndicatorState, string> = {
 function setCaptureIndicator(state: IndicatorState): void {
   tray?.setToolTip(TRAY_TOOLTIPS[state]);
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(state === "capturing");
+}
+
+const AUDIO_TOOLTIPS: Record<AudioSource, string> = {
+  microphone: "Interview Assistant — RECORDING your microphone (nothing is saved)",
+  system: "Interview Assistant — RECORDING system audio (nothing is saved)",
+};
+
+/** Main-process-owned, renderer-independent indication that audio is being captured. */
+function setAudioIndicator(state: AudioIndicator, source: AudioSource | null): void {
+  tray?.setToolTip(
+    state === "idle" || !source ? TRAY_TOOLTIPS.idle : AUDIO_TOOLTIPS[source],
+  );
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(state === "arming");
+}
+
+/** Native confirmation before audio input is turned on (a compromised renderer cannot fake it). */
+async function confirmAudioConsent(window: BrowserWindow): Promise<boolean> {
+  const result = await dialog.showMessageBox(window, {
+    type: "warning",
+    title: "Turn on audio input?",
+    message: "Audio input lets this app listen to your microphone or the audio playing on this PC.",
+    detail:
+      "Listening starts only when you press Start and stops when you press Stop, hide the window or sign out. " +
+      "Short phrases are sent to your Interview Assistant server to be turned into text; the audio is not saved. " +
+      "Other people's voices may be captured: you are responsible for following local law and the " +
+      "interview platform's rules.",
+    buttons: ["Turn on", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
 }
 
 /** Native confirmation before screenshot input is turned on (a compromised renderer cannot fake it). */
@@ -91,8 +133,38 @@ function createWindow(): BrowserWindow {
     const rendererHtmlPath = join(__dirname, "../renderer/index.html");
     if (!isTrustedRenderer(target, allowed, rendererHtmlPath)) event.preventDefault();
   });
-  window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => {
-    callback(false);
+  // Every permission is denied EXCEPT audio-only microphone access while the user has pressed Start
+  // (Phase 12, D-53). Video, display capture and all other permissions stay denied. The rules are
+  // the pure functions in media-permissions.ts, driven by the live audio state.
+  const trusted = (url: string): boolean =>
+    isTrustedRenderer(url, process.env.ELECTRON_RENDERER_URL, join(__dirname, "../renderer/index.html"));
+  window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const mediaTypes = "mediaTypes" in details && Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
+    callback(
+      decideMediaPermission({
+        kind: "request",
+        permission,
+        mediaTypes,
+        requestingUrl: details.requestingUrl || contents.getURL(),
+        gate: audioGate.read(),
+        isTrustedRenderer: trusted,
+      }),
+    );
+  });
+  window.webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) =>
+    decideMediaPermission({
+      kind: "check",
+      permission,
+      mediaTypes: details.mediaType ? [details.mediaType] : [],
+      requestingUrl: details.requestingUrl || requestingOrigin || contents?.getURL() || "",
+      gate: audioGate.read(),
+      isTrustedRenderer: trusted,
+    }),
+  );
+  // `getDisplayMedia` only ever gets system AUDIO (never a video source) while a system-audio
+  // capture is arming; otherwise it is refused.
+  window.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+    callback(decideDisplayMedia(audioGate.read(), request.frame?.url ?? "", trusted));
   });
   window.once("ready-to-show", () => window.show());
   window.on("close", (event) => {
@@ -114,6 +186,9 @@ function createWindow(): BrowserWindow {
       setIndicator: setCaptureIndicator,
     },
     confirmScreenshotConsent: () => confirmScreenshotConsent(window),
+    audioHost: { setIndicator: setAudioIndicator },
+    audioGate,
+    confirmAudioConsent: () => confirmAudioConsent(window),
   });
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL).catch(reportStartupFailure);

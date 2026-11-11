@@ -48,7 +48,10 @@ describe("capture can only start from the one explicit, gated path", () => {
 
   it("there is no hotkey, periodic timer, display-media API or background capture anywhere", () => {
     expect(where(/globalShortcut/)).toEqual([]);
-    expect(where(/getDisplayMedia|mediaDevices|MediaRecorder/)).toEqual([]);
+    // Phase 12: media APIs exist in exactly one renderer module (audio-only, started by Start).
+    expect(where(/navigator\.mediaDevices/)).toEqual(["renderer/src/audio/capture.ts"]);
+    expect(where(/MediaRecorder/)).toEqual([]);
+    expect(where(/video:\s*true/)).toEqual([]);
     expect(where(/setInterval\(/).filter((rel) => rel.startsWith("main/"))).toEqual([]);
     expect(where(/powerMonitor|desktopCapturer\.getSources/).filter((rel) => rel !== "main/capture-electron.ts")).toEqual([]);
   });
@@ -94,6 +97,8 @@ describe("the preload bridge stays narrow", () => {
         "capture:extract",
         "capture:list-displays",
         "capture:start",
+        "audio:start",
+        "audio:stop",
         "sessions:create",
         "sessions:create-options",
         "sessions:list",
@@ -106,8 +111,15 @@ describe("the preload bridge stays narrow", () => {
     expect(preload).not.toMatch(/desktopCapturer|nativeImage|require\(|from "node:/);
   });
 
+  it("the audio bridge is start, stop and a one-way chunk sender, nothing else", () => {
+    const block = /audio:\s*\{([\s\S]*?)\n  \},\n  onAudioEvent/.exec(preload)?.[1] ?? "";
+    const names = [...block.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]);
+    expect(names).toEqual(["start", "stop", "sendChunk"]);
+    expect([...preload.matchAll(/\.send\(\s*"([^"]+)"/g)].map((m) => m[1])).toEqual(["audio:chunk"]);
+  });
+
   it("the capture bridge has exactly four functions plus one event subscription", () => {
-    const block = /capture:\s*\{([\s\S]*?)\n  \},\n  onCaptureEvent/.exec(preload)?.[1] ?? "";
+    const block = /capture:\s*\{([\s\S]*?)\n  \},\n  audio:/.exec(preload)?.[1] ?? "";
     const names = [...block.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]);
     expect(names).toEqual(["listDisplays", "start", "cancel", "extract"]);
   });
@@ -130,14 +142,20 @@ describe("Electron hardening is unchanged", () => {
     expect(main).toContain("nodeIntegration: false");
     expect(main).toContain("sandbox: true");
     expect(main).toContain("webviewTag: false");
-    expect(main).toContain("callback(false)");
-    expect(main).not.toMatch(/setDisplayMediaRequestHandler|setContentProtection/);
+    // Phase 12: permissions are decided by the pure audio-gate rules (default deny).
+    expect(main).toContain("decideMediaPermission");
+    expect(main).toContain("decideDisplayMedia");
+    expect(main).not.toMatch(/callback\(true\)|setContentProtection/);
   });
 });
 
 describe("settings", () => {
   it("screenshot input is off by default", () => {
     expect(DEFAULT_SETTINGS.screenshotInputEnabled).toBe(false);
+  });
+
+  it("audio input is off by default", () => {
+    expect(DEFAULT_SETTINGS.audioInputEnabled).toBe(false);
   });
 
   it("a settings file written before Phase 11B loads with screenshot input off", () => {
@@ -154,7 +172,7 @@ describe("settings", () => {
       expect(new SettingsStore(path).load().screenshotInputEnabled).toBe(true);
       const saved = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
       expect(Object.keys(saved).sort()).toEqual(
-        ["alwaysOnTop", "backendBaseUrl", "expanded", "opacity", "screenshotInputEnabled"],
+        ["alwaysOnTop", "audioInputEnabled", "backendBaseUrl", "expanded", "opacity", "screenshotInputEnabled"],
       ); // only settings: no screenshot, text or session data is ever written
     } finally {
       rmSync(dir, { recursive: true, force: true });
