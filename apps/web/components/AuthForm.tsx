@@ -18,6 +18,7 @@ export function AuthForm({ mode }: Props) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
   const isSignup = mode === "signup";
@@ -48,7 +49,7 @@ export function AuthForm({ mode }: Props) {
 
     setSubmitting(true);
     try {
-      await (isSignup ? signup(email.trim(), password) : login(email.trim(), password));
+      await (isSignup ? signup(email.trim(), password, inviteCode) : login(email.trim(), password));
       router.replace("/home");
     } catch (err) {
       const next: Errors = {};
@@ -111,6 +112,21 @@ export function AuthForm({ mode }: Props) {
           <p style={styles.muted}>At least {MIN_PASSWORD_LENGTH} characters.</p>
         )}
         {errors.password && <p style={styles.fieldError}>{errors.password}</p>}
+
+        {isSignup && (
+          <label style={styles.label}>
+            Invitation code (if you were given one)
+            <input
+              type="password"
+              name="inviteCode"
+              autoComplete="off"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              maxLength={128}
+              style={styles.input}
+            />
+          </label>
+        )}
 
         <button type="submit" disabled={submitting} style={styles.button}>
           {submitting ? "Please wait…" : isSignup ? "Sign up" : "Log in"}

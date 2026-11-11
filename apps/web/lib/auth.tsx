@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { apiRequest, apiStream, ApiError, type RequestOptions, type StreamOptions } from "./api";
+import { buildSignupBody } from "./signup";
 
 export type User = { id: string; email: string; created_at: string };
 type TokenResponse = { access_token: string; expires_in: number; user: User };
@@ -50,7 +51,7 @@ type AuthState =
 
 type AuthContextValue = {
   state: AuthState;
-  signup: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, inviteCode?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Run an authenticated call; on a 401 refresh once and retry. */
@@ -81,8 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signup = useCallback(
-    async (email: string, password: string) => {
-      await apiRequest("/api/v1/auth/signup", { body: { email, password } });
+    async (email: string, password: string, inviteCode?: string) => {
+      await apiRequest("/api/v1/auth/signup", { body: buildSignupBody(email, password, inviteCode) });
       await login(email, password);
     },
     [login],
