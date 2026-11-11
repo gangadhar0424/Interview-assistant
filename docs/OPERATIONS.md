@@ -139,6 +139,10 @@ endpoint. Queue depth/age and first-token latency are not exposed as Prometheus 
 - **Disk pressure:** pause or restrict uploads, preserve storage backups, and identify growth using
   metadata/size totals only.
 
+## Security headers and scanning (Phase 13A)
+
+The API adds baseline security headers to every response (`nosniff`, `no-referrer`, `X-Frame-Options: DENY`, a restrictive API CSP, and `no-store` on `/api/v1/auth/*`). It does **not** send `Strict-Transport-Security`: the TLS-terminating reverse proxy must add it (for example `max-age=31536000`) once HTTPS is in place (Phase 14A), and must not strip the API's other headers. The web app sets its own headers in `next.config.ts`. CI runs `.github/workflows/security.yml` on every push and pull request and weekly: CodeQL, gitleaks, `pip-audit` and `npm audit`. A failing gitleaks or production-dependency audit job blocks merging; rotate any credential it reports instead of only deleting it.
+
 ## Known deployment boundaries
 
 The job-import and Q&A rate/concurrency limiters, WebSocket connection registry, and detached

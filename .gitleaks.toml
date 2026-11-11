@@ -1,0 +1,14 @@
+# Gitleaks configuration (Phase 13A). Keeps every default rule; only the documented, non-secret
+# test placeholders below are ignored so a real secret still fails the scan.
+title = "Interview Assistant gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test-only placeholders that are committed on purpose (no real credential)"
+regexes = [
+  '''test-only-jwt-secret-0123456789abcdef0123456789''',
+  '''ci-only-jwt-secret-0123456789abcdef0123456789''',
+  '''ci-only-password''',
+]
