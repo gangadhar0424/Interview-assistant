@@ -137,6 +137,22 @@ class Settings(BaseSettings):
     session_job_description_max_chars: int = Field(default=20000, ge=100, le=200000)
     session_max_documents: int = Field(default=10, ge=1, le=50)
 
+    # --- Auth abuse protection (Phase 13A Batch 2, D-54). All limits are per API process. ---
+    # Failed logins per normalized email / per client address within the window, signup attempts
+    # per client per hour, and failed signup gate checks per hour across all clients.
+    login_failures_per_email: int = Field(default=5, ge=1, le=100)
+    login_failures_per_client: int = Field(default=20, ge=1, le=1000)
+    login_window_seconds: int = Field(default=900, ge=60, le=86400)
+    signup_attempts_per_client_per_hour: int = Field(default=10, ge=1, le=1000)
+    signup_failures_global_per_hour: int = Field(default=30, ge=1, le=10000)
+    # Signup access. Outside APP_ENV=local signup is CLOSED unless this invite code is configured
+    # (at least 16 characters). In local development, no code configured means open signup.
+    signup_invite_code: SecretStr | None = None
+    # Read the client address from X-Forwarded-For ONLY when true (and run uvicorn with
+    # --no-proxy-headers). `hops` is the number of proxies that append to the header.
+    trusted_proxy_enabled: bool = False
+    trusted_proxy_hops: int = Field(default=1, ge=1, le=5)
+
     # --- Job import (Phase 7C, D-36) ---
     # Total time budget for one import (DNS + connect + download), body size cap in bytes, and the
     # number of redirects followed (each hop is re-validated against the SSRF policy).
@@ -268,6 +284,20 @@ class Settings(BaseSettings):
             if origin == "*" or not origin.startswith(("http://", "https://")):
                 raise ValueError("must be a comma-separated list of explicit http(s) origins")
         return v
+
+    @field_validator("signup_invite_code")
+    @classmethod
+    def _blank_invite_code_is_unset(cls, v: SecretStr | None) -> SecretStr | None:
+        if v is not None and not v.get_secret_value().strip():
+            return None
+        return v
+
+    @model_validator(mode="after")
+    def _invite_code_strength_outside_local(self) -> Self:
+        code = self.signup_invite_code
+        if self.app_env != "local" and code is not None and len(code.get_secret_value()) < 16:
+            raise ValueError("SIGNUP_INVITE_CODE must be at least 16 characters outside local")
+        return self
 
     @model_validator(mode="after")
     def _no_placeholder_secret_outside_local(self) -> Self:

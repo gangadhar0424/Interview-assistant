@@ -1,14 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, Response, status
+from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import service
+from app.auth.client_ip import client_key
 from app.auth.deps import CurrentUser, require_trusted_origin
+from app.auth.limits import AuthLimits, invite_allows
 from app.auth.schemas import LoginRequest, SignupRequest, SignupResponse, TokenResponse, UserPublic
 from app.core.config import Settings, get_settings
-from app.core.errors import REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH
+from app.core.errors import REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH, AppError
 from app.db.models import User
 from app.db.session import get_session
 
@@ -38,17 +40,49 @@ def _token_response(issued: service.IssuedSession) -> TokenResponse:
     )
 
 
+def _client(request: Request, settings: Settings) -> str | None:
+    """Per-client limit key, or None when no trustworthy client address exists (see client_ip)."""
+    return client_key(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for"),
+        trusted_proxy=settings.trusted_proxy_enabled,
+        hops=settings.trusted_proxy_hops,
+    )
+
+
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=SignupResponse)
-async def signup(body: SignupRequest, session: SessionDep) -> SignupResponse:
+async def signup(
+    body: SignupRequest, request: Request, session: SessionDep, settings: SettingsDep
+) -> SignupResponse:
+    limits: AuthLimits = request.app.state.auth_limits
+    limits.check_signup(_client(request, settings))
+    if not invite_allows(settings, body.invite_code):
+        limits.record_signup_failure()
+        service.burn_signup_work(body.password)  # same cost as a real signup: no timing oracle
+        # Identical to the duplicate-email failure: a closed gate or a wrong code is not revealed.
+        raise service.signup_failed_error()
     user = await service.signup(session, body.email, body.password)
     return SignupResponse(user=UserPublic.model_validate(user))
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
-    body: LoginRequest, response: Response, session: SessionDep, settings: SettingsDep
+    body: LoginRequest,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    settings: SettingsDep,
 ) -> TokenResponse:
-    issued = await service.login(session, settings, body.email, body.password)
+    limits: AuthLimits = request.app.state.auth_limits
+    client = _client(request, settings)
+    limits.check_login(body.email, client)  # before any password hashing
+    try:
+        issued = await service.login(session, settings, body.email, body.password)
+    except AppError as exc:
+        if exc.code == "invalid_credentials":
+            limits.record_login_failure(body.email, client)
+        raise
+    limits.record_login_success(body.email)
     _set_refresh_cookie(response, issued.refresh_token, settings)
     response.headers["Cache-Control"] = "no-store"
     return _token_response(issued)

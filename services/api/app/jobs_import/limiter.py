@@ -36,6 +36,26 @@ class SlidingWindowLimiter:
             self._prune(now)
         return True
 
+    def blocked(self, key: str) -> bool:
+        """True if `key` is already at its limit. Does not record an attempt."""
+        events = self._events.get(key)
+        if not events:
+            return False
+        now = self._clock()
+        while events and now - events[0] >= self._window:
+            events.popleft()
+        return len(events) >= self._max
+
+    def record(self, key: str) -> None:
+        """Record one event for `key` without checking the limit (used for failures)."""
+        now = self._clock()
+        self._events.setdefault(key, deque()).append(now)
+        if len(self._events) > _PRUNE_THRESHOLD:
+            self._prune(now)
+
+    def reset(self, key: str) -> None:
+        self._events.pop(key, None)
+
     def retry_after(self, key: str) -> int:
         events = self._events.get(key)
         if not events:

@@ -15,6 +15,8 @@ def _normalize_email(value: str) -> str:
 class SignupRequest(BaseModel):
     email: EmailStr
     password: Annotated[str, Field(min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)]
+    # Signup access code (Phase 13A Batch 2): optional here, required by policy outside local.
+    invite_code: str | None = Field(default=None, max_length=128, repr=False)
 
     @field_validator("email", mode="after")
     @classmethod

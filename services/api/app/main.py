@@ -18,6 +18,7 @@ from app.api import health
 from app.api.v1.router import router as v1_router
 from app.audio.limits import AudioLimits
 from app.audio.service import Transcriber
+from app.auth.limits import AuthLimits
 from app.core.body_limit import BodySizeLimitMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
             app.state.llm_router,
             build_embedding_provider(settings),
         )
+        app.state.auth_limits = AuthLimits(settings)
         app.state.question_limits = QuestionLimits(
             settings.qa_rate_limit_per_minute, settings.qa_max_concurrent_generations
         )

@@ -39,6 +39,15 @@ def invalid_refresh_error() -> AppError:
     )
 
 
+def signup_failed_error() -> AppError:
+    return AppError(409, "signup_failed", "An account could not be created with these details.")
+
+
+def burn_signup_work(password: str) -> None:
+    """Spend the hashing time of a real signup, so refusals are not distinguishable by timing."""
+    security.hash_password(password)
+
+
 async def signup(session: AsyncSession, email: str, password: str) -> User:
     user = User(id=uuid.uuid4(), email=email, password_hash=security.hash_password(password))
     await set_tenant_context(session, user.id)
@@ -48,9 +57,7 @@ async def signup(session: AsyncSession, email: str, password: str) -> User:
     except IntegrityError:
         # Unique violation on email (enforced by the database, so race-safe).
         await session.rollback()
-        raise AppError(
-            409, "signup_failed", "An account could not be created with these details."
-        ) from None
+        raise signup_failed_error() from None
     return user
 
 
