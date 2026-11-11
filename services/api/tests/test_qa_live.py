@@ -213,6 +213,13 @@ def test_the_service_keeps_working_after_disconnects(setup: Setup) -> None:
             assert response.status_code == 200
             next(events(response.iter_lines()))
         assert wait_for(lambda: limits.active(setup.user_id) == 0)
+
+    def all_cancelled() -> bool:
+        rows = setup.run_sql("SELECT status FROM generated_answers")
+        return len(rows) == 3 and all(r["status"] == "cancelled" for r in rows)
+
+    # The limiter slot is released before the shielded finish write commits, so wait for the row.
+    assert wait_for(all_cancelled)
     statuses = [r["status"] for r in setup.run_sql("SELECT status FROM generated_answers")]
     assert statuses == ["cancelled"] * 3
 
