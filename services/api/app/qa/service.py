@@ -388,7 +388,11 @@ class QuestionAnswerer:
         started = self._clock()
         question = self._clean_question(text)
         override = self._parse_override(question_type_override)
-        if input_source not in ("typed", "screenshot"):  # never trust a caller-supplied value
+        if input_source not in (
+            "typed",
+            "screenshot",
+            "audio",
+        ):  # never trust a caller-supplied value
             raise AppError(422, "validation_error", "input_source is not valid.")
         prepared = await self._prepare(user_id, session_id, question, override, input_source)
         run = _Run()

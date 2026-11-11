@@ -21,7 +21,7 @@ class QuestionCreate(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
     question_type_override: str | None = Field(default=None, max_length=64)
     # Where the text came from (Phase 11A, D-51): only recorded on the question.
-    input_source: Literal["typed", "screenshot"] = "typed"
+    input_source: Literal["typed", "screenshot", "audio"] = "typed"
 
 
 class AnswerOut(BaseModel):

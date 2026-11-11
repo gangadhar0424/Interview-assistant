@@ -469,7 +469,7 @@ def test_input_source_is_recorded_and_defaults_to_typed(
     ]
 
 
-@pytest.mark.parametrize("value", ["audio", "", "SCREENSHOT", 1, None])
+@pytest.mark.parametrize("value", ["video", "", "SCREENSHOT", 1, None])
 def test_an_invalid_input_source_is_rejected_before_anything_runs(
     client: TestClient, run_sql: RunSql, alice: dict[str, str], ready: str, value: Any
 ) -> None:

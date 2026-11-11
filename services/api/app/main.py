@@ -12,9 +12,12 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.ai.registry import build_registry
 from app.ai.router import LLMRouter, RouterConfig
+from app.ai.stt_router import SttRouterConfig, build_stt_router
 from app.ai.vision_router import VisionRouterConfig, build_vision_router
 from app.api import health
 from app.api.v1.router import router as v1_router
+from app.audio.limits import AudioLimits
+from app.audio.service import Transcriber
 from app.core.body_limit import BodySizeLimitMiddleware
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
@@ -113,6 +116,22 @@ def create_app() -> FastAPI:
         app.state.screenshot_limits = ScreenshotLimits(
             settings.screenshot_rate_limit_per_minute, settings.screenshot_max_concurrent
         )
+        # Audio input (Phase 12, D-53): a separate speech-to-text allow-list, empty by default.
+        # Audio is memory-only; nothing is stored.
+        stt_router = build_stt_router(
+            settings.stt_enabled_provider_list,
+            settings.stt_fallback_chain_list or None,
+            SttRouterConfig(
+                request_timeout_seconds=settings.stt_request_timeout_seconds,
+                breaker_failure_threshold=settings.llm_breaker_failure_threshold,
+                breaker_cooldown_seconds=settings.llm_breaker_cooldown_seconds,
+            ),
+        )
+        app.state.stt_router = stt_router
+        app.state.transcriber = Transcriber(app.state.sessionmaker, settings, stt_router)
+        app.state.audio_limits = AudioLimits(
+            settings.audio_rate_limit_per_minute, settings.audio_max_concurrent
+        )
         app.state.dispatcher = DramatiqDispatcher()  # imports the queue lazily on first dispatch
         # WebSocket gateway (Phase 9A, D-41). Tickets always live in Redis (the client connects
         # lazily, so startup needs no Redis); limits are per process.
@@ -203,7 +222,11 @@ def create_app() -> FastAPI:
             (
                 re.compile(r"/api/v1/sessions/[0-9a-fA-F-]{36}/screenshots"),
                 settings.screenshot_max_bytes + 64 * 1024,
-            )
+            ),
+            (
+                re.compile(r"/api/v1/sessions/[0-9a-fA-F-]{36}/transcribe"),
+                settings.audio_max_bytes + 64 * 1024,
+            ),
         ],
     )
 

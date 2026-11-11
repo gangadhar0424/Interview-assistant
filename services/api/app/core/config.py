@@ -107,6 +107,17 @@ class Settings(BaseSettings):
     screenshot_rate_limit_per_minute: int = Field(default=6, ge=1, le=600)
     screenshot_max_concurrent: int = Field(default=1, ge=1, le=10)
 
+    # --- Audio input (Phase 12, D-53) ---
+    # Speech-to-text providers are a SEPARATE allow-list from the text and vision providers; empty
+    # (the default) disables utterance transcription. Only the deterministic `fake` provider exists.
+    stt_enabled_providers: str = ""
+    stt_fallback_chain: str = ""
+    stt_request_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    audio_max_bytes: int = Field(default=1_500_000, ge=10_000, le=5_000_000)
+    audio_max_seconds: int = Field(default=30, ge=1, le=120)
+    audio_rate_limit_per_minute: int = Field(default=40, ge=1, le=600)
+    audio_max_concurrent: int = Field(default=2, ge=1, le=10)
+
     # --- Answer preferences (Phase 7A, D-34) ---
     # Word targets per answer length. The compiler turns them into prompt guidance and into a
     # `max_output_tokens` budget (words x tokens-per-word, with a multiplier for Hindi/Telugu).
@@ -349,6 +360,23 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _stt_settings(self) -> Self:
+        from app.ai.stt_router import KNOWN_STT_PROVIDER_IDS
+
+        enabled = self.stt_enabled_provider_list
+        if len(set(enabled)) != len(enabled):
+            raise ValueError("STT_ENABLED_PROVIDERS contains duplicates")
+        if any(p not in KNOWN_STT_PROVIDER_IDS for p in enabled):
+            raise ValueError("STT_ENABLED_PROVIDERS contains an unknown provider id")
+        if self.app_env != "local" and "fake" in enabled:
+            raise ValueError(
+                "the fake speech-to-text provider may only be enabled with APP_ENV=local"
+            )
+        if any(p not in enabled for p in self.stt_fallback_chain_list):
+            raise ValueError("STT_FALLBACK_CHAIN may only list providers in STT_ENABLED_PROVIDERS")
+        return self
+
     @field_validator("openai_model")
     @classmethod
     def _openai_model_not_blank(cls, value: str) -> str:
@@ -360,6 +388,14 @@ class Settings(BaseSettings):
     @property
     def llm_enabled_provider_list(self) -> list[str]:
         return [p.strip() for p in self.llm_enabled_providers.split(",") if p.strip()]
+
+    @property
+    def stt_enabled_provider_list(self) -> list[str]:
+        return [p.strip() for p in self.stt_enabled_providers.split(",") if p.strip()]
+
+    @property
+    def stt_fallback_chain_list(self) -> list[str]:
+        return [p.strip() for p in self.stt_fallback_chain.split(",") if p.strip()]
 
     @property
     def vision_enabled_provider_list(self) -> list[str]:

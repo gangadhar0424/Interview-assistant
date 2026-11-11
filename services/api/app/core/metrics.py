@@ -40,6 +40,11 @@ websocket_disconnects = Counter(
     "WebSocket disconnects by normalized close class",
     ("reason",),
 )
+audio_transcriptions = Counter(
+    "interview_audio_transcriptions",
+    "Utterance transcription outcomes (status only; never content)",
+    ("status",),
+)
 screenshot_extractions = Counter(
     "interview_screenshot_extractions",
     "Screenshot extraction outcomes (status only; never content)",

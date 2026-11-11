@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.ai.router_api import router as ai_router
+from app.audio.router import router as audio_router
 from app.auth.router import router as auth_router
 from app.files.router import documents_router, resumes_router
 from app.jobs_import.router import router as job_import_router
@@ -22,5 +23,6 @@ router.include_router(job_import_router)
 router.include_router(sessions_router)
 router.include_router(qa_router)
 router.include_router(screenshots_router)
+router.include_router(audio_router)
 router.include_router(ws_ticket_router)
 router.include_router(ws_router)
