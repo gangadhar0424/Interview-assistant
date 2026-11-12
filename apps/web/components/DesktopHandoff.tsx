@@ -18,7 +18,7 @@ const DOWNLOAD_URL = parseDownloadUrl(process.env.NEXT_PUBLIC_DESKTOP_DOWNLOAD_U
 // only a short-lived, single-use code (never session data or credentials), and the code is never
 // displayed. Starting the desktop app does not start any recording: that stays a separate,
 // explicit step inside the desktop app.
-export function DesktopHandoff({ sessionId }: { sessionId: string }) {
+export function DesktopHandoff({ sessionId, compact = false }: { sessionId: string; compact?: boolean }) {
   const { authedRequest } = useAuth();
   const [phase, setPhase] = useState<Phase>("idle");
   const [message, setMessage] = useState("");
@@ -48,13 +48,31 @@ export function DesktopHandoff({ sessionId }: { sessionId: string }) {
   const busy = phase === "starting";
 
   return (
-    <section aria-labelledby="handoff-title" style={{ display: "grid", gap: "0.5rem", justifyItems: "start" }}>
-      <h2 id="handoff-title" style={{ margin: 0, fontSize: "1.1rem" }}>
-        Interview Assistant desktop
-      </h2>
-      <button type="button" onClick={() => void start()} disabled={busy}>
+    <section
+      aria-labelledby={compact ? undefined : "handoff-title"}
+      className={compact ? "handoff-compact" : undefined}
+      style={{ display: "grid", gap: "0.5rem", justifyItems: "start" }}
+    >
+      {!compact && (
+        <h2 id="handoff-title" style={{ margin: 0, fontSize: "1.1rem" }}>
+          Interview Assistant desktop
+        </h2>
+      )}
+      <button type="button" className="start-interview" onClick={() => void start()} disabled={busy}>
         {busy ? "Opening…" : "Start Interview"}
       </button>
+      {!compact && (
+        <p className="handoff-install" style={{ margin: 0, fontSize: "0.88rem", color: "#64748b" }}>
+          Needs the Interview Assistant desktop app.{" "}
+          {DOWNLOAD_URL ? (
+            <a href={DOWNLOAD_URL} rel="noopener noreferrer">
+              Download the Windows installer
+            </a>
+          ) : (
+            "Ask your administrator for the installer."
+          )}
+        </p>
+      )}
 
       {phase === "opened" && (
         <p role="status" style={{ margin: 0 }}>

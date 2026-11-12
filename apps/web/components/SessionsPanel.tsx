@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DesktopHandoff } from "@/components/DesktopHandoff";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -97,7 +98,11 @@ export function SessionsPanel() {
               style={{ borderBottom: "1px solid #ddd", paddingBottom: "0.5rem" }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem" }}>
-                <Link href={`/sessions/${item.id}`} style={{ color: "inherit", overflowWrap: "anywhere" }}>
+                <Link
+                  href={`/sessions/${item.id}`}
+                  className="session-link"
+                  style={{ color: "inherit", overflowWrap: "anywhere" }}
+                >
                   <strong>{item.company_name}</strong>
                 </Link>
                 <span
@@ -117,6 +122,12 @@ export function SessionsPanel() {
                 Created {new Date(item.created_at).toLocaleDateString()} · Resume:{" "}
                 {item.resume.id === null ? `${item.resume.filename} (deleted)` : item.resume.filename}{" "}
                 · {item.document_count} {item.document_count === 1 ? "document" : "documents"}
+              </div>
+              <div className="session-actions">
+                {item.status === "ready" && <DesktopHandoff sessionId={item.id} compact />}
+                <Link href={`/sessions/${item.id}`} className="open-session">
+                  Open session
+                </Link>
               </div>
             </li>
           ))}

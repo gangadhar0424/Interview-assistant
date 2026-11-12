@@ -1,0 +1,432 @@
+/*
+ * Global look for the web app. Pure CSS, no dependencies. Components keep their own small inline
+ * layout styles; this sheet supplies the visual system (colour, type, cards, buttons, forms) and
+ * uses !important only where it must win over those inline layout values.
+ */
+
+:root {
+  color-scheme: light;
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-soft: #eef2ff;
+  --danger: #b00020;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 16px rgba(15, 23, 42, 0.06);
+  --ring: 0 0 0 3px rgba(79, 70, 229, 0.25);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(1200px 500px at 50% -200px, #e0e7ff 0%, transparent 70%), var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+p {
+  margin-block: 0.4rem;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* ------------------------------------------------------------------ page layout */
+
+/* Signed-in pages: a centred column. (The login/signup page is a centred form: left alone.) */
+main:not(:has(> form)) {
+  width: 100%;
+  max-width: 56rem;
+  margin: 0 auto !important;
+  padding: 2rem 1.25rem 4rem !important;
+  justify-items: stretch !important;
+  gap: 1.25rem !important;
+}
+
+main:not(:has(> form)) > nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+main:not(:has(> form)) > nav a:hover {
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* Dashboard header */
+main > header {
+  max-width: none !important;
+  padding: 1.1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+main > header p {
+  margin: 0.15rem 0 0 !important;
+  color: var(--muted) !important;
+  font-size: 0.9rem;
+}
+
+/* Cards: every top-level section of a page */
+main:not(:has(> form)) > section,
+main:not(:has(> form)) > div > section {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+main > div#files {
+  max-width: none !important;
+}
+
+section > h2:first-child,
+section h2 {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------------------------ auth card */
+
+main > form {
+  max-width: 24rem !important;
+  padding: 2rem 1.75rem;
+  gap: 0.6rem !important;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+main > form h1 {
+  font-size: 1.6rem;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+button {
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.05s;
+}
+
+button:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button[type="submit"],
+a[href="/sessions/new"] {
+  color: #fff !important;
+  background: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  border-radius: var(--radius-sm) !important;
+  font-weight: 600;
+}
+
+button[type="submit"]:hover:not(:disabled),
+a[href="/sessions/new"]:hover {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+  text-decoration: none;
+}
+
+/* The "Start Interview" action stands out as the primary action of a session page. */
+#handoff-title + button {
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  padding: 0.6rem 1.25rem;
+  font-size: 1rem;
+}
+
+#handoff-title + button:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="url"],
+input[type="number"],
+input:not([type]),
+textarea,
+select {
+  font: inherit;
+  width: 100%;
+  padding: 0.6rem 0.75rem !important;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--ring);
+}
+
+textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+input[type="file"] {
+  width: auto;
+  max-width: 100%;
+  padding: 0.5rem !important;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px dashed var(--border-strong);
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 0.75rem;
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--primary);
+}
+
+label {
+  font-size: 0.92rem;
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* ------------------------------------------------------------------ lists */
+
+main ul {
+  margin: 0.5rem 0 0;
+}
+
+main li {
+  border-bottom-color: var(--border) !important;
+}
+
+main li:last-child {
+  border-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+[data-testid="session-item"] {
+  padding: 0.7rem 0.15rem !important;
+  border-radius: 8px;
+}
+
+[data-testid="session-item"] a {
+  color: var(--text) !important;
+  font-size: 1.02rem;
+}
+
+[data-testid="session-item"] a:hover {
+  color: var(--primary) !important;
+  text-decoration: none;
+}
+
+[data-testid="session-item"] span[style*="border-radius"] {
+  background: var(--primary-soft);
+  border-color: transparent !important;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ messages */
+
+[role="alert"] {
+  margin-block: 0.6rem;
+}
+
+p[role="alert"]:not([style*="color: rgb(0, 0, 0)"]) {
+  padding: 0.55rem 0.8rem;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: var(--radius-sm);
+}
+
+p[role="status"] {
+  padding: 0.55rem 0.8rem;
+  background: var(--primary-soft);
+  border: 1px solid #c7d2fe;
+  border-radius: var(--radius-sm);
+  color: #3730a3;
+}
+
+[data-testid="handoff-fallback"] {
+  padding: 0.8rem 1rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-sm);
+}
+
+/* ------------------------------------------------------------------ small screens */
+
+@media (max-width: 640px) {
+  main:not(:has(> form)) {
+    padding: 1rem 0.75rem 3rem !important;
+  }
+
+  h1 {
+    font-size: 1.45rem;
+  }
+
+  main > header {
+    flex-wrap: wrap;
+  }
+}
+
+/* ------------------------------------------------------------------ session rows */
+
+.session-link {
+  color: var(--primary) !important;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+}
+
+.session-link:hover {
+  text-decoration-color: currentColor;
+}
+
+[data-testid="session-item"] a.session-link {
+  color: var(--primary) !important;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.session-actions .handoff-compact {
+  display: contents;
+}
+
+.session-actions .handoff-compact > [role="alert"],
+.session-actions .handoff-compact > [role="status"] {
+  flex-basis: 100%;
+  order: 3;
+}
+
+button.start-interview {
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+button.start-interview:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+a.open-session {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text) !important;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+a.open-session:hover {
+  background: #f8fafc;
+  text-decoration: none;
+}

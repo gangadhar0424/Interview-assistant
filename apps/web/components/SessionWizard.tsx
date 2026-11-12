@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isUuid } from "@/lib/qa";
 import {
   isReady,
   labelFor,
@@ -193,8 +194,11 @@ export function SessionWizard() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await authedRequest("/api/v1/sessions", { body: toCreatePayload(form) });
-      router.push("/home"); // the new session appears at the top of "Call Sessions"
+      const created = await authedRequest<{ id: string }>("/api/v1/sessions", {
+        body: toCreatePayload(form),
+      });
+      // Straight to the new session, where Start Interview is. Fall back to the dashboard.
+      router.push(typeof created?.id === "string" && isUuid(created.id) ? `/sessions/${created.id}` : "/home");
     } catch (err) {
       if (err instanceof ApiError) {
         const described = describeCreateError({

@@ -29,13 +29,16 @@ export function buildLaunchUrl(code: string): string | null {
 
 /**
  * The installer download link from NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL. Only an absolute https URL
- * (without embedded credentials) is used; anything else means "not configured".
+ * (without embedded credentials) is used, plus plain http for a loopback host so a developer can
+ * serve the installer locally; anything else means "not configured".
  */
 export function parseDownloadUrl(raw: string | undefined): string | null {
   if (!raw) return null;
   try {
     const url = new URL(raw.trim());
-    if (url.protocol !== "https:" || url.username !== "" || url.password !== "") return null;
+    if (url.username !== "" || url.password !== "") return null;
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) return null;
     return url.toString();
   } catch {
     return null;

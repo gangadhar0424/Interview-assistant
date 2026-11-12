@@ -174,3 +174,27 @@ test("the session page validates its id before showing the handoff button", () =
   const page = source("app/sessions/[id]/page.tsx");
   assert.ok(page.indexOf("isUuid(id)") < page.indexOf("<DesktopHandoff"));
 });
+
+// ----------------------------------------------------------- local installer + dashboard actions
+test("a loopback http installer URL is accepted for local development, other http hosts are not", () => {
+  assert.equal(parseDownloadUrl("http://localhost:3000/downloads/app.exe"), "http://localhost:3000/downloads/app.exe");
+  assert.equal(parseDownloadUrl("http://127.0.0.1:3000/downloads/app.exe"), "http://127.0.0.1:3000/downloads/app.exe");
+  for (const bad of ["http://example.com/a.exe", "http://192.168.1.5/a.exe", "http://localhost.evil.com/a.exe", "http://user:pw@localhost/a.exe", "ftp://localhost/a.exe"]) {
+    assert.equal(parseDownloadUrl(bad), null, bad);
+  }
+});
+
+test("each ready session on the dashboard has Start Interview and Open session actions", () => {
+  const panel = source("components/SessionsPanel.tsx");
+  assert.ok(panel.includes("<DesktopHandoff sessionId={item.id} compact />"));
+  assert.match(panel, /item\.status === "ready" && <DesktopHandoff/);
+  assert.ok(panel.includes("Open session"));
+  assert.equal(/\bfetch\(/.test(panel), false);
+});
+
+test("creating a session goes straight to it, after validating the id", () => {
+  const wizard = source("components/SessionWizard.tsx");
+  assert.ok(wizard.includes("isUuid(created.id)"));
+  assert.ok(wizard.includes("`/sessions/${created.id}`"));
+  assert.ok(wizard.includes('"/home"')); // safe fallback
+});
