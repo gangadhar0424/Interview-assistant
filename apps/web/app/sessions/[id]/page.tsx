@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { DesktopHandoff } from "@/components/DesktopHandoff";
 import { SessionChat } from "@/components/SessionChat";
 import { useAuth } from "@/lib/auth";
 import { isUuid } from "@/lib/qa";
@@ -29,7 +30,10 @@ export default function SessionPage() {
         <Link href="/home">&larr; Back to dashboard</Link>
       </nav>
       {isUuid(id) ? (
-        <SessionChat sessionId={id} />
+        <>
+          <DesktopHandoff sessionId={id} />
+          <SessionChat sessionId={id} />
+        </>
       ) : (
         <p role="alert" style={{ color: "#b00020" }}>
           This session was not found.
