@@ -184,6 +184,10 @@ class Settings(BaseSettings):
     # Single-use ticket lifetime and how many tickets one user may request per minute.
     ws_ticket_ttl_seconds: int = Field(default=30, ge=5, le=120)
     ws_ticket_rate_limit_per_minute: int = Field(default=30, ge=1, le=600)
+    # --- Web -> desktop handoff (D-55). Single-use code lifetime; per-user request limits. ---
+    handoff_code_ttl_seconds: int = Field(default=60, ge=10, le=120)
+    handoff_issue_rate_limit_per_minute: int = Field(default=10, ge=1, le=600)
+    handoff_redeem_rate_limit_per_minute: int = Field(default=20, ge=1, le=600)
     # The client pings about every heartbeat interval; silence for the idle timeout closes the
     # socket; the first message (`client.hello`) must arrive within the hello timeout.
     ws_heartbeat_interval_seconds: float = Field(default=20.0, gt=0, le=120)

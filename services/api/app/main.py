@@ -148,6 +148,16 @@ def create_app() -> FastAPI:
         app.state.ws_ticket_limiter = SlidingWindowLimiter(
             settings.ws_ticket_rate_limit_per_minute, 60.0
         )
+        # Web -> desktop handoff codes (D-55): the same single-use store under its own key prefix.
+        app.state.handoff_store = TicketStore(
+            ticket_redis, settings.handoff_code_ttl_seconds, key_prefix="handoff:"
+        )
+        app.state.handoff_issue_limiter = SlidingWindowLimiter(
+            settings.handoff_issue_rate_limit_per_minute, 60.0
+        )
+        app.state.handoff_redeem_limiter = SlidingWindowLimiter(
+            settings.handoff_redeem_rate_limit_per_minute, 60.0
+        )
         app.state.connection_registry = ConnectionRegistry(
             settings.ws_max_connections_per_user, settings.ws_max_total_connections
         )

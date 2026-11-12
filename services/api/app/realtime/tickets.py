@@ -37,20 +37,25 @@ class TicketBinding:
     session_id: uuid.UUID
 
 
-def _key(ticket: str) -> str:
-    return KEY_PREFIX + hashlib.sha256(ticket.encode("ascii")).hexdigest()
+def _key(ticket: str, prefix: str = KEY_PREFIX) -> str:
+    return prefix + hashlib.sha256(ticket.encode("ascii")).hexdigest()
 
 
 class TicketStore:
-    def __init__(self, client: RedisClient, ttl_seconds: int) -> None:
+    def __init__(
+        self, client: RedisClient, ttl_seconds: int, *, key_prefix: str = KEY_PREFIX
+    ) -> None:
         self._client = client
         self.ttl_seconds = ttl_seconds
+        # A distinct prefix keeps another single-use purpose (the desktop handoff, D-55) in its own
+        # keyspace: a code of one kind can never be redeemed as the other.
+        self._prefix = key_prefix
 
     async def issue(self, user_id: uuid.UUID, session_id: uuid.UUID) -> str:
         ticket = secrets.token_urlsafe(32)
         try:
             stored = await self._client.set(
-                _key(ticket), f"{user_id}:{session_id}", ex=self.ttl_seconds, nx=True
+                _key(ticket, self._prefix), f"{user_id}:{session_id}", ex=self.ttl_seconds, nx=True
             )
         except Exception:
             raise TicketStoreUnavailable from None
@@ -63,7 +68,7 @@ class TicketStore:
         if not _TICKET_SHAPE.fullmatch(ticket):  # garbage never reaches Redis
             return None
         try:
-            raw = await self._client.getdel(_key(ticket))
+            raw = await self._client.getdel(_key(ticket, self._prefix))
         except Exception:
             raise TicketStoreUnavailable from None
         if raw is None:
