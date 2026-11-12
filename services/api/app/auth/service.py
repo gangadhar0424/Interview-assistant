@@ -62,14 +62,19 @@ async def signup(session: AsyncSession, email: str, password: str) -> User:
 
 
 def _new_refresh_row(
-    user_id: uuid.UUID, family_id: uuid.UUID, raw_token: str, settings: Settings, now: datetime
+    user_id: uuid.UUID,
+    family_id: uuid.UUID,
+    raw_token: str,
+    settings: Settings,
+    now: datetime,
+    client_type: str = "web",
 ) -> RefreshToken:
     return RefreshToken(
         id=uuid.uuid4(),
         user_id=user_id,
         family_id=family_id,
         token_hash=security.hash_refresh_token(raw_token),
-        client_type="web",
+        client_type=client_type,
         expires_at=now + timedelta(days=settings.refresh_token_ttl_days),
     )
 
@@ -97,6 +102,30 @@ async def login(
 
     access, expires_in = security.create_access_token(user.id, settings)
     logger.info("login succeeded", extra={"user_id": str(user.id)})
+    return IssuedSession(user, access, expires_in, raw)
+
+
+async def issue_desktop_session(
+    session: AsyncSession, settings: Settings, user_id: uuid.UUID
+) -> IssuedSession | None:
+    """A fresh desktop login for a user already identified by a single-use handoff code (D-56).
+
+    No password is involved: the caller proved the user's identity by redeeming a code that only
+    that user's authenticated web session could have created. The new refresh-token family is
+    separate from every other session of the user, so signing out of the desktop (or the web)
+    never revokes the other. None when the account is missing or no longer active.
+    """
+    await set_tenant_context(session, user_id)
+    user = await session.get(User, user_id)
+    if user is None or user.status != "active":
+        return None
+    now = datetime.now(UTC)
+    user.last_login_at = now
+    raw = security.generate_refresh_token()
+    session.add(_new_refresh_row(user.id, uuid.uuid4(), raw, settings, now, "desktop"))
+    await session.commit()
+    access, expires_in = security.create_access_token(user.id, settings)
+    logger.info("desktop session issued by handoff", extra={"user_id": str(user.id)})
     return IssuedSession(user, access, expires_in, raw)
 
 

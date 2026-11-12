@@ -20,7 +20,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-def _set_refresh_cookie(response: Response, token: str, settings: Settings) -> None:
+def set_refresh_cookie(response: Response, token: str, settings: Settings) -> None:
     response.set_cookie(
         REFRESH_COOKIE_NAME,
         token,
@@ -83,7 +83,7 @@ async def login(
             limits.record_login_failure(body.email, client)
         raise
     limits.record_login_success(body.email)
-    _set_refresh_cookie(response, issued.refresh_token, settings)
+    set_refresh_cookie(response, issued.refresh_token, settings)
     response.headers["Cache-Control"] = "no-store"
     return _token_response(issued)
 
@@ -100,7 +100,7 @@ async def refresh(
     if not refresh_token:
         raise service.invalid_refresh_error()
     issued = await service.refresh(session, settings, refresh_token)
-    _set_refresh_cookie(response, issued.refresh_token, settings)
+    set_refresh_cookie(response, issued.refresh_token, settings)
     response.headers["Cache-Control"] = "no-store"
     return _token_response(issued)
 
