@@ -281,9 +281,29 @@ function updateLive(answer: LiveAnswer, event: QaEvent): LiveAnswer {
  * Makes the handed-off session the selected one once main reports it READY. Selecting a session
  * already stops any capture (existing behaviour); nothing here ever starts audio or screenshots.
  */
-async function selectHandedOffSession(get: () => AppState): Promise<void> {
-  const { handoff, user } = get();
-  if (handoff.phase !== "ready" || !handoff.session || !user) return;
+async function selectHandedOffSession(
+  get: () => AppState,
+  set: (partial: Partial<AppState>) => void,
+): Promise<void> {
+  const { handoff } = get();
+  if (handoff.phase !== "ready" || !handoff.session) return;
+  // The handoff signs this app in (or switches the account) in main: learn who is signed in now.
+  const auth = await window.desktop.auth.getState();
+  if (!auth.ok || !auth.data.user) return;
+  if (auth.data.user.id !== get().user?.id) {
+    set({
+      user: auth.data.user,
+      sessions: [],
+      selectedSessionId: null,
+      history: [],
+      liveAnswer: null,
+      capture: { phase: "idle" },
+      captureNotice: null,
+      error: null,
+      errorKind: null,
+      ...clearedCreate(),
+    });
+  }
   const target = handoff.session.id;
   await get().refreshSessions();
   const state = get();
@@ -338,7 +358,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       const user = unwrap<DesktopUser>(await window.desktop.auth.login(email, password));
       set({ user });
       await get().refreshSessions();
-      await selectHandedOffSession(get);
+      await selectHandedOffSession(get, set);
     } catch (error) {
       set(errorState(error));
       throw error;
@@ -352,7 +372,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       const user = unwrap<DesktopUser>(await window.desktop.auth.signup(email, password));
       set({ user });
       await get().refreshSessions();
-      await selectHandedOffSession(get);
+      await selectHandedOffSession(get, set);
     } catch (error) {
       set(errorState(error));
       throw error;
@@ -547,7 +567,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   handleHandoffEvent: async (handoff) => {
     set({ handoff });
     // Selecting the prepared session is all READY does. It starts no audio and no capture.
-    await selectHandedOffSession(get);
+    await selectHandedOffSession(get, set);
   },
   dismissHandoff: async () => {
     set({ handoff: IDLE_HANDOFF });

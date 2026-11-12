@@ -338,39 +338,35 @@ export class DesktopApiClient {
 
   /** `POST /api/v1/sessions` with an already validated body; returns the new session's summary. */
   /**
-   * Redeems a web -> desktop handoff code as THIS signed-in user (D-55). The code is single-use and
-   * bound to a user and session; every failure is the same 404. A 401 happens before the server
-   * touches the code, so retrying once after a token refresh cannot burn it.
+   * Redeems a web -> desktop handoff code (D-55/D-56). Public: the desktop has no login yet and the
+   * single-use code (bound to a user and session) is the credential, so the response carries this
+   * desktop's own login in the same shape as `/auth/login`. Nothing is adopted until `commit()`:
+   * the caller may still decline (another account is signed in) and `discard()` the minted login.
+   * Every failure is the same 404.
    */
-  async redeemHandoff(
-    code: string,
-  ): Promise<{ id: string; title: string | null; company_name: string; status: string }> {
-    const send = () =>
-      this.request("/api/v1/sessions/handoff/redeem", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.accessToken ?? ""}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ code }),
-      });
-    if (!this.accessToken) {
-      throw new DesktopApiError({
-        kind: "http",
-        status: 401,
-        code: "not_authenticated",
-        message: "Sign in again to continue.",
-      });
-    }
-    let response = await send();
-    if (response.status === 401) {
-      await this.refreshSession();
-      response = await send();
-    }
-    const payload: unknown = await response.json().catch(() => null);
+  async redeemHandoff(code: string): Promise<{
+    userId: string;
+    session: { id: string; title: string | null; company_name: string; status: string };
+    commit(): void;
+    discard(): Promise<void>;
+  }> {
+    const { response, payload } = await this.requestJson<unknown>(
+      "/api/v1/sessions/handoff/redeem",
+      { code },
+    );
     if (!response.ok) throw errorFromResponse(response, payload);
-    const session = (payload as { session?: Record<string, unknown> } | null)?.session;
+    const body = payload as {
+      access_token?: unknown;
+      user?: { id?: unknown };
+      session?: Record<string, unknown>;
+    } | null;
+    const session = body?.session;
+    const refresh = getRefreshCookie(response);
     if (
+      !body ||
+      typeof body.access_token !== "string" ||
+      typeof body.user?.id !== "string" ||
+      !refresh ||
       !session ||
       typeof session.id !== "string" ||
       typeof session.status !== "string" ||
@@ -382,11 +378,29 @@ export class DesktopApiClient {
         message: "The server sent an unexpected response.",
       });
     }
+    const userId = body.user.id;
     return {
-      id: session.id,
-      title: typeof session.title === "string" ? session.title : null,
-      company_name: session.company_name,
-      status: session.status,
+      userId,
+      session: {
+        id: session.id,
+        title: typeof session.title === "string" ? session.title : null,
+        company_name: session.company_name,
+        status: session.status,
+      },
+      commit: () => {
+        this.acceptTokenResponse(response, payload);
+      },
+      discard: async () => {
+        try {
+          await this.request("/api/v1/auth/logout", {
+            method: "POST",
+            headers: { Cookie: `refresh_token=${refresh}` },
+            body: "{}",
+          });
+        } catch {
+          /* best effort: the unused login expires on its own */
+        }
+      },
     };
   }
 

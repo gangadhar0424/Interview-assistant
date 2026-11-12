@@ -109,6 +109,23 @@ async function confirmHandoffSwitch(window: BrowserWindow): Promise<boolean> {
   return result.response === 0;
 }
 
+/** Native confirmation before a handoff replaces the signed-in account (no account details shown). */
+async function confirmHandoffAccountSwitch(window: BrowserWindow): Promise<boolean> {
+  const result = await dialog.showMessageBox(window, {
+    type: "warning",
+    title: "Switch account?",
+    message: "The web app started an interview for a different account than the one signed in here.",
+    detail:
+      "Continuing signs this app in as the web app's account and ends anything running for the " +
+      "current one. Nothing starts recording: you will still turn audio on yourself.",
+    buttons: ["Switch account", "Keep current account"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
+}
+
 function showMainWindow(): void {
   const window = mainWindow;
   if (!window || window.isDestroyed()) return;
@@ -235,6 +252,7 @@ function createWindow(): BrowserWindow {
     confirmAudioConsent: () => confirmAudioConsent(window),
     deepLinks,
     confirmHandoffSwitch: () => confirmHandoffSwitch(window),
+    confirmHandoffAccountSwitch: () => confirmHandoffAccountSwitch(window),
     showWindow: showMainWindow,
   });
   if (process.env.ELECTRON_RENDERER_URL) {

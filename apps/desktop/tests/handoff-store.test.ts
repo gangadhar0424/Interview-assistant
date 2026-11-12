@@ -20,7 +20,7 @@ const user = { id: "u1", email: "p@example.com", created_at: "x" };
 function bridge() {
   return {
     app: { checkBackend: vi.fn(async () => ok({ status: "connected" as const })) },
-    auth: { logout: vi.fn(async () => ok(undefined)) },
+    auth: { logout: vi.fn(async () => ok(undefined)), getState: vi.fn(async () => ok({ user })) },
     sessions: {
       list: vi.fn(async () => ok([summary(OTHER), summary(PREPARED)])),
       questions: vi.fn(async () => ok([])),
@@ -62,18 +62,40 @@ describe("handoff state in the renderer", () => {
     expect(state().capture.phase).toBe("idle");
   });
 
-  it("waiting, redeeming and failed states change no selection", async () => {
-    for (const phase of ["waiting_signin", "redeeming", "failed"] as const) {
+  it("redeeming and failed states change no selection", async () => {
+    for (const phase of ["redeeming", "failed"] as const) {
       await state().handleHandoffEvent({ phase, session: null, failure: phase === "failed" ? "invalid" : null });
       expect(state().selectedSessionId).toBe(OTHER);
     }
   });
 
-  it("READY while signed out only records the state (selection happens after sign-in)", async () => {
-    useDesktopStore.setState({ user: null });
+  it("READY signs the renderer in as the handoff user when it had no user (cold start)", async () => {
+    useDesktopStore.setState({ user: null, selectedSessionId: null });
     await state().handleHandoffEvent(READY);
-    expect(state().selectedSessionId).toBe(OTHER);
-    expect(desktop.sessions.list).not.toHaveBeenCalled();
+    expect(desktop.auth.getState).toHaveBeenCalled();
+    expect(state().user).toEqual(user);
+    expect(state().selectedSessionId).toBe(PREPARED);
+  });
+
+  it("READY with another account replaces the previous account's state", async () => {
+    useDesktopStore.setState({
+      user: { id: "someone-else", email: "x@example.com", created_at: "x" },
+      sessions: [summary("old-session")],
+      selectedSessionId: "old-session",
+      history: [{ id: "q" } as never],
+    });
+    await state().handleHandoffEvent(READY);
+    expect(state().user).toEqual(user);
+    expect(state().history).toEqual([]);
+    expect(state().selectedSessionId).toBe(PREPARED);
+    expect(state().sessions.some((s) => s.id === "old-session")).toBe(false);
+  });
+
+  it("READY with no signed-in user in main changes nothing", async () => {
+    desktop.auth.getState.mockResolvedValueOnce(ok({ user: null as never }));
+    useDesktopStore.setState({ user: null, selectedSessionId: null });
+    await state().handleHandoffEvent(READY);
+    expect(state().selectedSessionId).toBeNull();
   });
 
   it("an unknown session is not selected", async () => {

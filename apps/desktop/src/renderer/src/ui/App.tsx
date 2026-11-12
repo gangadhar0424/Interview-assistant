@@ -705,7 +705,6 @@ const HANDOFF_FAILURE_TEXT: Record<string, string> = {
   unavailable: "Could not open the prepared session right now. Check your connection and try again from the web app.",
   rate_limited: "Too many attempts. Wait a moment, then choose Start Interview in the web app again.",
   declined: "The current capture was kept. The prepared session was not opened.",
-  signed_out: "Sign in, then choose Start Interview in the web app again.",
 };
 
 /** READY / waiting / failure notice for the web -> desktop handoff. Never shows the code. */
@@ -714,14 +713,7 @@ function HandoffBanner({ onLogin = false }: { onLogin?: boolean }) {
   const selectedSessionId = useDesktopStore((state) => state.selectedSessionId);
   const dismiss = useDesktopStore((state) => state.dismissHandoff);
 
-  if (handoff.phase === "waiting_signin") {
-    return (
-      <div className="error-banner" role="status" data-testid="handoff-waiting">
-        <p>Sign in to open the interview session you prepared in the web app.</p>
-      </div>
-    );
-  }
-  if (onLogin && handoff.phase !== "failed") return null;
+  if (onLogin && handoff.phase !== "failed" && handoff.phase !== "redeeming") return null;
   if (handoff.phase === "redeeming") {
     return (
       <div className="error-banner" role="status">

@@ -44,6 +44,8 @@ type IpcDependencies = {
   deepLinks: DeepLinkInbox;
   /** Native confirmation before a handoff switches away from a running capture. */
   confirmHandoffSwitch: () => Promise<boolean>;
+  /** Native confirmation before a handoff signs another account in over the current one. */
+  confirmHandoffAccountSwitch: () => Promise<boolean>;
   /** Restores and focuses the window so a handoff result is visible. */
   showWindow: () => void;
 };
@@ -100,6 +102,7 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     confirmAudioConsent,
     deepLinks,
     confirmHandoffSwitch,
+    confirmHandoffAccountSwitch,
     showWindow,
   } = deps;
   const tokenStore = new SecureRefreshTokenStore(secureTokenPath, safeStorage);
@@ -107,6 +110,16 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
   let api = new DesktopApiClient(settings.backendBaseUrl, tokenStore);
   const streams = new Map<string, ActiveStream>();
   const handlers: string[] = [];
+  // A sign-in/restore in flight: a handoff waits for it so two logins never race for the stored one.
+  let authInFlight: Promise<unknown> | null = null;
+  const noop = (): void => undefined;
+  function trackAuth<T>(operation: Promise<T>): Promise<T> {
+    const tracked = operation.finally(() => {
+      if (authInFlight === tracked) authInFlight = null;
+    });
+    authInFlight = tracked;
+    return tracked;
+  }
 
   // Screenshot input (Phase 11B, D-51): capture logic is main-process only. The renderer gets named,
   // validated channels and a small preview; never the full image, never a generic capture API.
@@ -159,24 +172,25 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
   // Web -> desktop handoff (D-55). The code is redeemed only as this app's own signed-in user, is
   // never sent to the renderer, and READY never starts audio or screenshot capture.
   const handoff = new HandoffController({
-    isSignedIn: () => api.getUser() !== null,
+    settled: () => (authInFlight ?? Promise.resolve()).then(noop, noop),
+    currentUserId: () => api.getUser()?.id ?? null,
     redeem: (code) => api.redeemHandoff(code),
     isLive: () => capture.busy() || audio.state !== "idle",
     stopLive: () => {
       capture.discard("session");
       audio.stop("session");
     },
+    resetForAccountChange: () => {
+      for (const stream of streams.values()) stream.controller.abort();
+      streams.clear();
+    },
     confirmSwitch: confirmHandoffSwitch,
+    confirmAccountSwitch: confirmHandoffAccountSwitch,
     emit: (state) => {
       if (!window.isDestroyed()) window.webContents.send("handoff:event", state);
     },
     showWindow,
-    onAuthExpired: () => notifySessionExpired(),
     now: () => Date.now(),
-    schedule: (fn, ms) => {
-      const timer = setTimeout(fn, ms);
-      return () => clearTimeout(timer);
-    },
   });
   deepLinks.attach((raw) => handoff.receiveLink(raw));
   function notifySessionExpired(): void {
@@ -271,26 +285,18 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     clipboard.writeText(validateCopyText(text));
   });
 
-  handle("auth:get-state", async () => {
-    const user = await api.initialize();
-    if (user) handoff.onSignedIn(); // a link that arrived during a cold start
-    return { user };
-  });
+  handle("auth:get-state", async () => ({ user: await trackAuth(api.initialize()) }));
   handle("auth:login", async (_event, email, password) => {
     if (typeof email !== "string" || typeof password !== "string") {
       throw new Error("Enter an email and password.");
     }
-    const user = await api.login(email, password);
-    handoff.onSignedIn();
-    return user;
+    return trackAuth(api.login(email, password));
   });
   handle("auth:signup", async (_event, email, password) => {
     if (typeof email !== "string" || typeof password !== "string") {
       throw new Error("Enter an email and password.");
     }
-    const user = await api.signup(email, password);
-    handoff.onSignedIn();
-    return user;
+    return trackAuth(api.signup(email, password));
   });
   handle("auth:logout", async () => {
     handoff.onSignedOut();

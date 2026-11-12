@@ -115,6 +115,7 @@ function setup() {
     confirmAudioConsent: consent,
     deepLinks: new DeepLinkInbox(),
     confirmHandoffSwitch: async () => true,
+    confirmHandoffAccountSwitch: async () => true,
     showWindow: () => undefined,
   });
 

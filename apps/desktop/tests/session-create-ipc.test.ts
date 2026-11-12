@@ -118,6 +118,7 @@ function setup() {
     confirmAudioConsent: async () => true,
     deepLinks: new DeepLinkInbox(),
     confirmHandoffSwitch: async () => true,
+    confirmHandoffAccountSwitch: async () => true,
     showWindow: () => undefined,
   });
   const trusted = { senderFrame: { url: TRUSTED }, sender: { id: 1 } };

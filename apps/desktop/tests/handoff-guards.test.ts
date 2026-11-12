@@ -76,8 +76,24 @@ describe("the code stays in the main process and out of logs", () => {
     const client = code("main/api-client.ts");
     const redeem = /async redeemHandoff[\s\S]*?\n  \}\n/.exec(client)?.[0] ?? "";
     expect(redeem).toContain('"/api/v1/sessions/handoff/redeem"');
-    expect(redeem).toContain("JSON.stringify({ code })");
+    expect(redeem).toMatch(/requestJson<unknown>\(\s*"\/api\/v1\/sessions\/handoff\/redeem",\s*\{ code \}/);
     expect(redeem).not.toMatch(/\?h=|searchParams|console\./);
+  });
+
+  it("the minted login is adopted only through commit() and is held by main alone (D-56)", () => {
+    const controller = code("main/handoff.ts");
+    // Adoption happens in exactly one place, after the account and capture confirmations.
+    expect([...controller.matchAll(/\.commit\(\)/g)]).toHaveLength(1);
+    expect(controller.indexOf("confirmAccountSwitch()")).toBeLessThan(controller.indexOf(".commit()"));
+    const contracts = text("shared/contracts.ts");
+    const state = /export type HandoffState = \{([\s\S]*?)\n\};/.exec(contracts)?.[1] ?? "";
+    expect(state).not.toMatch(/token|cookie|refresh|userId|email/i);
+  });
+
+  it("redemption sends no Authorization header (the code is the credential)", () => {
+    const client = code("main/api-client.ts");
+    const redeem = /async redeemHandoff[\s\S]*?\n  \}\n/.exec(client)?.[0] ?? "";
+    expect(redeem).not.toMatch(/Authorization|Bearer/);
   });
 
   it("nothing persists the code (no fs, settings or storage use in handoff code)", () => {
@@ -117,5 +133,14 @@ describe("READY can never start capture", () => {
 
   it("main never marks a session started: no session status or start request from the desktop", () => {
     expect(code("main/api-client.ts")).not.toMatch(/\/start|status:\s*["']active/);
+  });
+});
+
+describe("the cold-start window never looks like a login prompt (D-56)", () => {
+  it("the login screen shows the 'Opening your prepared session' notice while a handoff redeems", () => {
+    const app = code("renderer/src/ui/App.tsx");
+    // The login screen's banner is hidden for every phase EXCEPT failed and redeeming.
+    expect(app).toContain('if (onLogin && handoff.phase !== "failed" && handoff.phase !== "redeeming") return null;');
+    expect(app).toContain("Opening your prepared session");
   });
 });

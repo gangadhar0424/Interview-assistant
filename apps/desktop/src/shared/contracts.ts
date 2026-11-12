@@ -217,8 +217,7 @@ export type HandoffFailure =
   | "expired" // the code was not redeemed within its short lifetime on this device
   | "unavailable" // the server could not be reached or is temporarily unavailable
   | "rate_limited"
-  | "declined" // the user chose not to switch away from a running capture
-  | "signed_out";
+  | "declined"; // the user chose not to switch away from a running capture or account
 
 export type HandoffSession = { id: string; title: string | null; company_name: string };
 
@@ -227,7 +226,7 @@ export type HandoffState = {
    * `ready` only means the prepared session is selected and the assistant is waiting. It never
    * means audio or screenshot capture has started: those stay explicit, separately-consented steps.
    */
-  phase: "idle" | "waiting_signin" | "redeeming" | "ready" | "failed";
+  phase: "idle" | "redeeming" | "ready" | "failed";
   session: HandoffSession | null;
   failure: HandoffFailure | null;
 };
