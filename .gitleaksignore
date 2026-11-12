@@ -1,0 +1,5 @@
+# Dummy JWT_SECRET test fixture (patterned, non-secret) used in staging-config tests.
+# Exact fingerprints only; no file- or rule-wide allowlisting.
+0af04a8a5f86a38048507819de0129fa320e2ab4:services/api/tests/test_auth_limits.py:generic-api-key:256
+66b7248b29085b26adf63727941b216743afac85:services/api/tests/test_config.py:generic-api-key:91
+66b7248b29085b26adf63727941b216743afac85:services/api/tests/test_config.py:generic-api-key:107
