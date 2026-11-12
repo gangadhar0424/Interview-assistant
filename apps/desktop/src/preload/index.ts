@@ -8,6 +8,7 @@ import type {
   CreateSessionOptions,
   DesktopSettings,
   ExtractionResult,
+  HandoffState,
   SessionSummary,
   StreamMessage,
 } from "../shared/contracts";
@@ -49,6 +50,10 @@ const bridge: DesktopBridge = {
     create: (draft) =>
       ipcRenderer.invoke("sessions:create", draft) as Promise<DesktopResult<SessionSummary>>,
   },
+  handoff: {
+    getState: () => ipcRenderer.invoke("handoff:get-state") as Promise<DesktopResult<HandoffState>>,
+    dismiss: () => ipcRenderer.invoke("handoff:dismiss") as Promise<DesktopResult<void>>,
+  },
   capture: {
     listDisplays: () =>
       ipcRenderer.invoke("capture:list-displays") as Promise<DesktopResult<CaptureDisplay[]>>,
@@ -79,6 +84,11 @@ const bridge: DesktopBridge = {
       listener(message);
     ipcRenderer.on("stream:message", wrapped);
     return () => ipcRenderer.removeListener("stream:message", wrapped);
+  },
+  onHandoffEvent: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: HandoffState) => listener(state);
+    ipcRenderer.on("handoff:event", wrapped);
+    return () => ipcRenderer.removeListener("handoff:event", wrapped);
   },
   onSessionExpired: (listener) => {
     const wrapped = () => listener();

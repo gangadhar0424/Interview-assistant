@@ -97,6 +97,8 @@ describe("the preload bridge stays narrow", () => {
         "capture:extract",
         "capture:list-displays",
         "capture:start",
+        "handoff:dismiss",
+        "handoff:get-state",
         "audio:start",
         "audio:stop",
         "sessions:create",

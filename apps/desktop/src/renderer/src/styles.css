@@ -267,3 +267,9 @@ select.field-control { color-scheme: dark; }
 .audio-question { border-color: rgba(251,191,36,.45); }
 .audio-badge { color: #fbbf24; font-weight: 700; margin-right: 4px; }
 .audio-actions { display: flex; gap: 6px; }
+
+.ready-banner { display: grid; gap: 4px; margin: 10px 0; padding: 9px 10px; border: 1px solid rgba(103,232,249,.35); border-radius: 9px; background: rgba(103,232,249,.08); color: #bff3fb; }
+.ready-banner strong { font-size: 9px; letter-spacing: .12em; color: #67e8f9; }
+.ready-banner span { font-size: 10px; overflow-wrap: anywhere; }
+.ready-banner p { margin: 0; font-size: 8px; line-height: 1.5; }
+.link-button { justify-self: start; padding: 0; border: 0; background: none; color: inherit; font-size: 8px; text-decoration: underline; cursor: pointer; }

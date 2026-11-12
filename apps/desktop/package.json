@@ -43,6 +43,14 @@
     "appId": "com.interviewassistant.desktop",
     "productName": "Interview Assistant",
     "asar": true,
+    "protocols": [
+      {
+        "name": "Interview Assistant",
+        "schemes": [
+          "interviewassistant"
+        ]
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"

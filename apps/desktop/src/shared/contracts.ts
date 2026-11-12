@@ -210,6 +210,30 @@ export type ExtractionResult = {
   truncated: boolean;
 };
 
+// ---- Web -> desktop handoff (D-55). The renderer only ever sees this state: never the code. ----
+
+export type HandoffFailure =
+  | "invalid" // malformed, unknown, expired, reused, another account's: deliberately one answer
+  | "expired" // the code was not redeemed within its short lifetime on this device
+  | "unavailable" // the server could not be reached or is temporarily unavailable
+  | "rate_limited"
+  | "declined" // the user chose not to switch away from a running capture
+  | "signed_out";
+
+export type HandoffSession = { id: string; title: string | null; company_name: string };
+
+export type HandoffState = {
+  /**
+   * `ready` only means the prepared session is selected and the assistant is waiting. It never
+   * means audio or screenshot capture has started: those stay explicit, separately-consented steps.
+   */
+  phase: "idle" | "waiting_signin" | "redeeming" | "ready" | "failed";
+  session: HandoffSession | null;
+  failure: HandoffFailure | null;
+};
+
+export const IDLE_HANDOFF: HandoffState = { phase: "idle", session: null, failure: null };
+
 export type DesktopBridge = {
   app: {
     getSettings(): Promise<DesktopResult<DesktopSettings>>;
@@ -243,6 +267,12 @@ export type DesktopBridge = {
     /** Validates in main, then calls the existing `POST /sessions`. */
     create(draft: SessionDraft): Promise<DesktopResult<SessionSummary>>;
   };
+  handoff: {
+    /** The current handoff state (the link can arrive before the renderer is listening). */
+    getState(): Promise<DesktopResult<HandoffState>>;
+    /** Clears a ready/failed handoff notice. */
+    dismiss(): Promise<DesktopResult<void>>;
+  };
   capture: {
     listDisplays(): Promise<DesktopResult<CaptureDisplay[]>>;
     /** Starts the cancellable countdown; the image is captured only when it completes. */
@@ -263,6 +293,7 @@ export type DesktopBridge = {
   onCaptureEvent(listener: (event: CaptureEvent) => void): () => void;
   onStreamMessage(listener: (message: StreamMessage) => void): () => void;
   onSessionExpired(listener: () => void): () => void;
+  onHandoffEvent(listener: (state: HandoffState) => void): () => void;
 };
 
 declare global {

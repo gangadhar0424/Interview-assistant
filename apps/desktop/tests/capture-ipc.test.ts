@@ -2,6 +2,7 @@
  * Phase 11B: the real IPC layer (`registerDesktopIpc`) driven with a fake ipcMain, a fake window,
  * a fake screen and a fake backend (`fetch`). No Electron runtime, no real capture, no network.
  */
+import { DeepLinkInbox } from "../src/main/deep-link";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -164,6 +165,9 @@ function setup() {
     audioHost: { setIndicator: vi.fn() },
     audioGate: { read: () => ({ state: "idle" as const, source: null }) },
     confirmAudioConsent: async () => true,
+    deepLinks: new DeepLinkInbox(),
+    confirmHandoffSwitch: async () => true,
+    showWindow: () => undefined,
   });
   void stored;
 

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage, Tray, ipcMain, safeStorage } from "electron";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { DeepLinkInbox, extractLinkFromArgv, PROTOCOL_SCHEME } from "./deep-link";
 import type { AudioIndicator } from "./audio-service";
 import { captureElectronDisplay, listElectronDisplays, makeElectronPreview } from "./capture-electron";
 import type { IndicatorState } from "./capture-service";
@@ -21,6 +22,10 @@ let quitting = false;
 let disposeIpc: (() => void) | null = null;
 // Read by the media-permission handlers below; the live audio service (ipc.ts) replaces `read`.
 const audioGate: { read: () => AudioGateState } = { read: () => IDLE_GATE };
+
+// Web -> desktop handoff (D-55): links from the OS land here and are handed to the handoff
+// controller (ipc.ts) once it exists. Links are held in memory only and never logged.
+const deepLinks = new DeepLinkInbox();
 
 const settingsStore = new SettingsStore(join(app.getPath("userData"), "settings.json"));
 
@@ -85,6 +90,45 @@ async function confirmScreenshotConsent(window: BrowserWindow): Promise<boolean>
     noLink: true,
   });
   return result.response === 0;
+}
+
+/** Native confirmation before a handoff switches away from a running capture (a compromised renderer cannot fake it). */
+async function confirmHandoffSwitch(window: BrowserWindow): Promise<boolean> {
+  const result = await dialog.showMessageBox(window, {
+    type: "warning",
+    title: "Switch to a new prepared session?",
+    message: "The web app asked to open a prepared session while a capture is running here.",
+    detail:
+      "Switching stops the current screenshot or audio capture and discards anything not yet sent. " +
+      "Nothing new starts recording: you will still turn audio on yourself.",
+    buttons: ["Switch session", "Keep current capture"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
+}
+
+function showMainWindow(): void {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
+/**
+ * Registers `interviewassistant://` for this app. The installer registers it for the packaged app
+ * (electron-builder `protocols`); this call is a harmless safety net there. In development
+ * (`electron-vite dev`) the OS needs the electron binary plus the app path instead; that path is
+ * development-only and is documented and tested manually, not relied on in production.
+ */
+function registerProtocol(): void {
+  if (process.defaultApp && process.argv[1]) {
+    app.setAsDefaultProtocolClient(PROTOCOL_SCHEME, process.execPath, [resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient(PROTOCOL_SCHEME);
+  }
 }
 
 function reportStartupFailure(): void {
@@ -189,6 +233,9 @@ function createWindow(): BrowserWindow {
     audioHost: { setIndicator: setAudioIndicator },
     audioGate,
     confirmAudioConsent: () => confirmAudioConsent(window),
+    deepLinks,
+    confirmHandoffSwitch: () => confirmHandoffSwitch(window),
+    showWindow: showMainWindow,
   });
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL).catch(reportStartupFailure);
@@ -231,17 +278,41 @@ function createTray(window: BrowserWindow): Tray {
   return instance;
 }
 
-app.whenReady().then(() => {
-  const settings = settingsStore.load();
-  mainWindow = createWindow();
-  applyWindowSettings(mainWindow, settings);
-  setExpanded(mainWindow, settings.expanded);
-  tray = createTray(mainWindow);
-  app.on("activate", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-    else mainWindow = createWindow();
+// One instance only: a second launch (the OS opening a handoff link while the app is already
+// running) hands its link to the running instance and exits.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    showMainWindow();
+    const link = extractLinkFromArgv(argv);
+    if (link) deepLinks.deliver(link);
   });
-}).catch(reportStartupFailure);
+  // macOS delivers links as an event rather than argv (the MVP targets Windows).
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    deepLinks.deliver(url);
+  });
+  const coldStartLink = extractLinkFromArgv(process.argv);
+  if (coldStartLink) deepLinks.deliver(coldStartLink);
+  registerProtocol();
+  startApp();
+}
+
+function startApp(): void {
+  app.whenReady().then(() => {
+    const settings = settingsStore.load();
+    mainWindow = createWindow();
+    applyWindowSettings(mainWindow, settings);
+    setExpanded(mainWindow, settings.expanded);
+    tray = createTray(mainWindow);
+    app.on("activate", () => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+      else mainWindow = createWindow();
+    });
+  }).catch(reportStartupFailure);
+}
 
 app.on("before-quit", () => {
   quitting = true;

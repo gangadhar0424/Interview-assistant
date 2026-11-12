@@ -22,6 +22,7 @@ export default function App() {
   const handleCaptureEvent = useDesktopStore((state) => state.handleCaptureEvent);
   const handleAudioEvent = useDesktopStore((state) => state.handleAudioEvent);
   const expireSession = useDesktopStore((state) => state.expireSession);
+  const handleHandoffEvent = useDesktopStore((state) => state.handleHandoffEvent);
   const checkBackend = useDesktopStore((state) => state.checkBackend);
   const checked = useRef(false);
   const [page, setPage] = useState<Page>("home");
@@ -34,15 +35,17 @@ export default function App() {
     const unsubscribeCapture = window.desktop.onCaptureEvent(handleCaptureEvent);
     const unsubscribeAudio = window.desktop.onAudioEvent(handleAudioEvent);
     const unsubscribeExpired = window.desktop.onSessionExpired(expireSession);
+    const unsubscribeHandoff = window.desktop.onHandoffEvent((state) => void handleHandoffEvent(state));
     const interval = window.setInterval(() => void checkBackend(), 15_000);
     return () => {
       unsubscribeStream();
       unsubscribeCapture();
       unsubscribeAudio();
       unsubscribeExpired();
+      unsubscribeHandoff();
       window.clearInterval(interval);
     };
-  }, [initialize, handleStreamMessage, handleAudioEvent, expireSession, checkBackend]);
+  }, [initialize, handleStreamMessage, handleAudioEvent, expireSession, handleHandoffEvent, checkBackend]);
 
   if (!initialized) return <LoadingScreen />;
   if (!user) return <LoginScreen />;
@@ -97,6 +100,7 @@ export default function App() {
         </aside>
 
         <main className="main-panel">
+          <HandoffBanner />
           <AnimatePresence mode="wait">
             <motion.section
               animate={{ opacity: 1, y: 0 }}
@@ -695,6 +699,65 @@ function ToggleRow({
   );
 }
 
+const HANDOFF_FAILURE_TEXT: Record<string, string> = {
+  invalid: "That start link is invalid, expired or was already used. Choose Start Interview in the web app again.",
+  expired: "That start link expired. Choose Start Interview in the web app again.",
+  unavailable: "Could not open the prepared session right now. Check your connection and try again from the web app.",
+  rate_limited: "Too many attempts. Wait a moment, then choose Start Interview in the web app again.",
+  declined: "The current capture was kept. The prepared session was not opened.",
+  signed_out: "Sign in, then choose Start Interview in the web app again.",
+};
+
+/** READY / waiting / failure notice for the web -> desktop handoff. Never shows the code. */
+function HandoffBanner({ onLogin = false }: { onLogin?: boolean }) {
+  const handoff = useDesktopStore((state) => state.handoff);
+  const selectedSessionId = useDesktopStore((state) => state.selectedSessionId);
+  const dismiss = useDesktopStore((state) => state.dismissHandoff);
+
+  if (handoff.phase === "waiting_signin") {
+    return (
+      <div className="error-banner" role="status" data-testid="handoff-waiting">
+        <p>Sign in to open the interview session you prepared in the web app.</p>
+      </div>
+    );
+  }
+  if (onLogin && handoff.phase !== "failed") return null;
+  if (handoff.phase === "redeeming") {
+    return (
+      <div className="error-banner" role="status">
+        <p>Opening your prepared session…</p>
+      </div>
+    );
+  }
+  if (handoff.phase === "failed") {
+    return (
+      <div className="error-banner" role="alert" data-testid="handoff-failed">
+        <p>{HANDOFF_FAILURE_TEXT[handoff.failure ?? "invalid"] ?? HANDOFF_FAILURE_TEXT.invalid}</p>
+        <button className="link-button" onClick={() => void dismiss()}>
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+  if (handoff.phase === "ready" && handoff.session && selectedSessionId === handoff.session.id) {
+    const name = [handoff.session.company_name, handoff.session.title].filter(Boolean).join(" · ");
+    return (
+      <div className="ready-banner" role="status" data-testid="handoff-ready">
+        <strong>READY</strong>
+        <span>{name}</span>
+        <p>
+          Your prepared session is open. Nothing is recording: audio and screenshot input stay off
+          until you turn them on and press Start here.
+        </p>
+        <button className="link-button" onClick={() => void dismiss()}>
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+  return null;
+}
+
 function LoginScreen() {
   const login = useDesktopStore((state) => state.login);
   const signup = useDesktopStore((state) => state.signup);
@@ -759,6 +822,7 @@ function LoginScreen() {
               Create account
             </button>
           </div>
+          <HandoffBanner onLogin />
           <form className="login-form" onSubmit={(event) => void submit(event)}>
             <label className="field-label" htmlFor="email">Email</label>
             <input

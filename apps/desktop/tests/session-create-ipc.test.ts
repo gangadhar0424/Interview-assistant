@@ -2,6 +2,7 @@
  * Phase 11.5: desktop session creation through the real IPC layer (`registerDesktopIpc`) with a
  * fake ipcMain, a fake window and a fake backend. No Electron runtime and no network.
  */
+import { DeepLinkInbox } from "../src/main/deep-link";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,6 +116,9 @@ function setup() {
     audioHost: { setIndicator: vi.fn() },
     audioGate: { read: () => ({ state: "idle" as const, source: null }) },
     confirmAudioConsent: async () => true,
+    deepLinks: new DeepLinkInbox(),
+    confirmHandoffSwitch: async () => true,
+    showWindow: () => undefined,
   });
   const trusted = { senderFrame: { url: TRUSTED }, sender: { id: 1 } };
   const untrusted = { senderFrame: { url: "https://evil.example/" }, sender: { id: 2 } };

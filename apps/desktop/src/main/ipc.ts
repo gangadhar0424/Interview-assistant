@@ -9,6 +9,8 @@ import type { SafeStoragePort } from "./secure-refresh-store";
 import { SecureRefreshTokenStore } from "./secure-refresh-store";
 import { SettingsStore } from "./settings-store";
 import { isTrustedRenderer } from "./ipc-security";
+import type { DeepLinkInbox } from "./deep-link";
+import { HandoffController } from "./handoff";
 import { hasErrors, parseDraft, toCreateBody, validateDraft } from "../shared/session-form";
 import {
   isAudioSource,
@@ -38,6 +40,12 @@ type IpcDependencies = {
   confirmAudioConsent: () => Promise<boolean>;
   /** Native (main-process) confirmation shown before screenshot input is turned on. */
   confirmScreenshotConsent: () => Promise<boolean>;
+  /** Web -> desktop handoff (D-55): where links from the OS arrive, plus its two native pieces. */
+  deepLinks: DeepLinkInbox;
+  /** Native confirmation before a handoff switches away from a running capture. */
+  confirmHandoffSwitch: () => Promise<boolean>;
+  /** Restores and focuses the window so a handoff result is visible. */
+  showWindow: () => void;
 };
 
 type ActiveStream = { controller: AbortController; senderId: number };
@@ -90,6 +98,9 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     audioHost,
     audioGate,
     confirmAudioConsent,
+    deepLinks,
+    confirmHandoffSwitch,
+    showWindow,
   } = deps;
   const tokenStore = new SecureRefreshTokenStore(secureTokenPath, safeStorage);
   let settings = settingsStore.load();
@@ -145,7 +156,31 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     now: () => Date.now(),
   });
   audioGate.read = () => audio.gate();
+  // Web -> desktop handoff (D-55). The code is redeemed only as this app's own signed-in user, is
+  // never sent to the renderer, and READY never starts audio or screenshot capture.
+  const handoff = new HandoffController({
+    isSignedIn: () => api.getUser() !== null,
+    redeem: (code) => api.redeemHandoff(code),
+    isLive: () => capture.busy() || audio.state !== "idle",
+    stopLive: () => {
+      capture.discard("session");
+      audio.stop("session");
+    },
+    confirmSwitch: confirmHandoffSwitch,
+    emit: (state) => {
+      if (!window.isDestroyed()) window.webContents.send("handoff:event", state);
+    },
+    showWindow,
+    onAuthExpired: () => notifySessionExpired(),
+    now: () => Date.now(),
+    schedule: (fn, ms) => {
+      const timer = setTimeout(fn, ms);
+      return () => clearTimeout(timer);
+    },
+  });
+  deepLinks.attach((raw) => handoff.receiveLink(raw));
   function notifySessionExpired(): void {
+    handoff.onSignedOut();
     capture.discard("signed_out");
     audio.stop("signed_out");
     if (!window.isDestroyed()) window.webContents.send("auth:expired");
@@ -236,20 +271,29 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     clipboard.writeText(validateCopyText(text));
   });
 
-  handle("auth:get-state", async () => ({ user: await api.initialize() }));
+  handle("auth:get-state", async () => {
+    const user = await api.initialize();
+    if (user) handoff.onSignedIn(); // a link that arrived during a cold start
+    return { user };
+  });
   handle("auth:login", async (_event, email, password) => {
     if (typeof email !== "string" || typeof password !== "string") {
       throw new Error("Enter an email and password.");
     }
-    return api.login(email, password);
+    const user = await api.login(email, password);
+    handoff.onSignedIn();
+    return user;
   });
   handle("auth:signup", async (_event, email, password) => {
     if (typeof email !== "string" || typeof password !== "string") {
       throw new Error("Enter an email and password.");
     }
-    return api.signup(email, password);
+    const user = await api.signup(email, password);
+    handoff.onSignedIn();
+    return user;
   });
   handle("auth:logout", async () => {
+    handoff.onSignedOut();
     capture.discard("signed_out");
     audio.stop("signed_out");
     for (const stream of streams.values()) stream.controller.abort();
@@ -311,6 +355,8 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     });
     return undefined;
   }, true);
+  handle("handoff:get-state", () => handoff.getState());
+  handle("handoff:dismiss", () => handoff.dismiss());
   // ---- Desktop session creation (Phase 11.5). Narrow channels; the renderer never calls the API. ----
   handle("sessions:create-options", async () => {
     const [resumes, documents, options] = await Promise.all([
@@ -376,6 +422,7 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
   window.webContents.once("destroyed", onClosed);
 
   return () => {
+    deepLinks.detach();
     capture.dispose();
     audio.dispose();
     ipcMain.removeListener("audio:chunk", onAudioChunk as never);

@@ -4,6 +4,7 @@
  * flow (input_source = audio), cleanup on window/sign-out, and that no audio or transcript text
  * reaches disk, logs or the renderer settings.
  */
+import { DeepLinkInbox } from "../src/main/deep-link";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -112,6 +113,9 @@ function setup() {
     audioHost: { setIndicator: indicator },
     audioGate: gate,
     confirmAudioConsent: consent,
+    deepLinks: new DeepLinkInbox(),
+    confirmHandoffSwitch: async () => true,
+    showWindow: () => undefined,
   });
 
   const trusted = { senderFrame: { url: TRUSTED }, sender: { id: 1 } };

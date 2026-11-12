@@ -337,6 +337,59 @@ export class DesktopApiClient {
   }
 
   /** `POST /api/v1/sessions` with an already validated body; returns the new session's summary. */
+  /**
+   * Redeems a web -> desktop handoff code as THIS signed-in user (D-55). The code is single-use and
+   * bound to a user and session; every failure is the same 404. A 401 happens before the server
+   * touches the code, so retrying once after a token refresh cannot burn it.
+   */
+  async redeemHandoff(
+    code: string,
+  ): Promise<{ id: string; title: string | null; company_name: string; status: string }> {
+    const send = () =>
+      this.request("/api/v1/sessions/handoff/redeem", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken ?? ""}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+    if (!this.accessToken) {
+      throw new DesktopApiError({
+        kind: "http",
+        status: 401,
+        code: "not_authenticated",
+        message: "Sign in again to continue.",
+      });
+    }
+    let response = await send();
+    if (response.status === 401) {
+      await this.refreshSession();
+      response = await send();
+    }
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw errorFromResponse(response, payload);
+    const session = (payload as { session?: Record<string, unknown> } | null)?.session;
+    if (
+      !session ||
+      typeof session.id !== "string" ||
+      typeof session.status !== "string" ||
+      typeof session.company_name !== "string"
+    ) {
+      throw new DesktopApiError({
+        kind: "unknown",
+        code: "bad_response",
+        message: "The server sent an unexpected response.",
+      });
+    }
+    return {
+      id: session.id,
+      title: typeof session.title === "string" ? session.title : null,
+      company_name: session.company_name,
+      status: session.status,
+    };
+  }
+
   async createSession(body: Record<string, unknown>): Promise<SessionSummary> {
     const send = () =>
       this.request("/api/v1/sessions", {
