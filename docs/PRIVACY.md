@@ -73,6 +73,8 @@ retention, deletion, third-party processing, and user consent before implementat
 
 ## Operational privacy controls
 
+- **Web → desktop handoff (D-55):** the link opened by the web app contains only an opaque, single-use code that expires in 60 seconds. It carries no session content, URL or credential; it is stored server-side only as a hash, never logged, and kept by the desktop in memory only. Handoff selects a prepared session and starts no recording.
+
 - Restrict `/metrics` to trusted monitoring infrastructure; it is not application-authenticated.
 - Restrict production logs and backups by role, encrypt them in transit/at rest, and define their
   retention separately from user content.

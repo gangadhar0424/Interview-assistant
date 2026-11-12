@@ -135,3 +135,6 @@ Expected user count; support for multiple resumes per session (assumed one); ses
 | PoC-7 | Screenshot OCR vs multimodal LLM accuracy/latency on code/problem screenshots | Phase 11 |
 | PoC-8 | pgvector recall/latency with HNSW + user filter at projected chunk counts | Phase 5 |
 | PoC-9 | PDF/DOCX extraction quality across real-world resume layouts | Phase 4 |
+
+## K. Known issues (documented, not fixed)
+- **K-1 Windows-only slow-client test.** `tests/test_realtime_qa_live.py::test_one_slow_client_does_not_stall_another_user` fails consistently on the Windows development machine (`httpx.ReadTimeout` after ~30 s; 3 of 3 runs on 2026-11-12) but passed on Linux CI. It is a live-socket backpressure test; the cause is unconfirmed (suspected Windows TCP buffering). It is unrelated to the handoff and is deliberately not investigated now; revisit during broader final validation.

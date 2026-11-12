@@ -79,3 +79,16 @@ Use a non-production account and synthetic interview data. Start the API and pre
 7. System audio source: play a video with speech; transcript matches; no screen picker/video capture; Stop works.
 8. Confirm nothing is written to disk (no wav/transcript files in userData) and logs contain no transcript text.
 9. Auto-answer toggle is OFF by default; when ON, only detected questions answer.
+
+## Web → desktop handoff (manual, real Windows PC; the packaged app is the required path)
+Prerequisites: backend + web running, `NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL` set or unset as noted, a prepared (`ready`) session, and the **packaged** installer built with `npm run package:win`.
+1. Install the packaged app. Windows registers `interviewassistant://`. App closed, signed out on the desktop: in the web app open the session and press **Start Interview**; allow the browser prompt. The desktop starts and shows the login screen with "Sign in to open the interview session you prepared"; sign in; within about a minute the **READY** banner shows the session name and nothing is recording (no tray RECORDING tooltip, no Windows microphone icon).
+2. Cold start while already signed in on the desktop (quit with the tray menu first): press Start Interview; the app starts, restores the session and shows READY without asking for a password.
+3. App already running and visible / hidden to tray / minimized: press Start Interview; the same window is restored and focused (no second window, no second tray icon) and shows READY.
+4. Press Start Interview and wait more than a minute before signing in (signed out on the desktop): after login no session opens and the banner says the link expired.
+5. Reuse an old link (from another browser history entry or by pressing the same link twice): the second use shows "invalid, expired or already used".
+6. Sign in on the desktop as a different user than the web user: Start Interview shows the same generic "invalid" notice (no account details).
+7. With audio listening (microphone Start): press Start Interview in the web app. A native "Switch to a new prepared session?" dialog appears. **Keep current capture** keeps recording and shows the declined notice; **Switch session** stops recording (indicator clears) and shows READY for the new session without starting audio again.
+8. Sign out on the desktop with READY showing: the banner disappears.
+9. Web fallback: with the desktop app uninstalled (or the protocol unregistered) press Start Interview; after about 3 seconds the page shows "The desktop app did not open" with the download link (when `NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL` is set) or "ask your administrator" (when unset). No code or protocol URL is visible anywhere in the page.
+10. Development mode only (`npm run dev` in `apps/desktop`): protocol registration uses the electron binary plus the app path and is not a supported path; verify by hand that `interviewassistant://start?h=<43 characters>` typed into Win+R opens the dev app, and that anything malformed (extra parameter, short code) is ignored with the "invalid" notice.
