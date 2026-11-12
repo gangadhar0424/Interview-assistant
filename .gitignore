@@ -33,3 +33,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Local-only copy of the desktop installer served by the dev web app (never commit binaries)
+apps/web/public/downloads/

@@ -80,15 +80,50 @@ Use a non-production account and synthetic interview data. Start the API and pre
 8. Confirm nothing is written to disk (no wav/transcript files in userData) and logs contain no transcript text.
 9. Auto-answer toggle is OFF by default; when ON, only detected questions answer.
 
-## Web → desktop handoff (manual, real Windows PC; the packaged app is the required path)
-Prerequisites: backend + web running, `NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL` set or unset as noted, a prepared (`ready`) session, and the **packaged** installer built with `npm run package:win`.
-1. Install the packaged app. Windows registers `interviewassistant://`. App closed, signed out on the desktop: in the web app open the session and press **Start Interview**; allow the browser prompt. The desktop starts and shows the login screen with "Sign in to open the interview session you prepared"; sign in; within about a minute the **READY** banner shows the session name and nothing is recording (no tray RECORDING tooltip, no Windows microphone icon).
-2. Cold start while already signed in on the desktop (quit with the tray menu first): press Start Interview; the app starts, restores the session and shows READY without asking for a password.
-3. App already running and visible / hidden to tray / minimized: press Start Interview; the same window is restored and focused (no second window, no second tray icon) and shows READY.
-4. Press Start Interview and wait more than a minute before signing in (signed out on the desktop): after login no session opens and the banner says the link expired.
-5. Reuse an old link (from another browser history entry or by pressing the same link twice): the second use shows "invalid, expired or already used".
-6. Sign in on the desktop as a different user than the web user: Start Interview shows the same generic "invalid" notice (no account details).
-7. With audio listening (microphone Start): press Start Interview in the web app. A native "Switch to a new prepared session?" dialog appears. **Keep current capture** keeps recording and shows the declined notice; **Switch session** stops recording (indicator clears) and shows READY for the new session without starting audio again.
-8. Sign out on the desktop with READY showing: the banner disappears.
-9. Web fallback: with the desktop app uninstalled (or the protocol unregistered) press Start Interview; after about 3 seconds the page shows "The desktop app did not open" with the download link (when `NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL` is set) or "ask your administrator" (when unset). No code or protocol URL is visible anywhere in the page.
-10. Development mode only (`npm run dev` in `apps/desktop`): protocol registration uses the electron binary plus the app path and is not a supported path; verify by hand that `interviewassistant://start?h=<43 characters>` typed into Win+R opens the dev app, and that anything malformed (extra parameter, short code) is ignored with the "invalid" notice.
+## Web → desktop handoff (manual, real Windows PC; packaged installer only; D-55 + D-56)
+
+**What counts as a pass.** A scenario is passed only when a person performed it with the **packaged NSIS installer** (`npm run package:win`), a real browser and the real desktop app, and wrote the result in the table at the end of this section. Automated tests, environment smoke checks and `npm run dev` runs do **not** count. Until the table is filled in, Milestone 2 is "verified automatically, manual verification pending".
+
+**D-56 in one paragraph.** The user signs in **only on the web**. Pressing **Start Interview** opens the desktop app, which redeems the 60-second single-use code **by itself** and adopts a desktop login for the same user: there is **no desktop sign-in step** and no password prompt. A desktop already signed in as the same user keeps its login; one signed in as a different account asks first (native "Switch account?"); a running capture asks first (native "Switch to a new prepared session?"). READY never starts audio or screenshots.
+
+**Prerequisites**
+1. Docker services up (`docker compose up -d --wait`), migrations at head (`uv run alembic upgrade head`), the **API restarted after the D-56 code was pulled** (the old API still requires a desktop login), the Dramatiq worker running, and the web app running (`npm run dev` in `apps/web`, http://localhost:3000).
+2. An API with `APP_ENV=local` and `STT_ENABLED_PROVIDERS=fake` so the Listen button works in scenario 4 (the fake transcriber returns canned text; real speech-to-text is not part of Milestone 2).
+3. The installer built **from the current tree** (`apps/desktop`: `npm run package:win`; output `release/Interview Assistant-0.1.0-Windows-x64.exe`, unsigned: SmartScreen shows "More info" then "Run anyway"). Uninstall any older build first, because older builds still contain the pre-D-56 sign-in rule.
+4. The desktop backend URL (desktop **Settings**) is `http://127.0.0.1:8000` (the default).
+5. Two web accounts (A and B), each with a Ready resume and at least one `ready` session (A needs two: A1 and A2). Browser: Chrome or Edge; allow the "Open Interview Assistant?" prompt when it appears, and optionally tick "always allow".
+
+**READY means:** a READY banner naming the session; the tray tooltip does **not** say RECORDING; no Windows microphone icon; **Settings** still shows audio and screenshot input off. (The desktop window is see-through by design, so other windows may show behind it.)
+
+**Where things are in the desktop app:** *Settings → Audio input* (the switch that asks for the native consent), *Settings → Sign out*, and *Assistant → Audio input → Listen: microphone*.
+
+| # | Scenario | Steps | You must observe |
+|---|---|---|---|
+| 1 | Cold start, never signed in on the desktop | Fresh install, or Settings → Sign out then quit from the tray menu. On the web (signed in as A) open session A1 and press **Start Interview**; allow the browser prompt. | The app starts and shows **READY for A1** without any login form (the login screen may appear for a moment with "Opening your prepared session…" but never asks for input). Quit and restart the app from the Start menu: it is still signed in as A. |
+| 2 | Cold start, already signed in as the same user | Quit from the tray. Press Start Interview for A1. | READY for A1, no password, no account dialog. |
+| 3 | App already running | With the app running, press Start Interview in each state: window visible; hidden to tray (×); minimized. | The same window is restored and focused. One window, one tray icon. READY shows. |
+| 4 | Capture-active switching | Settings → Audio input: turn on and accept the native consent. On Assistant press **Listen: microphone** (tray tooltip says RECORDING). On the web press Start Interview for **A2**. | A native **"Switch to a new prepared session?"** dialog. **Keep current capture**: recording continues and the declined notice shows. Repeat and choose **Switch session**: recording stops (tooltip back to normal, no microphone icon), READY shows A2, nothing starts recording. |
+| 5 | Not-installed fallback | Uninstall the app. Press Start Interview. | After about 3 seconds the page shows "The desktop app did not open" with a download link (or "ask your administrator" if no installer URL is configured). No code and no `interviewassistant://` text anywhere in the page. |
+| 6 | Retry with a fresh code | Install the app. Press Start Interview again (DevTools → Network open, preserve log). | READY. Two separate `POST …/handoff` calls show **different** codes in their responses. Opening the first link again shows the "invalid, expired or already used" notice. |
+| 7 | Expired link (optional; also covered by automated tests) | Press Start Interview and keep the browser's "Open app?" prompt unanswered for over 60 seconds, then allow it. | The app shows the generic "invalid, expired or already used" notice; nobody is signed in because of it. |
+| 8 | Different account on the desktop | Desktop signed in as **B** (Settings → Sign out, then sign in as B). On the web, signed in as A, press Start Interview. | A native **"Switch account?"** dialog (no account details). **Keep current account**: still B, declined notice. Repeat and choose **Switch account**: the desktop is now A and shows READY for A's session; B's sessions are no longer listed. |
+| 9 | Sign-out clears the handoff | With READY showing, Settings → Sign out. | The READY banner disappears and the login screen shows. A later Start Interview signs in again with no password. |
+| 10 | Web and desktop sessions are independent | After a handoff, sign out on the **web**. Then (after another handoff) sign out on the **desktop**. | Signing out of the web leaves the desktop signed in; signing out of the desktop leaves the web signed in. |
+
+Development mode only (`npm run dev` in `apps/desktop`, not a supported path): registration uses the electron binary plus the app path; typing `interviewassistant://start?h=<43 characters>` into Win+R should open the dev app, and anything malformed (short code, extra parameter) is ignored with the "invalid" notice.
+
+### Results (fill in; only a person using the packaged installer may mark a row)
+| # | Result (Pass / Fail / Not performed) | Date | Browser | Installer build | Notes |
+|---|---|---|---|---|---|
+| 1 | Not performed | | | | |
+| 2 | Not performed | | | | |
+| 3 | Not performed | | | | |
+| 4 | Not performed | | | | |
+| 5 | Not performed | | | | |
+| 6 | Not performed | | | | |
+| 7 | Not performed | | | | |
+| 8 | Not performed | | | | |
+| 9 | Not performed | | | | |
+| 10 | Not performed | | | | |
+
+Milestone 2 may be marked complete only when rows 1 to 6 and 8 to 10 are **Pass** (row 7 is optional).
