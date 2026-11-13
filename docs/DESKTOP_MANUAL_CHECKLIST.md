@@ -46,8 +46,9 @@ Use a non-production account and synthetic interview data. Start the API and pre
 ## Session creation and refresh (Phase 11.5)
 
 - [ ] Sessions page: **New session** opens the form (also from the empty state). Company, optional job title, job description, resumes (one), documents, and an "Answer style" line showing the defaults (English · Auto · Full script · Balanced · Simple) with **Customize**.
-- [ ] Press **Create session** with everything empty: the three messages appear (company, description, resume) and nothing is sent.
-- [ ] Fill company, description, choose a ready resume (not-ready ones are greyed with their status), optionally documents and a customised style; **Create session**: you land on the Assistant page with the new session selected, and it is in the Sessions list.
+- [ ] Press **Create session** with everything empty: the messages appear (company, description, resume, and the two AI model choices) and nothing is sent.
+- [ ] The form shows **Reasoning model** and **Voice listening model** dropdowns listing only the providers this server has enabled (D-57); with several offered, neither is preselected; with exactly one it is preselected; with none it says "None available on this server". Neither shows a key or endpoint.
+- [ ] Fill company, description, choose a ready resume (not-ready ones are greyed with their status), **both AI models**, optionally documents and a customised style; **Create session**: you land on the Assistant page with the new session selected, and it is in the Sessions list.
 - [ ] Ask a typed question in the new session: it streams to Complete.
 - [ ] Cancel (or sign out) with text typed in the form: reopening the form shows it empty.
 - [ ] An account with **no ready resume**: the form shows "You need a ready resume first", the web link with **Copy link** (paste it somewhere to check), **Refresh** and **Back**.

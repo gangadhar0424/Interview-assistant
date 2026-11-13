@@ -57,11 +57,33 @@ describe("listFiles readiness", () => {
 });
 
 describe("getSessionOptions", () => {
-  it("returns only the five value lists and ignores anything else", async () => {
+  it("returns the five value lists and provider ids/labels, and ignores anything else", async () => {
     const fetcher = vi.fn<typeof fetch>();
     const client = await signedIn(fetcher);
     fetcher.mockResolvedValueOnce(json({ providers: [{ id: "x" }], languages: ["en", 5, "hi"], question_types: ["auto"], formats: [], lengths: ["short"], tones: "bad" }));
-    expect(await client.getSessionOptions()).toEqual({ languages: ["en", "hi"], question_types: ["auto"], formats: [], lengths: ["short"], tones: [] });
+    expect(await client.getSessionOptions()).toEqual({
+      languages: ["en", "hi"], question_types: ["auto"], formats: [], lengths: ["short"], tones: [],
+      providers: [{ id: "x", label: "x" }], voice_providers: [],
+    });
+  });
+
+  it("reduces providers to id and label, dropping models, capabilities and any extra field", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = await signedIn(fetcher);
+    fetcher.mockResolvedValueOnce(
+      json({
+        providers: [
+          { id: "groq", api_key: "SECRET", base_url: "https://x", models: [{ id: "m", label: "Groq (m)", capabilities: ["streaming"], languages: ["en"] }] },
+          { id: 5 }, { id: "" }, null, "bad",
+        ],
+        voice_providers: [{ id: "sarvam", models: [{ id: "s", label: "Sarvam (s)" }] }],
+        languages: [], question_types: [], formats: [], lengths: [], tones: [],
+      }),
+    );
+    const result = await client.getSessionOptions();
+    expect(result.providers).toEqual([{ id: "groq", label: "Groq (m)" }]);
+    expect(result.voice_providers).toEqual([{ id: "sarvam", label: "Sarvam (s)" }]);
+    expect(JSON.stringify(result)).not.toMatch(/SECRET|base_url|capabilities/);
   });
 });
 

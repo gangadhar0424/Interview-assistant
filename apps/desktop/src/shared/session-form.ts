@@ -28,7 +28,14 @@ export type SessionDraft = {
   length: string;
   tone: string;
   extra: string;
+  /** Reasoning provider id; "" = not chosen yet. Mandatory for new sessions (D-57). */
+  provider: string;
+  /** Voice-listening provider id; "" = not chosen yet. Mandatory for new sessions (D-57). */
+  sttProvider: string;
 };
+
+/** A provider the server offers: an id and a label. Never a key or any other server detail. */
+export type ProviderChoice = { id: string; label: string };
 
 export type SessionOptions = {
   languages: string[];
@@ -36,12 +43,17 @@ export type SessionOptions = {
   formats: string[];
   lengths: string[];
   tones: string[];
+  /** Reasoning (answer) providers the server has enabled and configured. */
+  providers: ProviderChoice[];
+  /** Voice-listening providers the server has enabled and configured. */
+  voice_providers: ProviderChoice[];
 };
 
 export type DraftErrors = Partial<Record<keyof SessionDraft, string>>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENUM_VALUE = /^[a-z][a-z0-9_]{0,63}$/;
+const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/;
 
 /** Characters as the server counts them (code points, not UTF-16 units). */
 export function charCount(text: string): number {
@@ -51,6 +63,11 @@ export function charCount(text: string): number {
 function pick(values: string[] | undefined, preferred: string): string {
   if (!values || values.length === 0) return preferred;
   return values.includes(preferred) ? preferred : (values[0] ?? preferred);
+}
+
+/** A choice is preselected only when the server offers exactly one; otherwise the user picks. */
+function onlyChoice(choices: ProviderChoice[] | undefined): string {
+  return choices !== undefined && choices.length === 1 ? (choices[0]?.id ?? "") : "";
 }
 
 /** The web wizard's defaults, falling back to the first value the server actually offers. */
@@ -67,6 +84,8 @@ export function defaultDraft(options: SessionOptions | null): SessionDraft {
     length: pick(options?.lengths, "balanced"),
     tone: pick(options?.tones, "simple"),
     extra: "",
+    provider: onlyChoice(options?.providers),
+    sttProvider: onlyChoice(options?.voice_providers),
   };
 }
 
@@ -130,6 +149,14 @@ export function validateDraft(
   if (charCount(draft.extra.trim()) > SESSION_LIMITS.extra) {
     errors.extra = `Extra instructions must be at most ${SESSION_LIMITS.extra} characters.`;
   }
+  // D-57: both selections are mandatory. With the server's lists they must be offered there; the
+  // main process validates the shape only (`options` null) and the backend stays the authority.
+  const providerOk = (value: string, list: ProviderChoice[] | undefined) =>
+    PROVIDER_ID.test(value) && (list === undefined || list.some((choice) => choice.id === value));
+  if (!providerOk(draft.provider, options?.providers)) errors.provider = "Choose a reasoning model.";
+  if (!providerOk(draft.sttProvider, options?.voice_providers)) {
+    errors.sttProvider = "Choose a voice listening model.";
+  }
   return errors;
 }
 
@@ -152,6 +179,10 @@ export function toCreateBody(draft: SessionDraft): Record<string, unknown> {
       answer_length: draft.length,
       answer_tone: draft.tone,
       ...(draft.extra.trim() ? { extra_instructions: draft.extra.trim() } : {}),
+      // Mandatory and exclusive (D-57). No model is sent: the server uses each provider's
+      // configured model, so changing a model never needs a desktop change.
+      provider: draft.provider,
+      stt_provider: draft.sttProvider,
     },
   };
   if (draft.title.trim()) body.title = draft.title.trim();
@@ -160,7 +191,7 @@ export function toCreateBody(draft: SessionDraft): Record<string, unknown> {
 
 const DRAFT_KEYS: Array<keyof SessionDraft> = [
   "company", "title", "description", "resumeId", "documentIds",
-  "language", "questionType", "format", "length", "tone", "extra",
+  "language", "questionType", "format", "length", "tone", "extra", "provider", "sttProvider",
 ];
 
 /** Strictly parse an untrusted draft (from IPC): exact keys, exact types. */
@@ -195,6 +226,8 @@ export function parseDraft(value: unknown): SessionDraft {
     length: text("length"),
     tone: text("tone"),
     extra: text("extra"),
+    provider: text("provider"),
+    sttProvider: text("sttProvider"),
   };
 }
 

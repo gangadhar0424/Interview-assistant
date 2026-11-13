@@ -323,16 +323,33 @@ export class DesktopApiClient {
     formats: string[];
     lengths: string[];
     tones: string[];
+    providers: { id: string; label: string }[];
+    voice_providers: { id: string; label: string }[];
   }> {
     const raw = await this.authenticatedJson<Record<string, unknown>>("/api/v1/ai/options");
     const list = (key: string): string[] =>
       Array.isArray(raw[key]) ? (raw[key] as unknown[]).filter((v): v is string => typeof v === "string") : [];
+    // Providers: only an id and a label survive; anything else the server sent is dropped.
+    const providers = (key: string): { id: string; label: string }[] => {
+      const items = Array.isArray(raw[key]) ? (raw[key] as unknown[]) : [];
+      const out: { id: string; label: string }[] = [];
+      for (const item of items) {
+        if (typeof item !== "object" || item === null) continue;
+        const entry = item as { id?: unknown; models?: unknown };
+        if (typeof entry.id !== "string" || entry.id === "") continue;
+        const first = Array.isArray(entry.models) ? (entry.models[0] as { label?: unknown } | undefined) : undefined;
+        out.push({ id: entry.id, label: typeof first?.label === "string" ? first.label : entry.id });
+      }
+      return out;
+    };
     return {
       languages: list("languages"),
       question_types: list("question_types"),
       formats: list("formats"),
       lengths: list("lengths"),
       tones: list("tones"),
+      providers: providers("providers"),
+      voice_providers: providers("voice_providers"),
     };
   }
 

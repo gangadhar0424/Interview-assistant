@@ -99,6 +99,33 @@ export function CreateSessionPage({
     </label>
   );
 
+  const providerSelect = (
+    label: string,
+    hint: string,
+    field: "provider" | "sttProvider",
+    choices: { id: string; label: string }[],
+  ) => (
+    <label className="create-field" key={field}>
+      <span className="field-label">{label}</span>
+      <select
+        className="field-control"
+        disabled={choices.length === 0}
+        onChange={(event) => updateDraft({ [field]: event.target.value } as Partial<SessionDraft>)}
+        required
+        value={draft[field]}
+      >
+        <option value="">{choices.length === 0 ? "None available on this server" : "Choose one…"}</option>
+        {choices.map((choice) => (
+          <option key={choice.id} value={choice.id}>
+            {choice.label}
+          </option>
+        ))}
+      </select>
+      <span className="settings-help">{hint}</span>
+      {fieldErrors[field] && <span className="field-error">{fieldErrors[field]}</span>}
+    </label>
+  );
+
   return (
     <div className="page-scroll">
       <div className="page-heading">
@@ -251,6 +278,23 @@ export function CreateSessionPage({
             })}
             {fieldErrors.documentIds && <span className="field-error">{fieldErrors.documentIds}</span>}
           </fieldset>
+
+          <section className="create-style" aria-label="AI models">
+            <div className="create-style-fields">
+              {providerSelect(
+                "Reasoning model",
+                "Writes your answers. Only this provider is used: if it fails you get an error, not a different provider.",
+                "provider",
+                options.options.providers,
+              )}
+              {providerSelect(
+                "Voice listening model",
+                "Turns the interviewer's speech into text. Only this provider is used.",
+                "sttProvider",
+                options.options.voice_providers,
+              )}
+            </div>
+          </section>
 
           <section className="create-style" aria-label="Answer style">
             <div className="create-style-row">

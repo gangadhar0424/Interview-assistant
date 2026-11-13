@@ -24,11 +24,15 @@ const options: SessionOptions = {
   formats: ["full_script", "script_bullets", "bullets"],
   lengths: ["short", "balanced", "long"],
   tones: ["simple", "formal"],
+  providers: [{ id: "groq", label: "Groq" }, { id: "anthropic", label: "Claude" }],
+  voice_providers: [{ id: "sarvam", label: "Sarvam" }, { id: "openai", label: "OpenAI" }],
 };
 
 function valid(over: Partial<SessionDraft> = {}): SessionDraft {
   return {
     ...defaultDraft(options),
+    provider: "groq",
+    sttProvider: "sarvam",
     company: "Acme",
     description: "Backend engineer, Python and PostgreSQL.",
     resumeId: RESUME,
@@ -141,6 +145,37 @@ describe("preference values must be offered", () => {
   });
 });
 
+describe("provider selection (D-57)", () => {
+  it("nothing is preselected when several are offered; a single choice is", () => {
+    expect(defaultDraft(options)).toMatchObject({ provider: "", sttProvider: "" });
+    expect(
+      defaultDraft({ ...options, providers: [{ id: "groq", label: "Groq" }], voice_providers: [{ id: "sarvam", label: "Sarvam" }] }),
+    ).toMatchObject({ provider: "groq", sttProvider: "sarvam" });
+    expect(defaultDraft(null)).toMatchObject({ provider: "", sttProvider: "" });
+  });
+
+  it("both are mandatory and must come from the matching server list", () => {
+    expect(validateDraft(valid(), options)).toEqual({});
+    expect(validateDraft(valid({ provider: "" }), options).provider).toBe("Choose a reasoning model.");
+    expect(validateDraft(valid({ sttProvider: "" }), options).sttProvider).toBe("Choose a voice listening model.");
+    expect(validateDraft(valid({ provider: "openai" }), options).provider).toBeDefined(); // voice-only id
+    expect(validateDraft(valid({ sttProvider: "groq" }), options).sttProvider).toBeDefined(); // reasoning-only id
+    expect(validateDraft(valid({ provider: "nope" }), options).provider).toBeDefined();
+  });
+
+  it("with no server list (main process) only the shape is checked, and emptiness is refused", () => {
+    expect(validateDraft(valid(), null)).toEqual({});
+    expect(validateDraft(valid({ provider: "" }), null).provider).toBeDefined();
+    expect(validateDraft(valid({ sttProvider: "../x" }), null).sttProvider).toBeDefined();
+  });
+
+  it("the body carries both providers and no model", () => {
+    const prefs = (toCreateBody(valid()) as { preferences: Record<string, unknown> }).preferences;
+    expect(prefs).toMatchObject({ provider: "groq", stt_provider: "sarvam" });
+    expect("model" in prefs || "stt_model" in prefs).toBe(false);
+  });
+});
+
 describe("the request body", () => {
   it("is exactly the backend contract and never carries identity or status", () => {
     const body = toCreateBody(valid({ title: "Backend Engineer", documentIds: [DOC_A], extra: "Keep it brief." }));
@@ -158,13 +193,15 @@ describe("the request body", () => {
         answer_length: "balanced",
         answer_tone: "simple",
         extra_instructions: "Keep it brief.",
+        provider: "groq",
+        stt_provider: "sarvam",
       },
     });
     const minimal = toCreateBody(valid()) as { preferences: Record<string, unknown> } & Record<string, unknown>;
     expect("title" in minimal).toBe(false);
     expect("extra_instructions" in minimal.preferences).toBe(false);
     expect("job_url" in minimal).toBe(false); // job-link import is not part of this phase
-    expect(JSON.stringify(minimal)).not.toMatch(/user_id|status|provider|model/);
+    expect(JSON.stringify(minimal)).not.toMatch(/user_id|status|"model"|stt_model/);
   });
 });
 

@@ -187,6 +187,8 @@ const BACKEND_FIELDS: Record<string, keyof SessionDraft> = {
   "preferences.answer_length": "length",
   "preferences.answer_tone": "tone",
   "preferences.extra_instructions": "extra",
+  "preferences.provider": "provider",
+  "preferences.stt_provider": "sttProvider",
 };
 
 function createErrorMessage(error: unknown): string {
@@ -197,7 +199,7 @@ function createErrorMessage(error: unknown): string {
     duplicate_material: "Each document can only be chosen once.",
     too_many_documents: "You chose more documents than are allowed.",
     validation_error: "Some details were not accepted. Check the highlighted fields.",
-    invalid_provider_selection: "The answer provider is not available. Try again.",
+    invalid_provider_selection: "That reasoning or voice model is not available. Choose another one.",
     rate_limited: "Too many requests. Please wait a moment and try again.",
   };
   return (error.code && messages[error.code]) || error.message;
@@ -782,6 +784,9 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       const current = get().createDraft;
       const defaults = defaultDraft(loaded.options);
       const offered = (value: string, list: string[]) => (list.includes(value) ? value : undefined);
+      // A provider the user picked stays only while the server still offers it.
+      const stillOffered = (value: string, list: { id: string }[]) =>
+        list.some((choice) => choice.id === value) ? value : undefined;
       set({
         createOptions: loaded,
         createStatus: "ready",
@@ -794,6 +799,9 @@ export const useDesktopStore = create<AppState>((set, get) => ({
           format: offered(current.format, loaded.options.formats) ?? defaults.format,
           length: offered(current.length, loaded.options.lengths) ?? defaults.length,
           tone: offered(current.tone, loaded.options.tones) ?? defaults.tone,
+          provider: stillOffered(current.provider, loaded.options.providers) ?? defaults.provider,
+          sttProvider:
+            stillOffered(current.sttProvider, loaded.options.voice_providers) ?? defaults.sttProvider,
         },
       });
       markReachable(set);

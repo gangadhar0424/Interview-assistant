@@ -41,7 +41,8 @@ const file = (id: string, name: string, ingestion: string, indexing: string) => 
 });
 
 const options = {
-  providers: [{ id: "fake", models: [{ id: "fake-echo", label: "Fake", capabilities: ["streaming"], languages: ["en"] }] }],
+  providers: [{ id: "fake", models: [{ id: "fake-echo", label: "Fake reasoning", capabilities: ["streaming"], languages: ["en"] }] }],
+  voice_providers: [{ id: "fake", models: [{ id: "fake-stt-model", label: "Fake voice" }] }],
   languages: ["en", "hi", "te"],
   question_types: ["auto", "behavioral", "coding"],
   formats: ["full_script", "script_bullets", "bullets"],
@@ -146,8 +147,19 @@ afterEach(() => {
   logSpies.splice(0).forEach((spy) => spy.mockRestore());
 });
 
+// The shape the renderer sees (ids and labels only); one choice each is preselected.
+const offered = {
+  languages: options.languages,
+  question_types: options.question_types,
+  formats: options.formats,
+  lengths: options.lengths,
+  tones: options.tones,
+  providers: [{ id: "fake", label: "Fake reasoning" }],
+  voice_providers: [{ id: "fake", label: "Fake voice" }],
+};
+
 function draft(over: Partial<SessionDraft> = {}): SessionDraft {
-  return { ...defaultDraft(options), company: "Acme", description: "Backend engineer, Python.", resumeId: RESUME_READY, ...over };
+  return { ...defaultDraft(offered), company: "Acme", description: "Backend engineer, Python.", resumeId: RESUME_READY, ...over };
 }
 
 describe("sender validation", () => {
@@ -184,9 +196,12 @@ describe("loading the form options", () => {
       expect.objectContaining({ id: RESUME_BUSY, filename: "new-cv.pdf", status: "processing" }),
     ]);
     expect(result.data.documents.map((d: { status: string }) => d.status)).toEqual(["ready", "failed"]);
-    expect(Object.keys(result.data.options).sort()).toEqual(["formats", "languages", "lengths", "question_types", "tones"]);
+    expect(Object.keys(result.data.options).sort()).toEqual(["formats", "languages", "lengths", "providers", "question_types", "tones", "voice_providers"]);
+    // Providers reach the renderer as id + label only: no models, capabilities, keys or endpoints.
+    expect(result.data.options.providers).toEqual([{ id: "fake", label: "Fake reasoning" }]);
+    expect(result.data.options.voice_providers).toEqual([{ id: "fake", label: "Fake voice" }]);
     const serialized = JSON.stringify(result);
-    expect(serialized).not.toMatch(/access-1|refresh-1|providers|content_type|error_message/);
+    expect(serialized).not.toMatch(/access-1|refresh-1|capabilities|fake-echo|fake-stt-model|content_type|error_message/);
     const reads = s.calls.filter((c) => c.path.startsWith("/api/v1/") && !c.path.includes("auth"));
     expect(reads.every((c) => c.headers.Authorization === "Bearer access-1")).toBe(true);
     expect(s.calls.find((c) => c.path === "/api/v1/resumes")).toBeDefined();
@@ -219,8 +234,18 @@ describe("creating a session", () => {
       job_description: SENTINEL,
       resume_id: RESUME_READY,
       document_ids: [DOC_READY],
-      preferences: { language: "en", question_type: "auto", answer_format: "full_script", answer_length: "balanced", answer_tone: "simple", extra_instructions: EXTRA_SENTINEL },
+      preferences: { language: "en", question_type: "auto", answer_format: "full_script", answer_length: "balanced", answer_tone: "simple", extra_instructions: EXTRA_SENTINEL, provider: "fake", stt_provider: "fake" },
     });
+  });
+
+  it("always sends both selected providers and never a model or a key", async () => {
+    await s.login();
+    await s.call("sessions:create", draft({ provider: "groq", sttProvider: "sarvam" }));
+    const [post] = s.posts();
+    const sent = JSON.parse(String(post?.body)).preferences;
+    expect(sent).toMatchObject({ provider: "groq", stt_provider: "sarvam" });
+    expect(Object.keys(sent)).not.toEqual(expect.arrayContaining(["model", "stt_model"]));
+    expect(String(post?.body)).not.toMatch(/api_key|secret|token/i);
   });
 
   it.each([
@@ -236,6 +261,10 @@ describe("creating a session", () => {
     ["duplicate documents", { documentIds: [DOC_READY, DOC_READY] }],
     ["bad document id", { documentIds: ["nope"] }],
     ["malformed enum value", { language: "../etc/passwd" }],
+    ["no reasoning provider", { provider: "" }],
+    ["no voice provider", { sttProvider: "" }],
+    ["malformed reasoning provider id", { provider: "../x" }],
+    ["malformed voice provider id", { sttProvider: "a b" }],
   ])("refuses %s before any request is made", async (_name, over) => {
     await s.login();
     s.calls.length = 0;
@@ -248,6 +277,8 @@ describe("creating a session", () => {
     ["an unknown key", { ...draft(), user_id: "someone" }],
     ["a status field", { ...draft(), status: "ready" }],
     ["wrong types", { ...draft(), company: 5 }],
+    ["a missing provider field", (() => { const { provider: _p, ...rest } = draft(); return rest; })()],
+    ["a model field", { ...draft(), model: "gpt-x" }],
     ["not an object", "hello"],
     ["null", null],
     ["an array", []],

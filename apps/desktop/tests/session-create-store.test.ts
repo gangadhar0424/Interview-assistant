@@ -28,6 +28,8 @@ const loaded: CreateSessionOptions = {
     formats: ["full_script", "bullets"],
     lengths: ["short", "balanced"],
     tones: ["simple", "formal"],
+    providers: [{ id: "groq", label: "Groq" }, { id: "anthropic", label: "Claude" }],
+    voice_providers: [{ id: "sarvam", label: "Sarvam" }],
   },
 };
 
@@ -148,6 +150,41 @@ describe("creating a session", () => {
     expect(state().createDraft).toMatchObject({ language: "en", questionType: "auto", format: "full_script", length: "balanced", tone: "simple" });
   });
 
+  it("preselects a provider only when the server offers exactly one (D-57)", async () => {
+    await state().loadCreateOptions();
+    expect(state().createDraft).toMatchObject({ provider: "", sttProvider: "sarvam" });
+  });
+
+  it("keeps a chosen provider while it is offered and drops it when it is not", async () => {
+    useDesktopStore.setState({ createDraft: { ...defaultDraft(null), provider: "anthropic", sttProvider: "gone" } });
+    await state().loadCreateOptions();
+    expect(state().createDraft).toMatchObject({ provider: "anthropic", sttProvider: "sarvam" });
+    useDesktopStore.setState({ createDraft: { ...defaultDraft(null), provider: "openai" } });
+    await state().loadCreateOptions();
+    expect(state().createDraft.provider).toBe(""); // not offered here: the user must choose again
+  });
+
+  it("will not submit without both choices, and shows which one is missing", async () => {
+    await state().loadCreateOptions();
+    useDesktopStore.setState({ createDraft: { ...state().createDraft, company: "Acme", description: "Role", resumeId: RESUME } });
+    expect(await state().submitCreate()).toBeNull();
+    expect(desktop.sessions.create).not.toHaveBeenCalled();
+    expect(state().createFieldErrors.provider).toBe("Choose a reasoning model.");
+    expect(state().createFieldErrors.sttProvider).toBeUndefined(); // the single voice choice was preselected
+  });
+
+  it("maps a rejected provider selection onto the right field", async () => {
+    await state().loadCreateOptions();
+    useDesktopStore.setState({
+      createDraft: { ...state().createDraft, company: "Acme", description: "Role", resumeId: RESUME, provider: "groq" },
+    });
+    desktop.sessions.create.mockResolvedValueOnce(
+      fail("http", "x", { code: "validation_error", fieldErrors: [{ field: "preferences.stt_provider", message: "Choose one." }] }),
+    );
+    expect(await state().submitCreate()).toBeNull();
+    expect(state().createFieldErrors.sttProvider).toBe("Choose one.");
+  });
+
   it("exposes the no-ready-resume case as data", async () => {
     desktop.sessions.createOptions.mockResolvedValueOnce(ok({ ...loaded, resumes: [loaded.resumes[1] as never] }));
     await state().loadCreateOptions();
@@ -173,7 +210,7 @@ describe("creating a session", () => {
     await state().loadCreateOptions();
     expect(await state().submitCreate()).toBeNull();
     expect(desktop.sessions.create).not.toHaveBeenCalled();
-    expect(Object.keys(state().createFieldErrors).sort()).toEqual(["company", "description", "resumeId"]);
+    expect(Object.keys(state().createFieldErrors).sort()).toEqual(["company", "description", "provider", "resumeId"]);
     state().updateDraft({ company: "Acme" });
     expect(state().createFieldErrors.company).toBeUndefined(); // editing clears that field's message
   });
@@ -188,7 +225,7 @@ describe("creating a session", () => {
 
   it("creates, refreshes the list, selects the new session and clears the draft", async () => {
     await state().loadCreateOptions();
-    state().updateDraft({ company: "Acme", description: "Backend role.", resumeId: RESUME, documentIds: [DOC] });
+    state().updateDraft({ company: "Acme", description: "Backend role.", resumeId: RESUME, documentIds: [DOC], provider: "groq" });
     desktop.sessions.list.mockResolvedValueOnce(ok([summary(NEW_ID), summary("existing")]));
     const id = await state().submitCreate();
     expect(id).toBe(NEW_ID);
@@ -203,7 +240,7 @@ describe("creating a session", () => {
 
   it("keeps the draft and explains a backend refusal, mapping field hints", async () => {
     await state().loadCreateOptions();
-    state().updateDraft({ company: "Acme", description: "Backend role.", resumeId: RESUME });
+    state().updateDraft({ company: "Acme", description: "Backend role.", resumeId: RESUME, provider: "groq" });
     desktop.sessions.create.mockResolvedValueOnce(
       fail("http", "The request is invalid.", { status: 422, code: "validation_error", fieldErrors: [{ field: "job_description", message: "String should have at most 20000 characters" }] }),
     );
@@ -220,7 +257,7 @@ describe("creating a session", () => {
     ["too_many_documents", "more documents"],
   ])("maps %s to a plain message", async (code, text) => {
     await state().loadCreateOptions();
-    state().updateDraft({ company: "Acme", description: "Role", resumeId: RESUME });
+    state().updateDraft({ company: "Acme", description: "Role", resumeId: RESUME, provider: "groq" });
     desktop.sessions.create.mockResolvedValueOnce(fail("http", "backend text", { status: 422, code }));
     await state().submitCreate();
     expect(state().createError).toContain(text);
@@ -228,7 +265,7 @@ describe("creating a session", () => {
 
   it("a network failure keeps the draft and marks the backend unavailable", async () => {
     await state().loadCreateOptions();
-    state().updateDraft({ company: "Acme", description: "Role", resumeId: RESUME });
+    state().updateDraft({ company: "Acme", description: "Role", resumeId: RESUME, provider: "groq" });
     desktop.sessions.create.mockResolvedValueOnce(NETWORK);
     expect(await state().submitCreate()).toBeNull();
     expect(state().connection).toBe("unavailable");
@@ -237,7 +274,7 @@ describe("creating a session", () => {
 
   it("cancel, sign-out and session expiry drop the draft (memory only)", async () => {
     await state().loadCreateOptions();
-    state().updateDraft({ company: "Acme", description: "Role", resumeId: RESUME });
+    state().updateDraft({ company: "Acme", description: "Role", resumeId: RESUME, provider: "groq" });
     state().resetCreate();
     expect(state().createDraft.company).toBe("");
 
