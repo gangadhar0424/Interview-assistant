@@ -24,6 +24,10 @@ PLACEHOLDER_SECRET_PREFIX = "change-me"  # noqa: S105
 _JWT_SECRET_CHARS = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
+def _has_secret(value: SecretStr | None) -> bool:
+    return value is not None and bool(value.get_secret_value().strip())
+
+
 class ConfigurationError(RuntimeError):
     """Raised when required configuration is missing or invalid (never includes values)."""
 
@@ -86,6 +90,12 @@ class Settings(BaseSettings):
     llm_fallback_chain: str = ""
     openai_api_key: SecretStr | None = None
     ollama_api_key: SecretStr | None = None
+    # Server-side keys only (D-57). One configurable model per provider per role.
+    groq_api_key: SecretStr | None = None
+    anthropic_api_key: SecretStr | None = None
+    sarvam_api_key: SecretStr | None = None
+    groq_model: str = Field(default="openai/gpt-oss-120b", min_length=1, max_length=100)
+    anthropic_model: str = Field(default="claude-sonnet-5-5", min_length=1, max_length=100)
     openai_base_url: AnyHttpUrl = AnyHttpUrl("https://api.openai.com/v1")
     openai_model: str = Field(default="gpt-4o-mini", min_length=1, max_length=100)
     openai_timeout: float = Field(default=30.0, gt=0, le=300)
@@ -111,7 +121,9 @@ class Settings(BaseSettings):
     # Speech-to-text providers are a SEPARATE allow-list from the text and vision providers; empty
     # (the default) disables utterance transcription. Only the deterministic `fake` provider exists.
     stt_enabled_providers: str = ""
-    stt_fallback_chain: str = ""
+    openai_stt_model: str = Field(default="gpt-4o-mini-transcribe", min_length=1, max_length=100)
+    groq_stt_model: str = Field(default="whisper-large-v3-turbo", min_length=1, max_length=100)
+    sarvam_stt_model: str = Field(default="saarika:v2.5", min_length=1, max_length=100)
     stt_request_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     audio_max_bytes: int = Field(default=1_500_000, ge=10_000, le=5_000_000)
     audio_max_seconds: int = Field(default=30, ge=1, le=120)
@@ -373,6 +385,12 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"{required_key_name} is required for the configured OpenAI-compatible endpoint"
                 )
+        for provider_id, key, key_name in (
+            ("groq", self.groq_api_key, "GROQ_API_KEY"),
+            ("anthropic", self.anthropic_api_key, "ANTHROPIC_API_KEY"),
+        ):
+            if provider_id in enabled and not _has_secret(key):
+                raise ValueError(f"{key_name} is required when the {provider_id} provider is on")
         if any(p not in enabled for p in self.llm_fallback_chain_list):
             raise ValueError("LLM_FALLBACK_CHAIN may only list providers in LLM_ENABLED_PROVIDERS")
         return self
@@ -407,16 +425,28 @@ class Settings(BaseSettings):
             raise ValueError(
                 "the fake speech-to-text provider may only be enabled with APP_ENV=local"
             )
-        if any(p not in enabled for p in self.stt_fallback_chain_list):
-            raise ValueError("STT_FALLBACK_CHAIN may only list providers in STT_ENABLED_PROVIDERS")
+        for provider_id, key, key_name in (
+            ("openai", self.openai_api_key, "OPENAI_API_KEY"),
+            ("groq", self.groq_api_key, "GROQ_API_KEY"),
+            ("sarvam", self.sarvam_api_key, "SARVAM_API_KEY"),
+        ):
+            if provider_id in enabled and not _has_secret(key):
+                raise ValueError(f"{key_name} is required when {provider_id} voice is enabled")
         return self
 
-    @field_validator("openai_model")
+    @field_validator(
+        "openai_model",
+        "groq_model",
+        "anthropic_model",
+        "openai_stt_model",
+        "groq_stt_model",
+        "sarvam_stt_model",
+    )
     @classmethod
-    def _openai_model_not_blank(cls, value: str) -> str:
+    def _model_not_blank(cls, value: str) -> str:
         model = value.strip()
         if not model:
-            raise ValueError("OPENAI_MODEL must not be blank")
+            raise ValueError("a model setting must not be blank")
         return model
 
     @property
@@ -426,10 +456,6 @@ class Settings(BaseSettings):
     @property
     def stt_enabled_provider_list(self) -> list[str]:
         return [p.strip() for p in self.stt_enabled_providers.split(",") if p.strip()]
-
-    @property
-    def stt_fallback_chain_list(self) -> list[str]:
-        return [p.strip() for p in self.stt_fallback_chain.split(",") if p.strip()]
 
     @property
     def vision_enabled_provider_list(self) -> list[str]:

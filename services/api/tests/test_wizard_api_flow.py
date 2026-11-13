@@ -83,17 +83,21 @@ def test_the_frontend_golden_payloads_are_accepted_by_the_api(
 
     minimal = create(client, headers, golden("create_payload_minimal.json", **real))
     assert minimal.status_code == 201, minimal.text
-    assert minimal.json()["preferences"]["provider"] is None  # omitted = server default chain
+    assert minimal.json()["preferences"]["provider"] == "fake"  # D-57: mandatory, exclusive
+    assert minimal.json()["preferences"]["stt_provider"] == "fake"
 
     provider = create(client, headers, golden("create_payload_provider.json", **real))
     assert provider.status_code == 201, provider.text
     assert provider.json()["preferences"]["provider"] == "fake"
-    assert provider.json()["preferences"]["model"] == "fake-echo"
+    assert provider.json()["preferences"]["model"] is None  # the provider's configured model
+    assert provider.json()["preferences"]["stt_model"] is None
 
 
 def test_the_provider_golden_is_rejected_when_the_provider_is_not_enabled(
-    client: TestClient, run_sql: RunSql, alice: dict[str, str]
+    make_client: Callable[..., TestClient], run_sql: RunSql
 ) -> None:
+    client = make_client(LLM_ENABLED_PROVIDERS="", STT_ENABLED_PROVIDERS="")
+    alice = register(client, "alice@example.com")
     payload = golden("create_payload_provider.json", **ids(client, run_sql, alice))
     response = create(client, alice, payload)
     assert response.status_code == 422
@@ -235,6 +239,7 @@ def test_ai_options_shape_matches_the_frontend_type(
     options = client.get("/api/v1/ai/options", headers=headers).json()
     assert set(options) == {
         "providers",
+        "voice_providers",
         "languages",
         "question_types",
         "formats",
@@ -243,6 +248,8 @@ def test_ai_options_shape_matches_the_frontend_type(
     }
     assert set(options["providers"][0]) == {"id", "models"}
     assert set(options["providers"][0]["models"][0]) == {"id", "label", "capabilities", "languages"}
+    assert set(options["voice_providers"][0]) == {"id", "models"}
+    assert set(options["voice_providers"][0]["models"][0]) == {"id", "label"}
 
 
 def test_session_list_and_import_shapes_match_the_frontend_types(

@@ -135,6 +135,10 @@ def make_client(
     stack = ExitStack()
 
     def build(**env: str) -> TestClient:
+        # D-57: every new session must name a reasoning and a voice provider, so tests default to
+        # the deterministic fakes (overridable per test, e.g. STT_ENABLED_PROVIDERS="").
+        monkeypatch.setenv("LLM_ENABLED_PROVIDERS", "fake")
+        monkeypatch.setenv("STT_ENABLED_PROVIDERS", "fake")
         for key, value in env.items():
             monkeypatch.setenv(key, value)
         get_settings.cache_clear()

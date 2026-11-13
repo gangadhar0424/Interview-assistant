@@ -19,7 +19,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.core.config import get_settings
 from app.realtime import schemas as proto
 from tests.conftest import RunSql
-from tests.helpers import register
+from tests.helpers import as_legacy, register
 from tests.realtime_fakes import FakeClock, FakeRedis, install_fake_tickets, request_ticket, ws_path
 from tests.test_sessions import body, create, new_file
 
@@ -67,7 +67,7 @@ def build_world(make_client: Callable[..., TestClient], run_sql: RunSql) -> Call
             resume = new_file(client, run_sql, headers, "resumes")
             response = create(client, headers, body(resume, []))
             assert response.status_code == 201, response.text
-            return str(response.json()["id"])
+            return as_legacy(str(response.json()["id"]))
 
         def uid(email: str) -> uuid.UUID:
             value: uuid.UUID = run_sql("SELECT id FROM users WHERE email = :e", e=email)[0]["id"]

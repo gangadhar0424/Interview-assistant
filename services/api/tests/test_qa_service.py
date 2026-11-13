@@ -31,7 +31,7 @@ from app.qa.events import (
 )
 from app.qa.service import QuestionAnswerer
 from tests.conftest import RunSql
-from tests.helpers import real_pdf, register, run_async
+from tests.helpers import as_legacy, real_pdf, register, run_async
 from tests.qa_fakes import (
     OpenSessionTracker,
     RecordingProvider,
@@ -96,7 +96,9 @@ def make_session(
 ) -> str:
     response = create(client, headers, body(resume, docs, prefs=prefs))
     assert response.status_code == 201, response.text
-    return str(response.json()["id"])
+    return as_legacy(
+        str(response.json()["id"]), keep_voice=True
+    )  # these tests inject their own routers
 
 
 def run_ask(

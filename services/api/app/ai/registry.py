@@ -2,13 +2,21 @@
 
 from dataclasses import dataclass
 
-from app.ai.adapters.openai import OpenAIProvider, openai_spec
+from app.ai.adapters.anthropic import AnthropicProvider, anthropic_spec
+from app.ai.adapters.openai import (
+    DEFAULT_GROQ_MODEL,
+    GROQ_BASE_URL,
+    GROQ_PROVIDER_ID,
+    GROQ_REQUEST_FIELDS,
+    OpenAIProvider,
+    openai_spec,
+)
 from app.ai.base import LLMProvider
 from app.ai.errors import InvalidSelection
 from app.ai.fake import FakeLLMProvider, fake_spec
 from app.ai.types import Capability, ModelSpec, ProviderSpec
 
-KNOWN_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai"})
+KNOWN_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai", "groq", "anthropic"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +73,7 @@ class ProviderRegistry:
     async def aclose(self) -> None:
         """Close provider-owned resources when the application lifespan ends."""
         for entry in self._entries.values():
-            if isinstance(entry.provider, OpenAIProvider):
+            if isinstance(entry.provider, OpenAIProvider | AnthropicProvider):
                 await entry.provider.aclose()
 
 
@@ -76,8 +84,12 @@ def build_registry(
     openai_model: str = "gpt-4o-mini",
     openai_timeout: float = 30.0,
     openai_base_url: str = "https://api.openai.com/v1",
+    groq_api_key: str | None = None,
+    groq_model: str = DEFAULT_GROQ_MODEL,
+    anthropic_api_key: str | None = None,
+    anthropic_model: str = "claude-sonnet-5-5",
 ) -> ProviderRegistry:
-    """Build the provider allowlist from configuration; credentials remain server-side."""
+    """Build the reasoning-provider allowlist; credentials remain server-side (D-57)."""
     entries: list[RegisteredProvider] = []
     for provider_id in enabled:
         if provider_id == "fake":
@@ -92,6 +104,35 @@ def build_registry(
                 base_url=openai_base_url,
             )
             entries.append(RegisteredProvider(provider, openai_spec(openai_model)))
+        elif provider_id == "groq":
+            if not groq_api_key:
+                raise ValueError("GROQ_API_KEY is required when the Groq provider is enabled")
+            entries.append(
+                RegisteredProvider(
+                    OpenAIProvider(
+                        api_key=groq_api_key,
+                        model=groq_model,
+                        timeout=openai_timeout,
+                        base_url=GROQ_BASE_URL,
+                        provider_id=GROQ_PROVIDER_ID,
+                        extra_body=dict(GROQ_REQUEST_FIELDS),
+                    ),
+                    openai_spec(groq_model, GROQ_PROVIDER_ID, f"Groq ({groq_model})"),
+                )
+            )
+        elif provider_id == "anthropic":
+            if not anthropic_api_key:
+                raise ValueError(
+                    "ANTHROPIC_API_KEY is required when the Anthropic provider is enabled"
+                )
+            entries.append(
+                RegisteredProvider(
+                    AnthropicProvider(
+                        api_key=anthropic_api_key, model=anthropic_model, timeout=openai_timeout
+                    ),
+                    anthropic_spec(anthropic_model),
+                )
+            )
         else:  # config validation already rejects unknown ids; fail closed regardless
             raise ValueError("unknown provider id")
     return ProviderRegistry(entries)

@@ -344,6 +344,9 @@ class SessionPreferences(Base):
             _in_list("answer_tone", tuple(v.value for v in AnswerTone)), name="answer_tone"
         ),
         CheckConstraint("model IS NULL OR provider IS NOT NULL", name="model_needs_provider"),
+        CheckConstraint(
+            "stt_model IS NULL OR stt_provider IS NOT NULL", name="stt_model_needs_provider"
+        ),
     )
 
     session_id: Mapped[uuid.UUID] = mapped_column(
@@ -353,6 +356,10 @@ class SessionPreferences(Base):
     # NULL provider/model = use the server default chain (resolved when answering, Phase 8).
     provider: Mapped[str | None] = mapped_column(String(100))
     model: Mapped[str | None] = mapped_column(String(100))
+    # Voice-listening selection (D-57). NULL = none chosen yet (sessions created before D-57):
+    # transcription is refused until one is selected. Never resolved to a hidden default.
+    stt_provider: Mapped[str | None] = mapped_column(String(100))
+    stt_model: Mapped[str | None] = mapped_column(String(100))
     question_type: Mapped[str] = mapped_column(String(32), nullable=False)
     answer_format: Mapped[str] = mapped_column(String(32), nullable=False)
     answer_length: Mapped[str] = mapped_column(String(32), nullable=False)

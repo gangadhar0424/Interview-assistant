@@ -1,4 +1,8 @@
-"""OpenAI-compatible Chat Completions adapter for the provider-neutral LLM port."""
+"""OpenAI-compatible Chat Completions adapter for the provider-neutral LLM port.
+
+One class serves every OpenAI-compatible reasoning endpoint (OpenAI, Ollama Cloud, Groq): the
+provider id, base URL, model and optional fixed request fields come from configuration (D-57).
+"""
 
 from collections.abc import AsyncGenerator, Sequence
 from typing import cast
@@ -39,13 +43,23 @@ OPENAI_PROVIDER_ID = "openai"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 
 
-def openai_spec(model: str) -> ProviderSpec:
+GROQ_PROVIDER_ID = "groq"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+# gpt-oss models spend output tokens on hidden reasoning; "low" keeps first-token latency down and
+# leaves the answer's token budget intact (D-57). Fixed, not configurable: one model per provider.
+GROQ_REQUEST_FIELDS: dict[str, object] = {"reasoning_effort": "low"}
+
+
+def openai_spec(
+    model: str, provider_id: str = OPENAI_PROVIDER_ID, label: str | None = None
+) -> ProviderSpec:
     return ProviderSpec(
-        id=OPENAI_PROVIDER_ID,
+        id=provider_id,
         models=(
             ModelSpec(
                 id=model,
-                label=f"OpenAI-compatible ({model})",
+                label=label or f"OpenAI-compatible ({model})",
                 capabilities=frozenset({"streaming", "completion"}),
                 languages=("en", "hi", "te"),
             ),
@@ -70,7 +84,7 @@ def _usage(value: object) -> Usage | None:
     return Usage(input_tokens=input_tokens, output_tokens=output_tokens)
 
 
-def _map_error(error: APIError) -> LLMError:
+def map_openai_error(error: APIError) -> LLMError:
     if isinstance(error, (AuthenticationError,)) or (
         isinstance(error, APIStatusError) and error.status_code in (401, 403)
     ):
@@ -104,7 +118,7 @@ def _is_content_filter(body: object) -> bool:
 class OpenAIProvider(LLMProvider):
     """Asynchronous OpenAI adapter; only the configured model is selectable."""
 
-    provider_id = OPENAI_PROVIDER_ID
+    provider_id: str
 
     def __init__(
         self,
@@ -114,8 +128,12 @@ class OpenAIProvider(LLMProvider):
         *,
         base_url: str = "https://api.openai.com/v1",
         http_client: httpx.AsyncClient | None = None,
+        provider_id: str = OPENAI_PROVIDER_ID,
+        extra_body: dict[str, object] | None = None,
     ) -> None:
+        self.provider_id = provider_id
         self._model = model
+        self._extra_body = extra_body
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -138,9 +156,10 @@ class OpenAIProvider(LLMProvider):
                 messages=_messages(messages),
                 temperature=config.temperature,
                 max_completion_tokens=config.max_output_tokens,
+                extra_body=self._extra_body,
             )
         except APIError as error:
-            raise _map_error(error) from None
+            raise map_openai_error(error) from None
 
         try:
             choice = response.choices[0]
@@ -168,6 +187,7 @@ class OpenAIProvider(LLMProvider):
                 max_completion_tokens=config.max_output_tokens,
                 stream=True,
                 stream_options={"include_usage": True},
+                extra_body=self._extra_body,
             )
             async for chunk in stream:
                 if chunk.usage is not None:
@@ -184,7 +204,7 @@ class OpenAIProvider(LLMProvider):
                         if delta.content:
                             yield Token(delta.content)
         except APIError as error:
-            raise _map_error(error) from None
+            raise map_openai_error(error) from None
         except (AttributeError, TypeError):
             raise Unavailable() from None
         finally:

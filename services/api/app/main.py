@@ -9,6 +9,7 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from pydantic import SecretStr
 
 from app.ai.registry import build_registry
 from app.ai.router import LLMRouter, RouterConfig
@@ -43,6 +44,10 @@ from app.storage.local import LocalFileStorage
 logger = logging.getLogger("app.request")
 
 
+def _secret(value: SecretStr | None) -> str | None:
+    return value.get_secret_value() if value else None
+
+
 def create_app() -> FastAPI:
     settings = get_settings()  # fails fast with a clear ConfigurationError if misconfigured
     configure_logging(settings.log_level)
@@ -64,6 +69,10 @@ def create_app() -> FastAPI:
             openai_model=settings.openai_model,
             openai_timeout=settings.openai_timeout,
             openai_base_url=str(settings.openai_base_url),
+            groq_api_key=_secret(settings.groq_api_key),
+            groq_model=settings.groq_model,
+            anthropic_api_key=_secret(settings.anthropic_api_key),
+            anthropic_model=settings.anthropic_model,
         )
         app.state.llm_registry = registry
         app.state.llm_router = LLMRouter(
@@ -123,12 +132,17 @@ def create_app() -> FastAPI:
         # Audio is memory-only; nothing is stored.
         stt_router = build_stt_router(
             settings.stt_enabled_provider_list,
-            settings.stt_fallback_chain_list or None,
             SttRouterConfig(
                 request_timeout_seconds=settings.stt_request_timeout_seconds,
                 breaker_failure_threshold=settings.llm_breaker_failure_threshold,
                 breaker_cooldown_seconds=settings.llm_breaker_cooldown_seconds,
             ),
+            openai_api_key=_secret(settings.openai_api_key),
+            openai_model=settings.openai_stt_model,
+            groq_api_key=_secret(settings.groq_api_key),
+            groq_model=settings.groq_stt_model,
+            sarvam_api_key=_secret(settings.sarvam_api_key),
+            sarvam_model=settings.sarvam_stt_model,
         )
         app.state.stt_router = stt_router
         app.state.transcriber = Transcriber(app.state.sessionmaker, settings, stt_router)
@@ -172,6 +186,7 @@ def create_app() -> FastAPI:
         yield
         await session_channels.shutdown()  # cancel detached generations; their answers are stored
         await registry.aclose()
+        await stt_router.aclose()
         await ticket_redis.aclose()
         await engine.dispose()
 

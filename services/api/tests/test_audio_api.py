@@ -100,10 +100,13 @@ def ready(client: TestClient, run_sql: RunSql, alice: dict[str, str]) -> str:
 # ------------------------------------------------------------------ availability and auth
 
 
-def test_audio_input_is_disabled_by_default(
-    client: TestClient, alice: dict[str, str], ready: str
+def test_audio_input_is_disabled_when_no_voice_provider_is_enabled(
+    make_client: Callable[..., TestClient], run_sql: RunSql
 ) -> None:
-    response = post(client, alice, ready, make_wav())
+    client = make_client(STT_ENABLED_PROVIDERS="")  # the production default
+    alice = register(client, "alice@example.com")
+    # The enabled check comes before any session lookup, so any id shows the refusal.
+    response = post(client, alice, "00000000-0000-4000-8000-000000000001", make_wav())
     assert response.status_code == 503 and response.json()["error"]["code"] == "stt_unavailable"
 
 
@@ -308,15 +311,17 @@ def test_provider_failures_map_to_fixed_safe_errors(
     assert post(client, alice, ready, make_wav()).status_code == 200  # simply retry
 
 
-def test_fallback_between_stt_providers_is_transparent(
-    client: TestClient, alice: dict[str, str], ready: str
+def test_there_is_no_fallback_between_stt_providers(
+    client: TestClient, alice: dict[str, str], ready: str, run_sql: RunSql
 ) -> None:
-    install_stt(
+    run_sql("UPDATE session_preferences SET stt_provider = 'a' WHERE session_id = :s", s=ready)
+    fakes, _, _ = install_stt(
         client,
         [FakeSTTProvider("a", failures=[Unavailable()]), FakeSTTProvider("b", reply="from b")],
     )
-    body = post(client, alice, ready, make_wav()).json()
-    assert (body["provider"], body["text"]) == ("b", "from b")
+    response = post(client, alice, ready, make_wav())
+    assert (response.status_code, response.json()["error"]["code"]) == (503, "llm_unavailable")
+    assert [f.calls for f in fakes] == [1, 0]
 
 
 def test_a_slow_provider_times_out_with_504_and_releases_everything(
@@ -345,7 +350,8 @@ def test_a_client_that_disconnects_cancels_the_transcription() -> None:
         clip = validate_wav(make_wav(), max_seconds=30)
 
         async def work() -> Any:
-            return await stt.transcribe(AudioInput(clip.data, 16_000, clip.duration_ms), "en")
+            audio = AudioInput(clip.data, 16_000, clip.duration_ms)
+            return await stt.transcribe(audio, "en", provider="fake")
 
         task = asyncio.create_task(work())
         started = asyncio.get_event_loop().time()

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.ai.registry import ProviderRegistry
+from app.ai.stt_router import SttRouter
 from app.auth.deps import CurrentUser
 from app.preferences.enums import AnswerFormat, AnswerLength, AnswerTone, Language, QuestionType
 
@@ -24,8 +25,19 @@ class ProviderOption(BaseModel):
     models: list[ModelOption]
 
 
+class VoiceModelOption(BaseModel):
+    id: str
+    label: str
+
+
+class VoiceProviderOption(BaseModel):
+    id: str
+    models: list[VoiceModelOption]
+
+
 class AiOptions(BaseModel):
-    providers: list[ProviderOption]
+    providers: list[ProviderOption]  # reasoning providers (the answer model)
+    voice_providers: list[VoiceProviderOption]  # voice-listening providers (D-57)
     languages: list[str]
     question_types: list[str]
     formats: list[str]
@@ -38,9 +50,16 @@ def get_registry(request: Request) -> ProviderRegistry:
     return registry
 
 
+def get_stt_router(request: Request) -> SttRouter:
+    stt_router: SttRouter = request.app.state.stt_router
+    return stt_router
+
+
 @router.get("/options")
 async def ai_options(
-    _: CurrentUser, registry: Annotated[ProviderRegistry, Depends(get_registry)]
+    _: CurrentUser,
+    registry: Annotated[ProviderRegistry, Depends(get_registry)],
+    voice: Annotated[SttRouter, Depends(get_stt_router)],
 ) -> AiOptions:
     return AiOptions(
         providers=[
@@ -57,6 +76,13 @@ async def ai_options(
                 ],
             )
             for e in registry.entries()
+        ],
+        voice_providers=[
+            VoiceProviderOption(
+                id=e.spec.provider_id,
+                models=[VoiceModelOption(id=e.spec.model_id, label=e.spec.label)],
+            )
+            for e in voice.entries()
         ],
         # Preference values come from the enums (single source of truth), not from providers.
         languages=[v.value for v in Language],

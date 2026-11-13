@@ -21,15 +21,22 @@ def test_options_lists_only_enabled_providers(make_client: Callable[..., TestCli
     headers = register(client, "alice@example.com")
     body = client.get("/api/v1/ai/options", headers=headers).json()
     assert [p["id"] for p in body["providers"]] == ["fake"]
+    assert [p["id"] for p in body["voice_providers"]] == ["fake"]  # separate voice registry
+    assert set(body["voice_providers"][0]["models"][0]) == {"id", "label"}
     model = body["providers"][0]["models"][0]
     assert set(model) == {"id", "label", "capabilities", "languages"}
     assert body["languages"] == ["en", "hi", "te"]
 
 
-def test_options_is_empty_when_no_provider_is_enabled(client: TestClient) -> None:
+def test_options_is_empty_when_no_provider_is_enabled(
+    make_client: Callable[..., TestClient],
+) -> None:
+    client = make_client(LLM_ENABLED_PROVIDERS="", STT_ENABLED_PROVIDERS="")
     headers = register(client, "alice@example.com")
     body = client.get("/api/v1/ai/options", headers=headers).json()
-    assert body["providers"] == []  # no provider enabled, yet preference values are still served
+    assert (
+        body["providers"] == [] and body["voice_providers"] == []
+    )  # none enabled, yet preference values are still served
     assert body["languages"] == ["en", "hi", "te"]
 
 
@@ -40,6 +47,7 @@ def test_options_serve_the_preference_enums_as_the_single_source_of_truth(
     body = client.get("/api/v1/ai/options", headers=headers).json()
     assert set(body) == {
         "providers",
+        "voice_providers",
         "languages",
         "question_types",
         "formats",

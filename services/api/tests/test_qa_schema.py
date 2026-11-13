@@ -89,12 +89,12 @@ def test_expected_indexes_exist(world: QaWorld) -> None:
     }
 
 
-def test_migration_chain_has_a_single_head_at_0009() -> None:
+def test_migration_chain_has_a_single_head_at_0010() -> None:
     cfg = Config(str(API_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(API_DIR / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0009"]
-    for rev, parent in (("0009", "0008"), ("0008", "0007"), ("0007", "0006")):
+    assert script.get_heads() == ["0010"]
+    for rev, parent in (("0010", "0009"), ("0009", "0008"), ("0008", "0007"), ("0007", "0006")):
         revision = script.get_revision(rev)
         assert revision is not None and revision.down_revision == parent
 

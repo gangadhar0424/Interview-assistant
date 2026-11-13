@@ -20,6 +20,8 @@ PREFS: dict[str, Any] = {
     "answer_format": "full_script",
     "answer_length": "balanced",
     "answer_tone": "simple",
+    "provider": "fake",
+    "stt_provider": "fake",
 }
 SESSIONS = "/api/v1/sessions"
 
@@ -141,7 +143,9 @@ def test_create_stores_session_preferences_and_document_links(kit: Kit) -> None:
     assert data["documents"] == [{"id": kit.doc, "filename": "notes.txt", "available": True}]
     assert data["document_count"] == 1
     assert data["preferences"]["prompt_version"] == "v2"
-    assert data["preferences"]["provider"] is None and data["preferences"]["model"] is None
+    assert data["preferences"]["provider"] == "fake" and data["preferences"]["model"] is None
+    assert data["preferences"]["stt_provider"] == "fake"
+    assert data["preferences"]["stt_model"] is None
 
     owner = kit.run_sql("SELECT id FROM users WHERE email = 'alice@example.com'")[0]["id"]
     row = kit.run_sql("SELECT * FROM sessions")[0]
@@ -276,7 +280,7 @@ def test_extra_instructions_are_sanitised_and_kept_as_data(kit: Kit) -> None:
 # -------------------------------------------------------- provider / model
 
 
-def test_provider_and_model_are_optional_and_validated_against_the_allowlist(
+def test_provider_is_mandatory_model_optional_and_validated_against_the_allowlist(
     make_client: Callable[..., TestClient], run_sql: RunSql
 ) -> None:
     client = make_client(LLM_ENABLED_PROVIDERS="fake")
@@ -288,7 +292,9 @@ def test_provider_and_model_are_optional_and_validated_against_the_allowlist(
     assert ok.json()["preferences"]["provider"] == "fake"
     only_provider = create(client, headers, body(resume, prefs={"provider": "fake"}))
     assert only_provider.status_code == 201 and only_provider.json()["preferences"]["model"] is None
-    assert create(client, headers, body(resume)).status_code == 201  # omitted = default chain
+    no_provider = {k: v for k, v in PREFS.items() if k != "provider"}
+    omitted = create(client, headers, {**body(resume), "preferences": no_provider})
+    assert omitted.status_code == 422  # D-57: mandatory for new sessions
 
     for prefs in (
         {"provider": "openai"},  # not enabled
@@ -299,12 +305,16 @@ def test_provider_and_model_are_optional_and_validated_against_the_allowlist(
         assert (
             bad.status_code == 422 and bad.json()["error"]["code"] == "invalid_provider_selection"
         )
-    nomodel = create(client, headers, body(resume, prefs={"model": "fake-echo"}))
-    assert nomodel.status_code == 422  # a model needs its provider
+    assert create(client, headers, body(resume, prefs={"provider": ""})).status_code == 422
 
 
-def test_explicit_provider_is_rejected_when_none_is_enabled(kit: Kit) -> None:
-    r = create(kit.client, kit.headers, body(kit.resume, prefs={"provider": "fake"}))
+def test_explicit_provider_is_rejected_when_none_is_enabled(
+    make_client: Callable[..., TestClient], run_sql: RunSql
+) -> None:
+    client = make_client(LLM_ENABLED_PROVIDERS="", STT_ENABLED_PROVIDERS="")
+    headers = register(client, "alice@example.com")
+    resume = new_file(client, run_sql, headers, "resumes")
+    r = create(client, headers, body(resume, prefs={"provider": "fake"}))
     assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_provider_selection"
 
 
@@ -586,7 +596,7 @@ def test_patch_rules_nulls_boundaries_and_unknown_fields(kit: Kit) -> None:
         assert patch(bad).status_code == 422, bad
 
 
-def test_patch_provider_selection_is_validated_and_clearable(
+def test_patch_provider_selection_is_validated_and_mandatory(
     make_client: Callable[..., TestClient], run_sql: RunSql
 ) -> None:
     client = make_client(LLM_ENABLED_PROVIDERS="fake")
@@ -600,16 +610,12 @@ def test_patch_provider_selection_is_validated_and_clearable(
     assert ok.status_code == 200 and ok.json()["preferences"]["model"] == "fake-echo"
     bad = client.patch(url, headers=headers, json={"preferences": {"provider": "openai"}})
     assert bad.status_code == 422 and bad.json()["error"]["code"] == "invalid_provider_selection"
-    cleared = client.patch(
-        url, headers=headers, json={"preferences": {"provider": None, "model": None}}
-    )
-    assert cleared.status_code == 200 and cleared.json()["preferences"]["provider"] is None
-    # Clearing only the provider while a model remains is inconsistent.
-    client.patch(
-        url, headers=headers, json={"preferences": {"provider": "fake", "model": "fake-echo"}}
-    )
-    half = client.patch(url, headers=headers, json={"preferences": {"provider": None}})
-    assert half.status_code == 422
+    for field in ("provider", "stt_provider"):  # D-57: a mandatory selection cannot be cleared
+        cleared = client.patch(url, headers=headers, json={"preferences": {field: None}})
+        assert cleared.status_code == 422, field
+    model_cleared = client.patch(url, headers=headers, json={"preferences": {"model": None}})
+    assert model_cleared.status_code == 200 and model_cleared.json()["preferences"]["model"] is None
+    assert model_cleared.json()["preferences"]["provider"] == "fake"
 
 
 def test_patch_materials_are_revalidated_and_snapshots_refreshed(

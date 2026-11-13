@@ -187,3 +187,36 @@ def run_worker(
         ),
     )
     return outcome
+
+
+def as_legacy(session_id: str, *, keep_voice: bool = False) -> str:
+    """Turn a session into one created before D-57 (no stored reasoning or voice provider).
+
+    `keep_voice=True` clears only the reasoning provider (for tests that also use audio).
+
+    Tests that inject their own routers (providers "a", "b", ...) exercise the server's default
+    chain, which is exactly how legacy sessions are answered. Sessions with an explicit provider
+    are exclusive by design and are covered in test_provider_selection_api.py.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import get_settings
+
+    async def go() -> None:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sql_text(
+                        "UPDATE session_preferences SET provider = NULL, model = NULL, "
+                        "stt_provider = CASE WHEN :clear THEN NULL ELSE stt_provider END, "
+                        "stt_model = CASE WHEN :clear THEN NULL ELSE stt_model END "
+                        "WHERE session_id = :s"
+                    ),
+                    {"s": session_id, "clear": not keep_voice},
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(go())
+    return session_id

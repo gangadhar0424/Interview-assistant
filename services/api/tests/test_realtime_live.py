@@ -28,7 +28,7 @@ from websockets.sync.client import connect
 from app.core.config import get_settings
 from app.main import create_app
 from tests.conftest import RunSql
-from tests.helpers import register
+from tests.helpers import as_legacy, register
 from tests.realtime_fakes import install_fake_tickets
 from tests.test_sessions import body, create, new_file
 
@@ -129,7 +129,7 @@ def setup(live: Live, client: TestClient, run_sql: RunSql) -> Setup:
     resume = new_file(client, run_sql, headers, "resumes")
     response = create(client, headers, body(resume, []))
     assert response.status_code == 201, response.text
-    return Setup(live, headers, str(response.json()["id"]))
+    return Setup(live, headers, as_legacy(str(response.json()["id"])))
 
 
 def test_a_real_client_connects_says_hello_and_pings(setup: Setup) -> None:

@@ -105,7 +105,8 @@ def test_tables_have_exactly_the_documented_columns(world: World) -> None:
     }  # fmt: skip
     assert columns(world.run_sql, "session_documents") == {"session_id", "document_id", "user_id"}
     assert columns(world.run_sql, "session_preferences") == {
-        "session_id", "language", "provider", "model", "question_type", "answer_format",
+        "session_id", "language", "provider", "model", "stt_provider", "stt_model", "question_type",
+        "answer_format",
         "answer_length", "answer_tone", "extra_instructions", "generation_config",
         "prompt_version", "created_at", "updated_at",
     }  # fmt: skip

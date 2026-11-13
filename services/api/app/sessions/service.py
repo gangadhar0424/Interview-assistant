@@ -14,11 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.errors import InvalidSelection
 from app.ai.registry import ProviderRegistry
+from app.ai.stt_router import SttRouter
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.models import SESSION_STATUSES, CallSession, Document, Resume, SessionPreferences
 from app.preferences.answer_config import CompiledPreferences
-from app.preferences.compiler import PreferenceCompiler, PreferencesInput
+from app.preferences.compiler import PreferenceCompiler, PreferencesInput, parse_identifier
 from app.preferences.errors import InvalidPreference
 from app.preferences.prompt_builder import PROMPT_VERSION
 from app.preferences.sanitize import clean_text
@@ -117,6 +118,23 @@ def _check_provider_selection(
         registry.resolve(provider, model, "streaming")  # raises InvalidSelection
 
 
+def _check_voice_selection(
+    voice: SttRouter, provider: str | None, model: str | None
+) -> tuple[str | None, str | None]:
+    """Validate the voice-listening selection (shape, then the server's voice allowlist)."""
+    try:
+        provider = parse_identifier(provider, "stt_provider")
+        model = parse_identifier(model, "stt_model")
+    except InvalidPreference as exc:
+        raise _invalid(f"{exc.field} is invalid.") from None
+    if provider is None:
+        if model is not None:
+            raise _invalid("stt_model requires an stt_provider.")
+        return None, None
+    voice.resolve(provider, model)  # raises InvalidSelection (422 invalid_provider_selection)
+    return provider, model
+
+
 def _compile(compiler: PreferenceCompiler, values: dict[str, str | None]) -> CompiledPreferences:
     try:
         prefs = PreferencesInput(
@@ -184,6 +202,8 @@ async def _detail(session: AsyncSession, user_id: uuid.UUID, row: CallSession) -
             language=prefs.language,
             provider=prefs.provider,
             model=prefs.model,
+            stt_provider=prefs.stt_provider,
+            stt_model=prefs.stt_model,
             question_type=prefs.question_type,
             answer_format=prefs.answer_format,
             answer_length=prefs.answer_length,
@@ -219,6 +239,7 @@ async def create_session(
     user_id: uuid.UUID,
     settings: Settings,
     registry: ProviderRegistry,
+    voice: SttRouter,
     data: SessionCreate,
 ) -> SessionDetail:
     company = _clean_name(data.company_name, "company_name")
@@ -240,6 +261,7 @@ async def create_session(
     }
     compiled = _compile(compiler, values)
     _check_provider_selection(registry, compiled.answer.provider, compiled.answer.model)
+    stt_provider, stt_model = _check_voice_selection(voice, p.stt_provider, p.stt_model)
 
     materials = await resolve_materials(
         session,
@@ -270,6 +292,8 @@ async def create_session(
             language=compiled.answer.language.value,
             provider=compiled.answer.provider,
             model=compiled.answer.model,
+            stt_provider=stt_provider,
+            stt_model=stt_model,
             question_type=compiled.answer.question_type.value,
             answer_format=compiled.answer.answer_format.value,
             answer_length=compiled.answer.answer_length.value,
@@ -338,6 +362,7 @@ async def update_session(
     user_id: uuid.UUID,
     settings: Settings,
     registry: ProviderRegistry,
+    voice: SttRouter,
     session_id: uuid.UUID,
     data: SessionUpdate,
 ) -> SessionDetail:
@@ -378,7 +403,7 @@ async def update_session(
             )
 
     if data.preferences is not None and data.preferences.model_fields_set:
-        await _update_preferences(session, user_id, settings, registry, row, data)
+        await _update_preferences(session, user_id, settings, registry, voice, row, data)
 
     if changed:
         row.updated_at = func.now()  # also bumps on preferences/material-only edits
@@ -393,6 +418,7 @@ async def _update_preferences(
     user_id: uuid.UUID,
     settings: Settings,
     registry: ProviderRegistry,
+    voice: SttRouter,
     row: CallSession,
     data: SessionUpdate,
 ) -> None:
@@ -417,13 +443,28 @@ async def _update_preferences(
             if new is None:
                 raise _invalid(f"{field} cannot be null.")
             values[field] = new.value
+    for field in ("provider", "stt_provider"):
+        if field in patch.model_fields_set and getattr(patch, field) is None:
+            raise _invalid(f"{field} cannot be cleared.")  # mandatory selections (D-57)
     for field in ("extra_instructions", "provider", "model"):
         if field in patch.model_fields_set:
             values[field] = getattr(patch, field)
+    if "provider" in patch.model_fields_set and "model" not in patch.model_fields_set:
+        values["model"] = None  # the old model belongs to the previous provider
 
     compiled = _compile(PreferenceCompiler.from_settings(settings), values)
     if {"provider", "model"} & patch.model_fields_set:
         _check_provider_selection(registry, compiled.answer.provider, compiled.answer.model)
+
+    if {"stt_provider", "stt_model"} & patch.model_fields_set:
+        if "stt_provider" in patch.model_fields_set:
+            new_provider = patch.stt_provider
+            new_model = patch.stt_model if "stt_model" in patch.model_fields_set else None
+        else:
+            new_provider, new_model = current.stt_provider, patch.stt_model
+        current.stt_provider, current.stt_model = _check_voice_selection(
+            voice, new_provider, new_model
+        )
 
     current.language = compiled.answer.language.value
     current.provider = compiled.answer.provider

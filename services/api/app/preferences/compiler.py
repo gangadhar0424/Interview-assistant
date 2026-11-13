@@ -80,6 +80,11 @@ def _parse_optional_id(value: object, field: str) -> str | None:
     return value
 
 
+def parse_identifier(value: object, field: str) -> str | None:
+    """Shape check of an opaque provider/model id (allowlist membership is checked elsewhere)."""
+    return _parse_optional_id(value, field)
+
+
 class PreferenceCompiler:
     def __init__(self, targets: LengthTargets, extra_instructions_max_chars: int = 1000) -> None:
         missing = set(AnswerLength) - set(targets.bands)

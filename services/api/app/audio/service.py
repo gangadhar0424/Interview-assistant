@@ -13,6 +13,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -35,6 +36,24 @@ logger = logging.getLogger("app.audio")
 
 def stt_unavailable() -> AppError:
     return AppError(503, "stt_unavailable", "Audio input is not available on this server.")
+
+
+def stt_provider_required() -> AppError:
+    """Sessions created before D-57 have no voice provider: the user must choose one (D-57)."""
+    return AppError(
+        409,
+        "stt_provider_required",
+        "Choose a voice listening provider for this session before using audio input.",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceSelection:
+    """The session's own, exclusive voice-listening choice and its answer language."""
+
+    provider: str
+    model: str | None
+    language: str
 
 
 def audio_too_large() -> AppError:
@@ -69,7 +88,9 @@ class Transcriber:
     def max_bytes(self) -> int:
         return self._settings.audio_max_bytes
 
-    async def require_ready_session(self, user_id: uuid.UUID, session_id: uuid.UUID) -> None:
+    async def require_ready_session(
+        self, user_id: uuid.UUID, session_id: uuid.UUID
+    ) -> VoiceSelection:
         """A short transaction; no database session is open while the provider is called."""
         async with self._sessionmaker() as db:
             await set_tenant_context(db, user_id)
@@ -81,9 +102,14 @@ class Transcriber:
                 raise AppError(
                     409, "session_not_ready", "Audio can only be used in a ready session."
                 )
+            prefs = await sessions_repository.preferences_for_user(db, user_id, session_id)
+            if prefs is None or prefs.stt_provider is None:
+                _count("stt_provider_required")
+                raise stt_provider_required()
+            return VoiceSelection(prefs.stt_provider, prefs.stt_model, prefs.language)
 
     async def transcribe(
-        self, user_id: uuid.UUID, session_id: uuid.UUID, data: bytes
+        self, user_id: uuid.UUID, session_id: uuid.UUID, data: bytes, voice: VoiceSelection
     ) -> TranscriptionOut:
         started = self._clock()
         if len(data) > self.max_bytes:
@@ -104,7 +130,9 @@ class Transcriber:
             raise AppError(422, "invalid_audio", INVALID_AUDIO_MESSAGE) from None
         audio = AudioInput(wav.data, SAMPLE_RATE, wav.duration_ms)
         try:
-            result = await self._stt.transcribe(audio, "en", user_id=user_id)
+            result = await self._stt.transcribe(
+                audio, voice.language, provider=voice.provider, model=voice.model, user_id=user_id
+            )
         except AppError:
             raise
         except Exception as exc:

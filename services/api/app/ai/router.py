@@ -1,6 +1,10 @@
 """Router: user selection -> fallback chain, with timeouts, circuit breakers and usage metering.
 
-Fallback rules (docs/ARCHITECTURE.md section 6, D-33):
+Selection rules (D-57): an explicit `Selection` is EXCLUSIVE. Only that provider is tried and its
+failure is raised as-is; nothing is silently retried elsewhere. With no selection (sessions that
+predate D-57) the configured fallback chain is used, as before.
+
+Fallback rules for the chain (docs/ARCHITECTURE.md section 6, D-33):
 - Fall back on `Timeout`, `Unavailable`, `RateLimited` and server-side `AuthError`.
 - `ContentFiltered` and invalid selections never fall back.
 - A stream may fall back only BEFORE its first token is emitted; once tokens were sent to the
@@ -82,14 +86,12 @@ class LLMRouter:
     def _plan(
         self, selection: Selection | None, capability: Capability
     ) -> list[tuple[RegisteredProvider, str]]:
-        """Ordered (provider, model) attempts: validated selection first, then the chain."""
+        """Ordered (provider, model) attempts: only the validated selection, else the chain."""
         plan: list[tuple[RegisteredProvider, str]] = []
         if selection is not None:
             entry, model = self._registry.resolve(selection.provider, selection.model, capability)
-            plan.append((entry, model.id))
+            return [(entry, model.id)]  # exclusive: never fall back to another provider
         for pid in self._chain:
-            if any(e.spec.id == pid for e, _ in plan):
-                continue
             entry_ = self._registry.get(pid)
             default = self._registry.default_model(pid, capability)
             if entry_ is not None and default is not None:

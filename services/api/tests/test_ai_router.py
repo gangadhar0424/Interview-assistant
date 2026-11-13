@@ -366,3 +366,51 @@ def test_no_meta_is_emitted_when_every_provider_fails() -> None:
 def test_the_router_exposes_its_registry_read_only() -> None:
     router, _ = build([FakeLLMProvider("a")])
     assert router.registry.ids() == ["a"]
+
+
+# ----------------------------------------------- D-57: an explicit selection is exclusive
+
+
+@pytest.mark.parametrize("error", [Timeout, Unavailable, RateLimited, AuthError])
+def test_a_selected_provider_that_fails_is_never_replaced_by_the_chain(
+    error: type[LLMError],
+) -> None:
+    a, b = FakeLLMProvider("a", failures=[error()]), FakeLLMProvider("b")
+    router, sink = build([a, b])  # b is healthy and in the chain
+    with pytest.raises(error):
+        complete(router, selection=Selection("a", FAKE_MODEL_ID))
+    assert (a.calls, b.calls) == (1, 0)
+    assert [(r.provider, r.ok) for r in sink.records] == [("a", False)]
+
+
+def test_a_selected_stream_that_fails_before_any_token_is_not_replaced() -> None:
+    a, b = FakeLLMProvider("a", failures=[Unavailable()]), FakeLLMProvider("b")
+    router, _ = build([a, b])
+    with pytest.raises(Unavailable):
+        stream(router, selection=Selection("a", FAKE_MODEL_ID))
+    assert b.calls == 0
+
+
+def test_a_selected_provider_with_an_open_breaker_is_refused_not_replaced() -> None:
+    clock = Clock()
+    a = FakeLLMProvider("a", failures=[Unavailable()] * 10)
+    b = FakeLLMProvider("b")
+    router, _ = build(
+        [a, b],
+        config=RouterConfig(breaker_failure_threshold=2, breaker_cooldown_seconds=30),
+        clock=clock,
+    )
+    for _ in range(2):
+        with pytest.raises(Unavailable):
+            complete(router, selection=Selection("a", FAKE_MODEL_ID))
+    assert router.breaker_state("a") == "open"
+    calls = a.calls
+    with pytest.raises(Unavailable):
+        complete(router, selection=Selection("a", FAKE_MODEL_ID))
+    assert a.calls == calls and b.calls == 0
+
+
+def test_without_a_selection_the_chain_still_applies_for_legacy_sessions() -> None:
+    a, b = FakeLLMProvider("a", failures=[Unavailable()]), FakeLLMProvider("b")
+    router, _ = build([a, b])
+    assert complete(router).provider == "b"

@@ -31,7 +31,7 @@ from app.embeddings.fake import FakeEmbeddingProvider
 from app.qa.limits import QuestionLimits
 from app.qa.service import QuestionAnswerer
 from tests.conftest import RunSql
-from tests.helpers import register
+from tests.helpers import as_legacy, register
 from tests.qa_fakes import SlowTokensProvider
 from tests.realtime_fakes import install_fake_tickets
 from tests.test_qa_service import answers, make_router
@@ -173,7 +173,7 @@ def _build(server: Live, client: TestClient, run_sql: RunSql, provider: Any) -> 
         resume = new_file(client, run_sql, headers, "resumes")
         response = create(client, headers, body(resume, []))
         assert response.status_code == 201, response.text
-        return Person(headers, str(response.json()["id"]))
+        return Person(headers, as_legacy(str(response.json()["id"])))
 
     logger = logging.getLogger("app.realtime")
     previous = logger.level

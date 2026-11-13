@@ -23,7 +23,7 @@ from app.qa.events import RetrievalDone
 from app.qa.limits import QuestionLimits
 from app.qa.service import QuestionAnswerer
 from tests.conftest import RunSql
-from tests.helpers import register
+from tests.helpers import as_legacy, register
 from tests.qa_fakes import RecordingProvider, answer_for_question
 from tests.test_qa_service import make_router, quick_session
 from tests.test_sessions import SESSIONS, new_file, safe
@@ -428,11 +428,12 @@ def test_selected_materials_that_are_not_ready_or_deleted_return_409(
             "preferences": {
                 "language": "en", "question_type": "auto", "answer_format": "full_script",
                 "answer_length": "short", "answer_tone": "simple",
+                "provider": "fake", "stt_provider": "fake",
             },
         },
     )  # fmt: skip
     assert created.status_code == 201, created.text
-    sid = created.json()["id"]
+    sid = as_legacy(created.json()["id"])
     provider = RecordingProvider()
     install(client, [provider])
 
@@ -740,8 +741,10 @@ def test_history_shows_failed_answers_and_only_this_sessions_questions(
     other = client.post(SESSIONS, headers=alice, json={
         "company_name": "Other", "job_description": "JD", "resume_id": resume, "document_ids": [],
         "preferences": {"language": "en", "question_type": "auto", "answer_format": "bullets",
-                        "answer_length": "short", "answer_tone": "simple"},
+                        "answer_length": "short", "answer_tone": "simple",
+                        "provider": "fake", "stt_provider": "fake"},
     }).json()["id"]  # fmt: skip
+    as_legacy(other)
     ask(client, alice, other, "other session question")
     items = client.get(f"{SESSIONS}/{sid}/questions", headers=alice).json()["items"]
     assert [q["text"] for q in items] == ["answered one", "failed one"]

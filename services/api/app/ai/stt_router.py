@@ -1,9 +1,9 @@
-"""Speech-to-text routing: allow-listed providers, fallback chain, timeout, breaker, metering.
+"""Voice-listening (speech-to-text) registry and router (D-53, D-57).
 
-The same rules as `LLMRouter`/`VisionRouter` (D-33): fall back on timeout/unavailable/rate-limit,
-never on content filtering, skip a provider whose breaker is open, and treat cancellation as no
-verdict on provider health. Usage records carry identifiers, sizes and latency only: never audio
-or transcript text.
+A separate allow-list from the reasoning providers. The caller names ONE provider (the session's
+selection) and that provider is exclusive: a failure is raised as a clear error and never retried
+on another provider. A provider whose breaker is open is refused, and cancellation is no verdict on
+provider health. Usage records carry identifiers, sizes and latency only: never audio or text.
 """
 
 import asyncio
@@ -13,8 +13,21 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
+from app.ai.adapters.stt import (
+    DEFAULT_GROQ_STT_MODEL,
+    DEFAULT_OPENAI_STT_MODEL,
+    DEFAULT_SARVAM_STT_MODEL,
+    GROQ_STT_BASE_URL,
+    GROQ_STT_PROVIDER_ID,
+    OPENAI_BASE_URL,
+    OPENAI_STT_PROVIDER_ID,
+    SARVAM_STT_PROVIDER_ID,
+    OpenAICompatibleSTT,
+    SarvamSTT,
+    stt_spec,
+)
 from app.ai.breaker import CircuitBreaker
-from app.ai.errors import LLMError, Timeout, Unavailable
+from app.ai.errors import InvalidSelection, LLMError, Timeout, Unavailable
 from app.ai.fake_stt import FakeSTTProvider, fake_stt_spec
 from app.ai.stt import AudioInput, STTProvider, SttSpec
 from app.ai.types import Usage
@@ -23,8 +36,7 @@ from app.core.metrics import llm_request_duration, llm_requests
 
 logger = logging.getLogger("app.ai.stt")
 
-# Only the deterministic fake exists. A real adapter needs a separate approval (D-53, OQ-5).
-KNOWN_STT_PROVIDER_IDS: frozenset[str] = frozenset({"fake"})
+KNOWN_STT_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai", "groq", "sarvam"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,14 +58,12 @@ class Transcription:
     provider: str = ""
     model: str = ""
     usage: Usage | None = None
-    fallback_used: bool = False
 
 
 class SttRouter:
     def __init__(
         self,
         entries: Sequence[RegisteredStt],
-        chain: Sequence[str] | None = None,
         config: SttRouterConfig | None = None,
         usage_sink: UsageSink | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -65,7 +75,6 @@ class SttRouter:
             if e.provider.provider_id != e.spec.provider_id:
                 raise ValueError("stt provider id does not match its spec")
         self._entries = {e.spec.provider_id: e for e in entries}
-        self._chain = [p for p in (chain or ids) if p in self._entries]
         self._cfg = config or SttRouterConfig()
         self._sink: UsageSink = usage_sink or LoggingUsageSink()
         self._clock = clock
@@ -78,10 +87,20 @@ class SttRouter:
 
     @property
     def available(self) -> bool:
-        return bool(self._chain)
+        return bool(self._entries)
 
     def ids(self) -> list[str]:
         return list(self._entries)
+
+    def entries(self) -> list[RegisteredStt]:
+        return list(self._entries.values())
+
+    def resolve(self, provider_id: str, model_id: str | None = None) -> RegisteredStt:
+        """Validate a selection against the allow-list. `model_id` None = the configured model."""
+        entry = self._entries.get(provider_id)
+        if entry is None or (model_id is not None and model_id != entry.spec.model_id):
+            raise InvalidSelection()
+        return entry
 
     def breaker_state(self, provider_id: str) -> str:
         return self._breakers[provider_id].state
@@ -124,50 +143,92 @@ class SttRouter:
         return Unavailable()
 
     async def transcribe(
-        self, audio: AudioInput, language: str | None, *, user_id: uuid.UUID | None = None
+        self,
+        audio: AudioInput,
+        language: str | None,
+        *,
+        provider: str,
+        model: str | None = None,
+        user_id: uuid.UUID | None = None,
     ) -> Transcription:
-        last_error: LLMError | None = None
-        for position, pid in enumerate(self._chain):
-            entry = self._entries[pid]
-            breaker = self._breakers[pid]
-            if not breaker.allow():
-                continue
-            started = self._clock()
-            try:
-                async with asyncio.timeout(self._cfg.request_timeout_seconds):
-                    result = await entry.provider.transcribe(audio, language, entry.spec.model_id)
-            except Exception as exc:
-                error = self._as_llm_error(exc, pid)
-                if error.counts_against_provider:
-                    breaker.record_failure()
-                else:
-                    breaker.release_probe()
-                self._record(entry, started, user_id, None, error)
-                if not error.fallback_eligible:
-                    raise error from None
-                last_error = error
-                continue
-            except BaseException:  # cancellation: no verdict on provider health
+        entry = self.resolve(provider, model)  # raises InvalidSelection (never falls back)
+        breaker = self._breakers[provider]
+        if not breaker.allow():
+            raise Unavailable()
+        started = self._clock()
+        try:
+            async with asyncio.timeout(self._cfg.request_timeout_seconds):
+                result = await entry.provider.transcribe(audio, language, entry.spec.model_id)
+        except Exception as exc:
+            error = self._as_llm_error(exc, provider)
+            if error.counts_against_provider:
+                breaker.record_failure()
+            else:
                 breaker.release_probe()
-                raise
-            breaker.record_success()
-            self._record(entry, started, user_id, result.usage, None)
-            return Transcription(
-                result.text, pid, entry.spec.model_id, result.usage, fallback_used=position > 0
-            )
-        raise last_error or Unavailable()
+            self._record(entry, started, user_id, None, error)
+            raise error from None
+        except BaseException:  # cancellation: no verdict on provider health
+            breaker.release_probe()
+            raise
+        breaker.record_success()
+        self._record(entry, started, user_id, result.usage, None)
+        return Transcription(result.text, provider, entry.spec.model_id, result.usage)
+
+    async def aclose(self) -> None:
+        for entry in self._entries.values():
+            closer = getattr(entry.provider, "aclose", None)
+            if closer is not None:
+                await closer()
 
 
 def build_stt_router(
     enabled: Sequence[str],
-    chain: Sequence[str] | None = None,
     config: SttRouterConfig | None = None,
+    *,
+    openai_api_key: str | None = None,
+    openai_model: str = DEFAULT_OPENAI_STT_MODEL,
+    groq_api_key: str | None = None,
+    groq_model: str = DEFAULT_GROQ_STT_MODEL,
+    sarvam_api_key: str | None = None,
+    sarvam_model: str = DEFAULT_SARVAM_STT_MODEL,
 ) -> SttRouter:
-    """Build the speech-to-text allow-list from configuration (empty = audio input disabled)."""
+    """Build the voice-listening allow-list from configuration (empty = audio input disabled)."""
+    timeout = (config or SttRouterConfig()).request_timeout_seconds
     entries: list[RegisteredStt] = []
     for provider_id in enabled:
         if provider_id == "fake":
             entries.append(RegisteredStt(FakeSTTProvider("fake"), fake_stt_spec("fake")))
+        elif provider_id == OPENAI_STT_PROVIDER_ID:
+            if not openai_api_key:
+                raise ValueError("OPENAI_API_KEY is required when OpenAI voice is enabled")
+            entries.append(
+                RegisteredStt(
+                    OpenAICompatibleSTT(
+                        provider_id, openai_api_key, openai_model, timeout, base_url=OPENAI_BASE_URL
+                    ),
+                    stt_spec(provider_id, openai_model, f"OpenAI transcription ({openai_model})"),
+                )
+            )
+        elif provider_id == GROQ_STT_PROVIDER_ID:
+            if not groq_api_key:
+                raise ValueError("GROQ_API_KEY is required when Groq voice is enabled")
+            entries.append(
+                RegisteredStt(
+                    OpenAICompatibleSTT(
+                        provider_id, groq_api_key, groq_model, timeout, base_url=GROQ_STT_BASE_URL
+                    ),
+                    stt_spec(provider_id, groq_model, f"Groq Whisper ({groq_model})"),
+                )
+            )
+        elif provider_id == SARVAM_STT_PROVIDER_ID:
+            if not sarvam_api_key:
+                raise ValueError("SARVAM_API_KEY is required when Sarvam voice is enabled")
+            entries.append(
+                RegisteredStt(
+                    SarvamSTT(sarvam_api_key, sarvam_model, timeout),
+                    stt_spec(provider_id, sarvam_model, f"Sarvam ({sarvam_model})"),
+                )
+            )
         else:  # config validation already rejects unknown ids; fail closed regardless
             raise ValueError("unknown stt provider id")
-    return SttRouter(entries, chain, config)
+    return SttRouter(entries, config)

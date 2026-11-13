@@ -3,10 +3,11 @@
 POST /sessions/{id}/transcribe   raw `audio/wav` body -> {text, truncated, is_question, ...}
 
 Order of checks: authentication (401) -> speech-to-text enabled (503) -> Content-Type (415) ->
-declared size (413) -> per-user limiter (429) -> session ownership/readiness (404/409) -> body read
-with a hard byte cap (413) -> WAV validation (422) -> provider. Nothing is persisted; the body is
-read from the ASGI stream (no multipart, so nothing is spooled to disk). If the client goes away
-while the provider is working, the call is cancelled and the limiter slot is released.
+declared size (413) -> per-user limiter (429) -> session ownership, readiness and its voice
+provider (404/409) -> body read with a hard byte cap (413) -> WAV validation (422) -> provider.
+Nothing is persisted; the body is read from the ASGI stream (no multipart, so nothing is spooled
+to disk). If the client goes away while the provider is working, the call is cancelled and the
+limiter slot is released.
 """
 
 import asyncio
@@ -90,9 +91,9 @@ async def transcribe_utterance(
     _check_declared_size(request, transcriber.max_bytes)
     slot = limits.admit(current.id)  # 429 before any work; released exactly once below
     try:
-        await transcriber.require_ready_session(current.id, session_id)
+        voice = await transcriber.require_ready_session(current.id, session_id)
         data = await _read_capped(request, transcriber.max_bytes)
-        work = asyncio.create_task(transcriber.transcribe(current.id, session_id, data))
+        work = asyncio.create_task(transcriber.transcribe(current.id, session_id, data, voice))
         try:
             return await _await_or_cancel(request, work)
         finally:

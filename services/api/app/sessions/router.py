@@ -11,7 +11,8 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.registry import ProviderRegistry
-from app.ai.router_api import get_registry
+from app.ai.router_api import get_registry, get_stt_router
+from app.ai.stt_router import SttRouter
 from app.auth.deps import CurrentUser
 from app.core.config import Settings, get_settings
 from app.db.session import get_session
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
+VoiceDep = Annotated[SttRouter, Depends(get_stt_router)]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=SessionDetail)
@@ -32,8 +34,9 @@ async def create_session(
     session: SessionDep,
     settings: SettingsDep,
     registry: RegistryDep,
+    voice: VoiceDep,
 ) -> SessionDetail:
-    return await service.create_session(session, current.id, settings, registry, body)
+    return await service.create_session(session, current.id, settings, registry, voice, body)
 
 
 @router.get("", response_model=SessionList)
@@ -65,8 +68,11 @@ async def update_session(
     session: SessionDep,
     settings: SettingsDep,
     registry: RegistryDep,
+    voice: VoiceDep,
 ) -> SessionDetail:
-    return await service.update_session(session, current.id, settings, registry, session_id, body)
+    return await service.update_session(
+        session, current.id, settings, registry, voice, session_id, body
+    )
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

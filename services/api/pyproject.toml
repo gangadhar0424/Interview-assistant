@@ -21,6 +21,7 @@ dependencies = [
     "python-docx>=1.2.0",
     "openai>=1.68,<3",
     "prometheus-client>=0.21,<1.0",
+    "anthropic>=0.40,<1",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +57,7 @@ select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "TID251"]
 "tests/**" = ["S101", "S105", "S106"]
 "tests/test_qa_service.py" = ["F811"]  # pytest fixtures are re-declared as test parameters
 "tests/test_job_import_ssrf.py" = ["S104"]  # 0.0.0.0 etc. are intentional blocked-address data
+"scripts/verify_openai_model.py" = ["TID251"]  # dev-only probe of the raw SDK; not imported by app
 "app/ai/adapters/**" = ["TID251"]  # the only place provider SDKs may be imported (Phase 6)
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]

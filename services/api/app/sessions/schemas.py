@@ -25,13 +25,20 @@ class PreferencesIn(BaseModel):
     # The real cap is EXTRA_INSTRUCTIONS_MAX_CHARS after cleaning (PreferenceCompiler); this
     # generous bound only keeps absurd payloads from being processed at all.
     extra_instructions: str | None = Field(default=None, max_length=20000)
-    # Optional: omitted = server default chain. Validated against the server allowlist.
-    provider: str | None = Field(default=None, max_length=100)
+    # D-57: both selections are mandatory for every new session and are exclusive (no silent
+    # fallback to another provider). `model` omitted = the provider's configured model.
+    provider: str = Field(min_length=1, max_length=100)
     model: str | None = Field(default=None, max_length=100)
+    stt_provider: str = Field(min_length=1, max_length=100)
+    stt_model: str | None = Field(default=None, max_length=100)
 
 
 class PreferencesPatch(BaseModel):
-    """Partial preferences update. Explicit `null` clears extra_instructions/provider/model."""
+    """Partial preferences update. Explicit `null` clears extra_instructions/model/stt_model.
+
+    `provider` and `stt_provider` are mandatory selections: they can be changed but not cleared.
+    Changing a provider without a model resets the model to that provider's configured one.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -43,6 +50,8 @@ class PreferencesPatch(BaseModel):
     extra_instructions: str | None = Field(default=None, max_length=20000)
     provider: str | None = Field(default=None, max_length=100)
     model: str | None = Field(default=None, max_length=100)
+    stt_provider: str | None = Field(default=None, max_length=100)
+    stt_model: str | None = Field(default=None, max_length=100)
 
 
 class SessionCreate(BaseModel):
@@ -84,8 +93,10 @@ class DocumentRef(BaseModel):
 
 class PreferencesOut(BaseModel):
     language: str
-    provider: str | None
+    provider: str | None  # NULL only for sessions created before D-57 (server default chain)
     model: str | None
+    stt_provider: str | None  # NULL = no voice provider chosen yet: transcription is refused
+    stt_model: str | None
     question_type: str
     answer_format: str
     answer_length: str

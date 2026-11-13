@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from websockets.sync.client import ClientConnection
 
 from tests.conftest import RunSql
-from tests.helpers import register  # noqa: F401
+from tests.helpers import as_legacy, register  # noqa: F401
 from tests.qa_fakes import RecordingProvider, SlowTokensProvider
 from tests.test_qa_service import answers, questions
 from tests.test_realtime_live import live as live  # noqa: F401  (fixture reused)
@@ -155,7 +155,7 @@ def test_load_smoke_concurrent_connections_with_a_reconnect_storm(
         resume = new_file(client, run_sql, rig.alice.headers, "resumes")
         response = create(client, rig.alice.headers, body(resume, []))
         assert response.status_code == 201, response.text
-        people.append(Person(rig.alice.headers, str(response.json()["id"])))
+        people.append(Person(rig.alice.headers, as_legacy(str(response.json()["id"]))))
     uid = rig.user_id(rig.alice)
 
     def one_client(index: int) -> tuple[int, list[dict[str, Any]], float]:
