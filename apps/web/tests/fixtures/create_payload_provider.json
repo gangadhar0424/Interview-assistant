@@ -11,6 +11,6 @@
     "answer_length": "short",
     "answer_tone": "simple",
     "provider": "fake",
-    "model": "fake-echo"
+    "stt_provider": "fake"
   }
 }

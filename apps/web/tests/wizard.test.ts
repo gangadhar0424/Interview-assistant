@@ -30,6 +30,14 @@ const OPTIONS: AiOptions = {
       id: "fake",
       models: [{ id: "fake-echo", label: "Fake echo", capabilities: ["streaming"], languages: ["en"] }],
     },
+    {
+      id: "groq",
+      models: [{ id: "openai/gpt-oss-120b", label: "Groq", capabilities: ["streaming"], languages: ["en"] }],
+    },
+  ],
+  voice_providers: [
+    { id: "fake", models: [{ id: "fake-stt", label: "Fake STT" }] },
+    { id: "sarvam", models: [{ id: "saarika:v2.5", label: "Sarvam" }] },
   ],
   languages: ["en", "hi", "te"],
   question_types: [
@@ -54,6 +62,8 @@ function validForm(overrides: Partial<WizardForm> = {}): WizardForm {
     company: "Acme Corp",
     description: "Build APIs.",
     resumeId: "r1",
+    provider: "fake",
+    sttProvider: "fake",
     ...overrides,
   };
 }
@@ -87,7 +97,14 @@ test("emptyForm uses documented defaults, or the first offered value", () => {
     [form.language, form.questionType, form.format, form.length, form.tone],
     ["en", "auto", "full_script", "balanced", "simple"],
   );
-  assert.deepEqual([form.provider, form.model, form.resumeId, form.documentIds], ["", "", null, []]);
+  // Both provider choices are mandatory: with several offered nothing is preselected (D-57).
+  assert.deepEqual([form.provider, form.sttProvider, form.resumeId, form.documentIds], ["", "", null, []]);
+  const single = emptyForm({
+    ...OPTIONS,
+    providers: OPTIONS.providers.slice(0, 1),
+    voice_providers: OPTIONS.voice_providers.slice(1),
+  });
+  assert.deepEqual([single.provider, single.sttProvider], ["fake", "sarvam"]);
   const narrowed = emptyForm({ ...OPTIONS, languages: ["hi", "te"], tones: ["formal"] });
   assert.equal(narrowed.language, "hi");
   assert.equal(narrowed.tone, "formal");
@@ -161,12 +178,15 @@ test("extra instructions limit is exactly 1000 characters", () => {
   assert.ok(validateStepTwo(validForm({ extra: "a".repeat(1001) }), OPTIONS).extra);
 });
 
-test("provider and model are optional but must be offered, and a model needs its provider", () => {
-  assert.deepEqual(validateStepTwo(validForm({ provider: "fake", model: "fake-echo" }), OPTIONS), {});
-  assert.deepEqual(validateStepTwo(validForm({ provider: "fake" }), OPTIONS), {});
+test("both provider choices are mandatory and must be offered by the matching list (D-57)", () => {
+  assert.deepEqual(validateStepTwo(validForm({ provider: "groq", sttProvider: "sarvam" }), OPTIONS), {});
+  assert.ok(validateStepTwo(validForm({ provider: "" }), OPTIONS).provider);
+  assert.ok(validateStepTwo(validForm({ sttProvider: "" }), OPTIONS).sttProvider);
   assert.ok(validateStepTwo(validForm({ provider: "openai" }), OPTIONS).provider);
-  assert.ok(validateStepTwo(validForm({ provider: "fake", model: "gpt-x" }), OPTIONS).model);
-  assert.ok(validateStepTwo(validForm({ model: "fake-echo" }), OPTIONS).model);
+  // "sarvam" is a voice provider only; "groq" is offered for reasoning only here.
+  assert.ok(validateStepTwo(validForm({ provider: "sarvam" }), OPTIONS).provider);
+  assert.ok(validateStepTwo(validForm({ sttProvider: "groq" }), OPTIONS).sttProvider);
+  assert.ok(validateStepTwo(validForm(), null).provider);
 });
 
 // -------------------------------------------------------------------- payload
@@ -204,20 +224,18 @@ test("the create payload matches the golden files the backend test also posts", 
     questionType: "coding",
     format: "bullets",
     length: "short",
-    provider: "fake",
-    model: "fake-echo",
   });
   assert.deepEqual(toCreatePayload(withProvider), golden("create_payload_provider.json"));
 });
 
 test("the payload is a strict whitelist: nothing about ownership or server state can be sent", () => {
-  const payload = toCreatePayload(validForm({ title: "T", jobUrl: "https://x.com", extra: "e", provider: "fake", model: "fake-echo" }));
+  const payload = toCreatePayload(validForm({ title: "T", jobUrl: "https://x.com", extra: "e" }));
   assert.deepEqual(Object.keys(payload).sort(), [
     "company_name", "document_ids", "job_description", "job_url", "preferences", "resume_id", "title", "type",
   ]); // fmt: skip
   assert.deepEqual(Object.keys(payload.preferences).sort(), [
-    "answer_format", "answer_length", "answer_tone", "extra_instructions", "language", "model",
-    "provider", "question_type",
+    "answer_format", "answer_length", "answer_tone", "extra_instructions", "language", "provider",
+    "question_type", "stt_provider",
   ]); // fmt: skip
   const text = JSON.stringify(payload);
   for (const forbidden of ["user_id", "status", "storage_key", "storage", "owner", "\"id\""]) {
@@ -225,10 +243,12 @@ test("the payload is a strict whitelist: nothing about ownership or server state
   }
 });
 
-test("a model is never sent without a provider, and empty optionals are omitted", () => {
-  const payload = toCreatePayload(validForm({ provider: "", model: "stale-model", title: "  ", extra: "  ", jobUrl: "" }));
+test("both providers are always sent, no model is, and empty optionals are omitted", () => {
+  const payload = toCreatePayload(validForm({ provider: "groq", sttProvider: "sarvam", title: "  ", extra: "  ", jobUrl: "" }));
+  assert.equal(payload.preferences.provider, "groq");
+  assert.equal(payload.preferences.stt_provider, "sarvam");
   assert.equal("model" in payload.preferences, false);
-  assert.equal("provider" in payload.preferences, false);
+  assert.equal("stt_model" in payload.preferences, false);
   assert.equal("title" in payload, false);
   assert.equal("job_url" in payload, false);
   assert.equal("extra_instructions" in payload.preferences, false);

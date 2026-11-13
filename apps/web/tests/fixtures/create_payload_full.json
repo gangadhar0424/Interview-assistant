@@ -12,6 +12,8 @@
     "answer_format": "script_bullets",
     "answer_length": "long",
     "answer_tone": "formal",
-    "extra_instructions": "Mention my open-source work."
+    "extra_instructions": "Mention my open-source work.",
+    "provider": "fake",
+    "stt_provider": "fake"
   }
 }

@@ -33,8 +33,11 @@ export type ModelOption = {
 export type ProviderOption = { id: string; models: ModelOption[] };
 
 // GET /api/v1/ai/options
+export type VoiceProviderOption = { id: string; models: { id: string; label: string }[] };
+
 export type AiOptions = {
-  providers: ProviderOption[];
+  providers: ProviderOption[]; // reasoning (answer) providers
+  voice_providers: VoiceProviderOption[]; // voice-listening providers (D-57)
   languages: string[];
   question_types: string[];
   formats: string[];

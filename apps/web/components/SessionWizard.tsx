@@ -234,7 +234,6 @@ export function SessionWizard() {
   const readyResumes = readySplit(resumes);
   const readyDocuments = readySplit(documents);
   const hiddenCount = readyResumes.notReady.length + readyDocuments.notReady.length;
-  const provider = options.providers.find((p) => p.id === form.provider);
   const atDocumentLimit = form.documentIds.length >= LIMITS.maxDocuments;
 
   return (
@@ -454,57 +453,30 @@ export function SessionWizard() {
             onChange={(v) => update("tone", v)}
           />
 
-          {options.providers.length > 0 ? (
-            <>
-              <div style={ui.field}>
-                <label htmlFor="provider" style={ui.label}>
-                  AI provider (optional)
-                </label>
-                <select
-                  id="provider"
-                  value={form.provider}
-                  onChange={(e) => {
-                    update("provider", e.target.value);
-                    update("model", "");
-                  }}
-                  style={ui.input}
-                >
-                  <option value="">Server default</option>
-                  {options.providers.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.id}
-                    </option>
-                  ))}
-                </select>
-                <FieldError id="provider-error" message={errors.provider} />
-              </div>
-              {provider && (
-                <div style={ui.field}>
-                  <label htmlFor="model" style={ui.label}>
-                    Model (optional)
-                  </label>
-                  <select
-                    id="model"
-                    value={form.model}
-                    onChange={(e) => update("model", e.target.value)}
-                    style={ui.input}
-                  >
-                    <option value="">Provider default</option>
-                    {provider.models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <FieldError id="model-error" message={errors.model} />
-                </div>
-              )}
-            </>
-          ) : (
-            <p style={ui.hint}>
-              AI provider and model: the server default is used (no provider choices are enabled).
-            </p>
-          )}
+          <ProviderSelect
+            id="provider"
+            label="Reasoning model"
+            hint="Writes your answers. Only this provider is used: if it fails you get an error, not a different provider."
+            value={form.provider}
+            choices={options.providers.map((p) => ({
+              id: p.id,
+              label: p.models[0]?.label ?? p.id,
+            }))}
+            error={errors.provider}
+            onChange={(v) => update("provider", v)}
+          />
+          <ProviderSelect
+            id="stt-provider"
+            label="Voice listening model"
+            hint="Turns the interviewer's speech into text. Only this provider is used."
+            value={form.sttProvider}
+            choices={options.voice_providers.map((p) => ({
+              id: p.id,
+              label: p.models[0]?.label ?? p.id,
+            }))}
+            error={errors.sttProvider}
+            onChange={(v) => update("sttProvider", v)}
+          />
 
           <div style={ui.field}>
             <label htmlFor="extra" style={ui.label}>
@@ -567,6 +539,48 @@ function Select(props: {
           </option>
         ))}
       </select>
+      <FieldError id={`${props.id}-error`} message={props.error} />
+    </div>
+  );
+}
+
+// A mandatory provider choice (D-57): nothing is preselected unless the server offers just one.
+function ProviderSelect(props: {
+  id: string;
+  label: string;
+  hint: string;
+  value: string;
+  choices: { id: string; label: string }[];
+  error?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div style={ui.field}>
+      <label htmlFor={props.id} style={ui.label}>
+        {props.label}
+      </label>
+      <select
+        id={props.id}
+        value={props.value}
+        required
+        disabled={props.choices.length === 0}
+        onChange={(e) => props.onChange(e.target.value)}
+        aria-invalid={props.error ? true : undefined}
+        aria-describedby={`${props.id}-hint ${props.id}-error`}
+        style={ui.input}
+      >
+        <option value="">
+          {props.choices.length === 0 ? "None available on this server" : "Choose one…"}
+        </option>
+        {props.choices.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+      <p id={`${props.id}-hint`} style={ui.hint}>
+        {props.hint}
+      </p>
       <FieldError id={`${props.id}-error`} message={props.error} />
     </div>
   );

@@ -9,6 +9,8 @@
     "question_type": "auto",
     "answer_format": "full_script",
     "answer_length": "balanced",
-    "answer_tone": "simple"
+    "answer_tone": "simple",
+    "provider": "fake",
+    "stt_provider": "fake"
   }
 }

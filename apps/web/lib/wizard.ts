@@ -28,8 +28,8 @@ export type WizardForm = {
   format: string;
   length: string;
   tone: string;
-  provider: string; // "" = server default chain
-  model: string; // "" = provider default (only meaningful with a provider)
+  provider: string; // reasoning provider; "" = not chosen yet (mandatory, D-57)
+  sttProvider: string; // voice-listening provider; "" = not chosen yet (mandatory, D-57)
   extra: string;
 };
 
@@ -54,6 +54,12 @@ function pick(values: string[] | undefined, preferred: string): string {
   return values.includes(preferred) ? preferred : (values[0] ?? preferred);
 }
 
+// A selection is preselected only when the server offers exactly one choice; otherwise the user
+// must pick explicitly (nothing is chosen on their behalf).
+function onlyChoice(ids: string[] | undefined): string {
+  return ids !== undefined && ids.length === 1 ? (ids[0] ?? "") : "";
+}
+
 export function emptyForm(options: AiOptions | null): WizardForm {
   return {
     jobUrl: "",
@@ -67,8 +73,8 @@ export function emptyForm(options: AiOptions | null): WizardForm {
     format: pick(options?.formats, "full_script"),
     length: pick(options?.lengths, "balanced"),
     tone: pick(options?.tones, "simple"),
-    provider: "",
-    model: "",
+    provider: onlyChoice(options?.providers.map((p) => p.id)),
+    sttProvider: onlyChoice(options?.voice_providers.map((p) => p.id)),
     extra: "",
   };
 }
@@ -118,14 +124,11 @@ export function validateStepTwo(form: WizardForm, options: AiOptions | null): Fo
   if (!mustBeOffered(form.tone, options?.tones)) errors.tone = "Choose a tone.";
   if (charCount(form.extra.trim()) > LIMITS.extraInstructions)
     errors.extra = `Extra instructions must be at most ${LIMITS.extraInstructions} characters.`;
-  if (form.provider !== "") {
-    const provider = options?.providers.find((p) => p.id === form.provider);
-    if (!provider) errors.provider = "Choose an available provider or the server default.";
-    else if (form.model !== "" && !provider.models.some((m) => m.id === form.model))
-      errors.model = "Choose a model offered by that provider.";
-  } else if (form.model !== "") {
-    errors.model = "Choose a provider first, or clear the model.";
-  }
+  // D-57: both selections are mandatory and must be offered by the server.
+  if (!mustBeOffered(form.provider, options?.providers.map((p) => p.id)))
+    errors.provider = "Choose a reasoning model.";
+  if (!mustBeOffered(form.sttProvider, options?.voice_providers.map((p) => p.id)))
+    errors.sttProvider = "Choose a voice listening model.";
   return errors;
 }
 
@@ -144,14 +147,14 @@ export type CreatePayload = {
     answer_length: string;
     answer_tone: string;
     extra_instructions?: string;
-    provider?: string;
-    model?: string;
+    provider: string;
+    stt_provider: string;
   };
 };
 
 // The request body of POST /api/v1/sessions. Built from an explicit whitelist: nothing about
 // ownership (user id), status, storage or any other server-controlled field can be sent, and
-// optional values that were left empty are omitted (provider/model empty = server default).
+// optional values that were left empty are omitted; the two provider choices are mandatory.
 export function toCreatePayload(form: WizardForm): CreatePayload {
   if (form.resumeId === null || form.resumeId === "") throw new Error("A resume is required.");
   const payload: CreatePayload = {
@@ -166,15 +169,15 @@ export function toCreatePayload(form: WizardForm): CreatePayload {
       answer_format: form.format,
       answer_length: form.length,
       answer_tone: form.tone,
+      // Mandatory and exclusive (D-57). No model is sent: the server uses each provider's
+      // configured model, so changing a model never needs a client or database change.
+      provider: form.provider,
+      stt_provider: form.sttProvider,
     },
   };
   if (form.title.trim() !== "") payload.title = form.title.trim();
   if (form.jobUrl.trim() !== "") payload.job_url = form.jobUrl.trim();
   if (form.extra.trim() !== "") payload.preferences.extra_instructions = form.extra.trim();
-  if (form.provider !== "") {
-    payload.preferences.provider = form.provider;
-    if (form.model !== "") payload.preferences.model = form.model;
-  }
   return payload;
 }
 
@@ -256,7 +259,7 @@ export function describeCreateError(err: ErrorInfo): { message: string; step: 1 
     case "invalid_provider_selection":
       return {
         message:
-          "That provider or model is not available. Choose the server default or another option.",
+          "That reasoning or voice provider is not available. Choose another option.",
         step: 2,
       };
     case "validation_error": {
