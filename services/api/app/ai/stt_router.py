@@ -14,14 +14,17 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from app.ai.adapters.stt import (
+    DEFAULT_GEMINI_STT_MODEL,
     DEFAULT_GROQ_STT_MODEL,
     DEFAULT_OPENAI_STT_MODEL,
     DEFAULT_SARVAM_STT_MODEL,
+    GEMINI_STT_PROVIDER_ID,
     GROQ_STT_BASE_URL,
     GROQ_STT_PROVIDER_ID,
     OPENAI_BASE_URL,
     OPENAI_STT_PROVIDER_ID,
     SARVAM_STT_PROVIDER_ID,
+    GeminiSTT,
     OpenAICompatibleSTT,
     SarvamSTT,
     stt_spec,
@@ -36,7 +39,7 @@ from app.core.metrics import llm_request_duration, llm_requests
 
 logger = logging.getLogger("app.ai.stt")
 
-KNOWN_STT_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai", "groq", "sarvam"})
+KNOWN_STT_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai", "groq", "sarvam", "gemini"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +194,8 @@ def build_stt_router(
     groq_model: str = DEFAULT_GROQ_STT_MODEL,
     sarvam_api_key: str | None = None,
     sarvam_model: str = DEFAULT_SARVAM_STT_MODEL,
+    gemini_api_key: str | None = None,
+    gemini_model: str = DEFAULT_GEMINI_STT_MODEL,
 ) -> SttRouter:
     """Build the voice-listening allow-list from configuration (empty = audio input disabled)."""
     timeout = (config or SttRouterConfig()).request_timeout_seconds
@@ -218,6 +223,15 @@ def build_stt_router(
                         provider_id, groq_api_key, groq_model, timeout, base_url=GROQ_STT_BASE_URL
                     ),
                     stt_spec(provider_id, groq_model, f"Groq Whisper ({groq_model})"),
+                )
+            )
+        elif provider_id == GEMINI_STT_PROVIDER_ID:
+            if not gemini_api_key:
+                raise ValueError("GEMINI_API_KEY is required when Gemini voice is enabled")
+            entries.append(
+                RegisteredStt(
+                    GeminiSTT(provider_id, gemini_api_key, gemini_model, timeout),
+                    stt_spec(provider_id, gemini_model, f"Gemini ({gemini_model})"),
                 )
             )
         elif provider_id == SARVAM_STT_PROVIDER_ID:

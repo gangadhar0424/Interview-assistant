@@ -73,6 +73,8 @@ def create_app() -> FastAPI:
             groq_model=settings.groq_model,
             anthropic_api_key=_secret(settings.anthropic_api_key),
             anthropic_model=settings.anthropic_model,
+            gemini_api_key=_secret(settings.gemini_api_key),
+            gemini_model=settings.gemini_model,
         )
         app.state.llm_registry = registry
         app.state.llm_router = LLMRouter(
@@ -143,6 +145,8 @@ def create_app() -> FastAPI:
             groq_model=settings.groq_stt_model,
             sarvam_api_key=_secret(settings.sarvam_api_key),
             sarvam_model=settings.sarvam_stt_model,
+            gemini_api_key=_secret(settings.gemini_api_key),
+            gemini_model=settings.gemini_stt_model,
         )
         app.state.stt_router = stt_router
         app.state.transcriber = Transcriber(app.state.sessionmaker, settings, stt_router)

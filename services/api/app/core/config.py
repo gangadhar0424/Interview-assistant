@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
     sarvam_api_key: SecretStr | None = None
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = Field(default="gemini-3.1-flash-lite", min_length=1, max_length=100)
     groq_model: str = Field(default="openai/gpt-oss-120b", min_length=1, max_length=100)
     anthropic_model: str = Field(default="claude-sonnet-5-5", min_length=1, max_length=100)
     openai_base_url: AnyHttpUrl = AnyHttpUrl("https://api.openai.com/v1")
@@ -124,6 +126,7 @@ class Settings(BaseSettings):
     openai_stt_model: str = Field(default="gpt-4o-mini-transcribe", min_length=1, max_length=100)
     groq_stt_model: str = Field(default="whisper-large-v3-turbo", min_length=1, max_length=100)
     sarvam_stt_model: str = Field(default="saarika:v2.5", min_length=1, max_length=100)
+    gemini_stt_model: str = Field(default="gemini-3.1-flash-lite", min_length=1, max_length=100)
     stt_request_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     audio_max_bytes: int = Field(default=1_500_000, ge=10_000, le=5_000_000)
     audio_max_seconds: int = Field(default=30, ge=1, le=120)
@@ -388,6 +391,7 @@ class Settings(BaseSettings):
         for provider_id, key, key_name in (
             ("groq", self.groq_api_key, "GROQ_API_KEY"),
             ("anthropic", self.anthropic_api_key, "ANTHROPIC_API_KEY"),
+            ("gemini", self.gemini_api_key, "GEMINI_API_KEY"),
         ):
             if provider_id in enabled and not _has_secret(key):
                 raise ValueError(f"{key_name} is required when the {provider_id} provider is on")
@@ -429,6 +433,7 @@ class Settings(BaseSettings):
             ("openai", self.openai_api_key, "OPENAI_API_KEY"),
             ("groq", self.groq_api_key, "GROQ_API_KEY"),
             ("sarvam", self.sarvam_api_key, "SARVAM_API_KEY"),
+            ("gemini", self.gemini_api_key, "GEMINI_API_KEY"),
         ):
             if provider_id in enabled and not _has_secret(key):
                 raise ValueError(f"{key_name} is required when {provider_id} voice is enabled")
@@ -438,9 +443,11 @@ class Settings(BaseSettings):
         "openai_model",
         "groq_model",
         "anthropic_model",
+        "gemini_model",
         "openai_stt_model",
         "groq_stt_model",
         "sarvam_stt_model",
+        "gemini_stt_model",
     )
     @classmethod
     def _model_not_blank(cls, value: str) -> str:

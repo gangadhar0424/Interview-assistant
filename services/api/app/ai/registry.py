@@ -4,7 +4,11 @@ from dataclasses import dataclass
 
 from app.ai.adapters.anthropic import AnthropicProvider, anthropic_spec
 from app.ai.adapters.openai import (
+    DEFAULT_GEMINI_MODEL,
     DEFAULT_GROQ_MODEL,
+    GEMINI_BASE_URL,
+    GEMINI_PROVIDER_ID,
+    GEMINI_REQUEST_FIELDS,
     GROQ_BASE_URL,
     GROQ_PROVIDER_ID,
     GROQ_REQUEST_FIELDS,
@@ -16,7 +20,7 @@ from app.ai.errors import InvalidSelection
 from app.ai.fake import FakeLLMProvider, fake_spec
 from app.ai.types import Capability, ModelSpec, ProviderSpec
 
-KNOWN_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai", "groq", "anthropic"})
+KNOWN_PROVIDER_IDS: frozenset[str] = frozenset({"fake", "openai", "groq", "anthropic", "gemini"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +92,8 @@ def build_registry(
     groq_model: str = DEFAULT_GROQ_MODEL,
     anthropic_api_key: str | None = None,
     anthropic_model: str = "claude-sonnet-5-5",
+    gemini_api_key: str | None = None,
+    gemini_model: str = DEFAULT_GEMINI_MODEL,
 ) -> ProviderRegistry:
     """Build the reasoning-provider allowlist; credentials remain server-side (D-57)."""
     entries: list[RegisteredProvider] = []
@@ -118,6 +124,22 @@ def build_registry(
                         extra_body=dict(GROQ_REQUEST_FIELDS),
                     ),
                     openai_spec(groq_model, GROQ_PROVIDER_ID, f"Groq ({groq_model})"),
+                )
+            )
+        elif provider_id == GEMINI_PROVIDER_ID:
+            if not gemini_api_key:
+                raise ValueError("GEMINI_API_KEY is required when the Gemini provider is enabled")
+            entries.append(
+                RegisteredProvider(
+                    OpenAIProvider(
+                        api_key=gemini_api_key,
+                        model=gemini_model,
+                        timeout=openai_timeout,
+                        base_url=GEMINI_BASE_URL,
+                        provider_id=GEMINI_PROVIDER_ID,
+                        extra_body=dict(GEMINI_REQUEST_FIELDS),
+                    ),
+                    openai_spec(gemini_model, GEMINI_PROVIDER_ID, f"Gemini ({gemini_model})"),
                 )
             )
         elif provider_id == "anthropic":

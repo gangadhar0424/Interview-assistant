@@ -13,8 +13,14 @@ import httpx
 import pytest
 
 from app.ai.adapters.anthropic import AnthropicProvider, anthropic_spec
-from app.ai.adapters.openai import GROQ_BASE_URL, OpenAIProvider, openai_spec
-from app.ai.adapters.stt import OpenAICompatibleSTT, SarvamSTT
+from app.ai.adapters.openai import (
+    GEMINI_BASE_URL,
+    GEMINI_REQUEST_FIELDS,
+    GROQ_BASE_URL,
+    OpenAIProvider,
+    openai_spec,
+)
+from app.ai.adapters.stt import GeminiSTT, OpenAICompatibleSTT, SarvamSTT
 from app.ai.errors import (
     AuthError,
     ContentFiltered,
@@ -98,6 +104,45 @@ def test_groq_uses_its_endpoint_model_and_low_reasoning_effort() -> None:
     assert seen["body"]["max_completion_tokens"] == 64
     with pytest.raises(InvalidSelection):
         run(provider.complete(MESSAGES, "another-model", CONFIG))
+
+
+def test_gemini_uses_its_openai_compatible_endpoint_and_model() -> None:
+    seen: dict[str, Any] = {}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers["authorization"]
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=chat_ok())
+
+    model = "gemini-3.1-flash-lite"
+    provider = OpenAIProvider(
+        KEY,
+        model,
+        5,
+        base_url=GEMINI_BASE_URL,
+        http_client=client(handle),
+        provider_id="gemini",
+        extra_body=dict(GEMINI_REQUEST_FIELDS),
+    )
+    result = run(provider.complete(MESSAGES, model, CONFIG))
+    assert result.provider == "gemini" and result.text == "Hello"
+    assert seen["url"] == (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
+    assert seen["auth"] == f"Bearer {KEY}"
+    assert seen["body"]["model"] == model and seen["body"]["reasoning_effort"] == "low"
+    with pytest.raises(InvalidSelection):
+        run(provider.complete(MESSAGES, "another-model", CONFIG))
+
+
+def test_build_registry_creates_gemini_only_with_its_key() -> None:
+    with pytest.raises(ValueError):
+        build_registry(["gemini"])
+    registry = build_registry(["gemini"], gemini_api_key="g")
+    assert registry.ids() == ["gemini"]
+    assert registry.get("gemini").spec.models[0].id == "gemini-3.1-flash-lite"  # type: ignore[union-attr]
+    run(registry.aclose())
 
 
 def test_openai_adapter_sends_no_extra_fields_by_default() -> None:
@@ -352,6 +397,41 @@ def test_openai_and_groq_transcription_requests_and_language() -> None:
     assert all(s["auth"] == f"Bearer {KEY}" for s in seen)
     assert b'name="language"' in seen[0]["body"] and b"te" in seen[0]["body"]
     assert b"whisper-large-v3-turbo" in seen[1]["body"] and b"RIFF" in seen[1]["body"]
+
+
+def test_gemini_transcription_sends_audio_as_a_chat_part_and_returns_the_reply() -> None:
+    seen: dict[str, Any] = {}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers["authorization"]
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=chat_ok("  tell me about yourself  "))
+
+    model = "gemini-3.1-flash-lite"
+    stt = GeminiSTT("gemini", KEY, model, 5, http_client=client(handle))
+    result = run(stt.transcribe(audio(), "hi", model))
+    assert result.text == "tell me about yourself"
+    assert seen["url"].endswith("/v1beta/openai/chat/completions")
+    assert seen["auth"] == f"Bearer {KEY}"
+    parts = seen["body"]["messages"][0]["content"]
+    assert parts[0]["type"] == "text" and "Hindi" in parts[0]["text"]
+    assert parts[1]["type"] == "input_audio" and parts[1]["input_audio"]["format"] == "wav"
+    assert seen["body"]["temperature"] == 0
+    with pytest.raises(InvalidSelection):
+        run(stt.transcribe(audio(), "hi", "other-model"))
+
+
+def test_gemini_transcription_errors_are_safe_and_mapped() -> None:
+    for status, error in [(401, AuthError), (429, RateLimited), (503, Unavailable)]:
+
+        def handle(_request: httpx.Request, code: int = status) -> httpx.Response:
+            return httpx.Response(code, json={"error": TEXT})
+
+        stt = GeminiSTT("gemini", KEY, "m", 5, http_client=client(handle))
+        with pytest.raises(error) as info:
+            run(stt.transcribe(audio(), "en", "m"))
+        assert KEY not in str(info.value) and TEXT not in str(info.value)
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,7 @@
 """OpenAI-compatible Chat Completions adapter for the provider-neutral LLM port.
 
-One class serves every OpenAI-compatible reasoning endpoint (OpenAI, Ollama Cloud, Groq): the
-provider id, base URL, model and optional fixed request fields come from configuration (D-57).
+One class serves every OpenAI-compatible reasoning endpoint (OpenAI, Ollama Cloud, Groq, Gemini):
+the provider id, base URL, model and optional fixed request fields come from configuration (D-57).
 """
 
 from collections.abc import AsyncGenerator, Sequence
@@ -49,6 +49,14 @@ DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 # gpt-oss models spend output tokens on hidden reasoning; "low" keeps first-token latency down and
 # leaves the answer's token budget intact (D-57). Fixed, not configurable: one model per provider.
 GROQ_REQUEST_FIELDS: dict[str, object] = {"reasoning_effort": "low"}
+
+# Google Gemini through its OpenAI-compatible Chat Completions endpoint (D-58): no new SDK or
+# adapter, the same class as Groq. Thinking tokens count against the output budget on 2.5 models,
+# so effort is fixed low to keep first-token latency down.
+GEMINI_PROVIDER_ID = "gemini"
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
+GEMINI_REQUEST_FIELDS: dict[str, object] = {"reasoning_effort": "low"}
 
 
 def openai_spec(
