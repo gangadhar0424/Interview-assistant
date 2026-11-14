@@ -3,3 +3,8 @@
 0af04a8a5f86a38048507819de0129fa320e2ab4:services/api/tests/test_auth_limits.py:generic-api-key:256
 66b7248b29085b26adf63727941b216743afac85:services/api/tests/test_config.py:generic-api-key:91
 66b7248b29085b26adf63727941b216743afac85:services/api/tests/test_config.py:generic-api-key:107
+# D-57 placeholders, verified non-secret: the fake sentinel key used to prove keys never leak into
+# errors (test_provider_adapters.py), and the .env.example comment/empty-key block whose "value"
+# was the model name on the next line.
+06a3add29d00aeed2d370d8ac282fbb2c32902bd:services/api/tests/test_provider_adapters.py:generic-api-key:33
+dcc4bc60ee4f99afdcb613ef669373b1074c4417:.env.example:generic-api-key:42
