@@ -36,7 +36,10 @@ def prefs_without(*names: str) -> dict[str, Any]:
 
 
 def patch(client: TestClient, headers: dict[str, str], sid: str, **prefs: Any) -> Response:
-    return client.patch(f"{SESSIONS}/{sid}", headers=headers, json={"preferences": prefs})
+    response: Response = client.patch(
+        f"{SESSIONS}/{sid}", headers=headers, json={"preferences": prefs}
+    )
+    return response
 
 
 def make(client: TestClient, run_sql: RunSql, headers: dict[str, str], **prefs: Any) -> str:

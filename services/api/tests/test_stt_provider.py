@@ -6,7 +6,14 @@ import uuid
 
 import pytest
 
-from app.ai.errors import ContentFiltered, InvalidSelection, RateLimited, Timeout, Unavailable
+from app.ai.errors import (
+    ContentFiltered,
+    InvalidSelection,
+    LLMError,
+    RateLimited,
+    Timeout,
+    Unavailable,
+)
 from app.ai.fake_stt import FakeSTTProvider, fake_stt_spec
 from app.ai.stt import AudioInput
 from app.ai.stt_router import (
@@ -101,8 +108,8 @@ def test_the_selected_provider_is_exclusive_and_never_falls_back() -> None:
 
 
 @pytest.mark.parametrize("error", [ContentFiltered, RateLimited, Timeout])
-def test_every_failure_is_raised_as_its_own_safe_error(error: type[Exception]) -> None:
-    a = FakeSTTProvider("a", failures=[error()])  # type: ignore[call-arg]
+def test_every_failure_is_raised_as_its_own_safe_error(error: type[LLMError]) -> None:
+    a = FakeSTTProvider("a", failures=[error()])
     stt, _ = router([a, FakeSTTProvider("b")])
     with pytest.raises(error):
         transcribe(stt, "a")
