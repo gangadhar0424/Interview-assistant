@@ -273,7 +273,7 @@ def test_answer_done_exposes_the_metrics_and_matches_what_is_stored(
     done = parsed[-1][1]
     assert set(done) == {
         "answer_id", "question_id", "provider", "model", "metrics", "fallback_used",
-        "input_tokens", "output_tokens",
+        "input_tokens", "output_tokens", "source",
     }  # fmt: skip
     assert set(done["metrics"]) == {"retrieval_ms", "first_token_ms", "total_ms"}
     m = done["metrics"]
@@ -545,9 +545,10 @@ def test_an_unexpected_failure_inside_the_stream_becomes_a_generic_answer_error(
             text: str,
             question_type_override: str | None = None,
             input_source: str = "typed",
+            detail: str | None = None,
         ) -> Any:
             async for event in super().ask(
-                user_id, session_id, text, question_type_override, input_source
+                user_id, session_id, text, question_type_override, input_source, detail
             ):
                 yield event
                 if isinstance(event, RetrievalDone):
@@ -703,7 +704,7 @@ def test_history_lists_questions_oldest_first_with_their_answers(
     assert set(answer) == {
         "id", "question_id", "status", "text", "provider", "model", "retrieval_ms",
         "first_token_ms", "total_ms", "fallback_used", "error_code", "input_tokens",
-        "output_tokens", "created_at",
+        "output_tokens", "created_at", "source",
     }  # fmt: skip
 
 

@@ -6,7 +6,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.ai.errors import AuthError, ContentFiltered, LLMError, RateLimited, Timeout, Unavailable
+from app.ai.errors import (
+    AuthError,
+    ContentFiltered,
+    LLMError,
+    QuotaExhausted,
+    RateLimited,
+    Timeout,
+    Unavailable,
+)
 from app.core.config import ConfigurationError, Settings, load_settings
 from app.preferences.enums import AnswerFormat, AnswerLength, AnswerTone, Language, QuestionType
 from tests.helpers import register
@@ -68,6 +76,7 @@ def test_options_serve_the_preference_enums_as_the_single_source_of_truth(
     ("error", "status", "code"),
     [
         (RateLimited, 429, "llm_rate_limited"),
+        (QuotaExhausted, 503, "llm_quota_exhausted"),
         (Timeout, 504, "llm_timeout"),
         (Unavailable, 503, "llm_unavailable"),
         (AuthError, 503, "llm_unavailable"),

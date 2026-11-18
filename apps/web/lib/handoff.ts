@@ -19,7 +19,6 @@ export const PROTOCOL_SCHEME = "interviewassistant";
 export const CODE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 /** How long to wait for the page to lose focus before assuming the desktop app did not open. */
 export const LAUNCH_WAIT_MS = 2500;
-
 export type HandoffIssue = { code: string; expires_in: number };
 
 /** Builds the launch link, or null when the value is not a well-formed handoff code. */
@@ -49,6 +48,8 @@ export type LaunchOutcome =
   | { kind: "opened" }
   /** The page stayed in front: the app is probably not installed, or the browser blocked it. */
   | { kind: "not-opened" }
+  /** The presence check found no running desktop app; nothing was requested or launched. */
+  | { kind: "not-detected" }
   /** The API refused or failed; `message` is fixed text chosen here, never server text. */
   | { kind: "error"; message: string };
 
@@ -77,10 +78,16 @@ export type LaunchDeps = {
    */
   watchForLeave: (timeoutMs: number) => Promise<boolean>;
   waitMs?: number;
+  /**
+   * Optional presence check, run BEFORE a code is requested. false -> "not-detected" (no code is
+   * issued, no link is opened, so Windows never shows its "Get an app" dialog). Omitted -> skipped.
+   */
+  detect?: () => Promise<boolean>;
 };
 
 /** One "Start Interview" attempt: new code -> launch link -> did the page lose focus? */
 export async function launchDesktop(deps: LaunchDeps): Promise<LaunchOutcome> {
+  if (deps.detect && !(await deps.detect())) return { kind: "not-detected" };
   let issued: HandoffIssue;
   try {
     issued = await deps.requestCode();

@@ -32,23 +32,27 @@ const bridge: DesktopBridge = {
   },
   auth: {
     getState: () => ipcRenderer.invoke("auth:get-state"),
-    login: (email, password) => ipcRenderer.invoke("auth:login", email, password),
-    signup: (email, password) => ipcRenderer.invoke("auth:signup", email, password),
     logout: () => ipcRenderer.invoke("auth:logout"),
   },
   sessions: {
     list: () => ipcRenderer.invoke("sessions:list"),
     questions: (sessionId) => ipcRenderer.invoke("sessions:questions", sessionId),
-    startQuestion: (requestId, sessionId, text, extractionId) =>
-      extractionId === undefined
-        ? ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text)
-        : ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text, extractionId),
+    startQuestion: (requestId, sessionId, text, extractionId, detail) =>
+      detail !== undefined
+        ? ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text, extractionId, detail)
+        : extractionId === undefined
+          ? ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text)
+          : ipcRenderer.invoke("sessions:stream-start", requestId, sessionId, text, extractionId),
     cancelQuestion: (requestId) =>
       ipcRenderer.invoke("sessions:stream-cancel", requestId),
     createOptions: () =>
       ipcRenderer.invoke("sessions:create-options") as Promise<DesktopResult<CreateSessionOptions>>,
     create: (draft) =>
       ipcRenderer.invoke("sessions:create", draft) as Promise<DesktopResult<SessionSummary>>,
+    setVoice: (sessionId, provider) =>
+      ipcRenderer.invoke("sessions:set-voice", sessionId, provider) as Promise<DesktopResult<void>>,
+    setReasoning: (sessionId, provider) =>
+      ipcRenderer.invoke("sessions:set-reasoning", sessionId, provider) as Promise<DesktopResult<void>>,
   },
   handoff: {
     getState: () => ipcRenderer.invoke("handoff:get-state") as Promise<DesktopResult<HandoffState>>,

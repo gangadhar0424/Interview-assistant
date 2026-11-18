@@ -1,6 +1,7 @@
 """Queue re-embedding after the embedding model changed, then exit:
 
-    uv run python -m app.workers.reindex
+    uv run python -m app.workers.reindex            # after the embedding model changed
+    uv run python -m app.workers.reindex --rechunk  # after a chunking change (D-66)
 
 Finds every extracted text that has no vectors for the CURRENT `EMBEDDING_MODEL`, creates/resets
 its `embed` job and dispatches it. Re-indexing replaces a file's chunks and vectors atomically (old
@@ -22,14 +23,14 @@ from app.ingestion.dispatch import DramatiqDispatcher
 from app.ingestion.service import dispatch_best_effort, enqueue_missing_embeddings
 
 
-async def main() -> int:
+async def main(rechunk: bool = False) -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
     model_id = build_embedding_provider(settings).model_id  # does not load the model
     engine = create_engine(settings.maintenance_database_url or settings.database_url)
     try:
         async with create_maintenance_sessionmaker(engine)() as session:
-            job_ids = await enqueue_missing_embeddings(session, model_id)
+            job_ids = await enqueue_missing_embeddings(session, model_id, rechunk=rechunk)
             job_users = (
                 await session.execute(
                     select(IngestionJob.id, IngestionJob.user_id).where(
@@ -54,4 +55,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(main(rechunk="--rechunk" in sys.argv[1:])))

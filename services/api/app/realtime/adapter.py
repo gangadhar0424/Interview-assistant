@@ -73,6 +73,11 @@ def to_message(event: QaEvent, seq: int) -> BaseModel:
                     fallback_used=event.fallback_used,
                     input_tokens=event.input_tokens,
                     output_tokens=event.output_tokens,
+                    source=(
+                        proto.AnswerSource.model_validate(event.source)
+                        if event.source is not None
+                        else None
+                    ),
                 ),
             )
         case AnswerFailed():

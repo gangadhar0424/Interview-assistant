@@ -12,7 +12,9 @@ import {
   questionError,
   reduceLive,
   runAsk,
+  sourceLabel,
   toQuestionBody,
+  type AnswerDetail,
   type AnswerItem,
   type LiveAnswer,
   type QuestionItem,
@@ -55,7 +57,11 @@ const PHASE_TEXT: Record<string, string> = {
 
 function AnswerMeta({ answer }: { answer: AnswerItem }) {
   const bits: string[] = [];
-  if (answer.provider && answer.model) bits.push(`${answer.provider} / ${answer.model}`);
+  const label = sourceLabel(answer.source);
+  if (label) bits.push(label);
+  if (answer.provider && answer.model && answer.provider !== "extractive") {
+    bits.push(`${answer.provider} / ${answer.model}`);
+  }
   if (answer.fallback_used) bits.push("fallback provider used");
   if (answer.first_token_ms !== null) bits.push(`first token ${formatMs(answer.first_token_ms)}`);
   if (answer.total_ms !== null) bits.push(`total ${formatMs(answer.total_ms)}`);
@@ -90,6 +96,7 @@ export function SessionChat({ sessionId }: { sessionId: string }) {
 
   const [text, setText] = useState("");
   const [override, setOverride] = useState("");
+  const [detail, setDetail] = useState<AnswerDetail>("full");
   const [formError, setFormError] = useState<string | null>(null);
   const [live, dispatch] = useReducer(reduceLive, IDLE);
 
@@ -172,6 +179,25 @@ export function SessionChat({ sessionId }: { sessionId: string }) {
   const busy = isActive(live.phase);
   const ready = header?.status === "ready";
 
+  // Answers asked from another client (the desktop app) are stored on the server but this page
+  // only fetched history on mount. Re-fetch when the tab becomes visible/focused and on a slow
+  // poll while it is visible. Skipped while this page is itself streaming a turn (that turn
+  // refreshes the list when it ends).
+  useEffect(() => {
+    if (busy) return undefined;
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void refreshHistory();
+    };
+    const timer = window.setInterval(refreshIfVisible, 8000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
+  }, [busy, refreshHistory]);
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (busy || !ready) return;
@@ -183,7 +209,7 @@ export function SessionChat({ sessionId }: { sessionId: string }) {
     const controller = new AbortController();
     abortRef.current = controller;
     const outcome = await runAsk(question, {
-      open: (signal) => authedStream(`${base}/questions`, { body: toQuestionBody(question, override), signal }),
+      open: (signal) => authedStream(`${base}/questions`, { body: toQuestionBody(question, override, detail), signal }),
       dispatch: (action) => {
         if (mountedRef.current) dispatch(action); // nothing is dispatched after the page is left
       },
@@ -259,6 +285,17 @@ export function SessionChat({ sessionId }: { sessionId: string }) {
               </select>
             </label>
           )}
+          <label style={ui.row}>
+            <span>Answer detail</span>
+            <select
+              value={detail}
+              onChange={(e) => setDetail(e.target.value === "summary" ? "summary" : "full")}
+              disabled={busy || !ready}
+            >
+              <option value="full">Full detail</option>
+              <option value="summary">Short summary</option>
+            </select>
+          </label>
           <button type="submit" disabled={busy || !ready}>
             {busy ? "Answering…" : "Ask"}
           </button>
@@ -325,7 +362,11 @@ export function SessionChat({ sessionId }: { sessionId: string }) {
 function LiveMeta({ live }: { live: LiveAnswer }) {
   if (live.phase !== "done" || live.metrics === null) return null;
   const bits: string[] = [];
-  if (live.provider && live.model) bits.push(`${live.provider} / ${live.model}`);
+  const label = sourceLabel(live.source);
+  if (label) bits.push(label);
+  if (live.provider && live.model && live.provider !== "extractive") {
+    bits.push(`${live.provider} / ${live.model}`);
+  }
   if (live.fallbackUsed) bits.push("fallback provider used");
   bits.push(`search ${formatMs(live.metrics.retrieval_ms)}`);
   bits.push(`first token ${formatMs(live.metrics.first_token_ms)}`);

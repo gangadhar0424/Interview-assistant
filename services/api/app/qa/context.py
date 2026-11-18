@@ -29,6 +29,10 @@ class ContextConfig:
     history_pairs: int = 3
     history_item_max_chars: int = 1000
     retrieval_max_limit: int = 20
+    min_document_similarity: float = 0.0
+    hybrid_candidates: int = 30
+    rrf_k: int = 60
+    per_document_cap: int = 3
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ContextConfig":
@@ -39,6 +43,10 @@ class ContextConfig:
             history_pairs=settings.qa_history_pairs,
             history_item_max_chars=settings.qa_history_item_max_chars,
             retrieval_max_limit=settings.retrieval_max_limit,
+            min_document_similarity=settings.qa_min_document_similarity,
+            hybrid_candidates=settings.qa_hybrid_candidates,
+            rrf_k=settings.qa_rrf_k,
+            per_document_cap=settings.qa_per_document_cap,
         )
 
 
@@ -78,6 +86,17 @@ def merge_hits(
         seen.add(hit.chunk_id)
         chosen.append(hit)
     return chosen
+
+
+def drop_irrelevant_documents(hits: Sequence[ChunkHit], min_similarity: float) -> list[ChunkHit]:
+    """Remove selected-document passages that do not match the question (D-64).
+
+    Resume passages are always kept (the resume answers "tell me about yourself" style questions
+    even when the wording is far from the passage); only `document` passages need to be relevant,
+    so an unrelated document never adds noise and a question it cannot help with is answered from
+    the resume or from general knowledge.
+    """
+    return [h for h in hits if h.source_type != "document" or h.similarity >= min_similarity]
 
 
 def apply_budget(hits: Sequence[ChunkHit], max_chars: int) -> list[ChunkHit]:
@@ -144,5 +163,6 @@ async def retrieve_context(
         max_limit=config.retrieval_max_limit,
         source_ids=source_ids,
     )
-    merged = merge_hits(resume_hits, all_hits, config.top_k)
+    relevant = drop_irrelevant_documents(all_hits, config.min_document_similarity)
+    merged = merge_hits(resume_hits, relevant, config.top_k)
     return order_for_prompt(apply_budget(merged, config.max_chars))

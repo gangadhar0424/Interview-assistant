@@ -185,6 +185,44 @@ class Settings(BaseSettings):
     qa_retrieval_top_k: int = Field(default=8, ge=1, le=20)
     qa_resume_quota: int = Field(default=3, ge=0, le=20)
     qa_context_max_chars: int = Field(default=6000, ge=500, le=100000)
+    # D-64: optional floor on a selected document's passage similarity to the question (cosine,
+    # 0-1; the resume is never filtered). OFF by default (0): measured scores with
+    # multilingual-e5-large are low and close together (related ~0.3-0.5, unrelated ~0.2-0.3), so a
+    # floor drops relevant passages. The v4 prompt already tells the model to ignore unhelpful ones.
+    qa_min_document_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
+    # --- Answer pipeline (D-66): hybrid retrieval, router, exact-text answers, validation ---
+    # Every switch defaults to the previous behaviour; flip them in .env to adopt a stage.
+    qa_retrieval_mode: Literal["dense", "hybrid"] = "dense"
+    qa_router_mode: Literal["off", "shadow", "on"] = "off"
+    qa_validate_general: Literal["off", "on"] = "off"
+    # Hybrid search: candidates per branch (dense / lexical) and the rank-fusion constant (RRF).
+    qa_hybrid_candidates: int = Field(default=30, ge=5, le=200)
+    qa_rrf_k: int = Field(default=60, ge=1, le=1000)
+    # At most this many chunks of ONE document may reach the candidate list (the resume is exempt),
+    # so one large file cannot crowd out the other selected documents.
+    qa_per_document_cap: int = Field(default=3, ge=1, le=20)
+    # Router confidence (calibrated on the evaluation set, tests/eval): the share of the question's
+    # content words that must appear in a passage's heading / body, and the minimum lead of the
+    # best fused score over the next candidate.
+    qa_router_heading_coverage: float = Field(default=0.6, gt=0.0, le=1.0)
+    qa_router_body_coverage: float = Field(default=0.75, gt=0.0, le=1.0)
+    qa_router_margin: float = Field(default=1.0, ge=1.0, le=10.0)
+    # Adaptive question rewrite (only for an unsure router) and the general-answer judge: tight
+    # caps so an auxiliary call can never dominate the response time.
+    qa_rewrite_timeout_seconds: float = Field(default=0.8, gt=0, le=10)
+    qa_judge_timeout_seconds: float = Field(default=0.8, gt=0, le=10)
+    # Per-session answer cache (Redis) for validated general answers; 0 disables it.
+    qa_answer_cache_ttl_seconds: int = Field(default=300, ge=0, le=3600)
+    # A question that names a section (a title match) whose text is longer than the session's length
+    # setting is answered from the WHOLE section by the model (grounded, complete, in the requested
+    # format) instead of a cut-off slice of raw text. Section text sent to the model is capped at
+    # this many characters; the answer may be up to this many words.
+    qa_section_context_max_chars: int = Field(default=12000, ge=1000, le=100000)
+    qa_section_answer_max_words: int = Field(default=450, ge=100, le=2000)
+    # Per-question answer detail (D-66): "full" answers a named section completely, "summary" keeps
+    # every model-written answer to the short length band (a spoken half-minute). The request may
+    # choose; this is the default when it does not.
+    qa_default_detail: Literal["full", "summary"] = "full"
     qa_history_pairs: int = Field(default=3, ge=0, le=10)
     qa_history_item_max_chars: int = Field(default=1000, ge=100, le=10000)
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { browserDetectDesktop } from "@/lib/desktop-presence";
 import {
   browserWatchForLeave,
   launchDesktop,
@@ -9,7 +10,7 @@ import {
   type HandoffIssue,
 } from "@/lib/handoff";
 
-type Phase = "idle" | "starting" | "opened" | "not-opened" | "error";
+type Phase = "idle" | "starting" | "opened" | "not-opened" | "not-detected" | "error";
 
 // Inlined at build time. Not hard-coded: the installer location is deployment configuration.
 const DOWNLOAD_URL = parseDownloadUrl(process.env.NEXT_PUBLIC_DESKTOP_DOWNLOAD_URL);
@@ -31,7 +32,7 @@ export function DesktopHandoff({ sessionId, compact = false }: { sessionId: stri
     };
   }, []);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (skipDetect = false) => {
     setPhase("starting");
     setMessage("");
     const outcome = await launchDesktop({
@@ -39,6 +40,7 @@ export function DesktopHandoff({ sessionId, compact = false }: { sessionId: stri
         authedRequest<HandoffIssue>(`/api/v1/sessions/${sessionId}/handoff`, { method: "POST" }),
       navigate: (url) => window.location.assign(url),
       watchForLeave: browserWatchForLeave,
+      detect: skipDetect ? undefined : () => browserDetectDesktop(),
     });
     if (!mountedRef.current) return;
     if (outcome.kind === "error") setMessage(outcome.message);
@@ -77,7 +79,18 @@ export function DesktopHandoff({ sessionId, compact = false }: { sessionId: stri
       {phase === "opened" && (
         <p role="status" style={{ margin: 0 }}>
           Opening the desktop app. It will show this session as ready. Nothing is recorded until you
-          start it there.
+          start it there.{" "}
+          <span data-testid="handoff-install-hint">
+            If Windows says it needs an app to open this link, the desktop app is not installed:{" "}
+            {DOWNLOAD_URL ? (
+              <a href={DOWNLOAD_URL} rel="noopener noreferrer">
+                download and install it
+              </a>
+            ) : (
+              "ask your administrator for the installer"
+            )}
+            , sign in there, then choose Start Interview again.
+          </span>
         </p>
       )}
 
@@ -85,6 +98,35 @@ export function DesktopHandoff({ sessionId, compact = false }: { sessionId: stri
         <p role="alert" style={{ margin: 0, color: "#b00020" }}>
           {message}
         </p>
+      )}
+
+      {phase === "not-detected" && (
+        <div role="alert" data-testid="handoff-not-detected" style={{ display: "grid", gap: "0.4rem" }}>
+          <p style={{ margin: 0 }}>
+            The Interview Assistant desktop app was not detected on this computer. It may not be
+            installed, or it is installed but not running.
+          </p>
+          <ul style={{ margin: 0, paddingLeft: "1.2rem" }}>
+            <li>
+              Not installed:{" "}
+              {DOWNLOAD_URL ? (
+                <a href={DOWNLOAD_URL} rel="noopener noreferrer">
+                  download and install the desktop app
+                </a>
+              ) : (
+                "ask your administrator for the desktop installer"
+              )}
+              , sign in there, then choose Start Interview again.
+            </li>
+            <li>
+              Installed but not running:{" "}
+              <button type="button" onClick={() => void start(true)} style={{ padding: 0, border: 0, background: "none", color: "inherit", textDecoration: "underline", cursor: "pointer", font: "inherit" }}>
+                open it anyway
+              </button>
+              . Windows may ask which app to use if it is not installed.
+            </li>
+          </ul>
+        </div>
       )}
 
       {phase === "not-opened" && (

@@ -22,9 +22,10 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import aclosing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ai.errors import InvalidSelection, LLMError, Timeout
@@ -32,24 +33,29 @@ from app.ai.router import LLMRouter, Selection
 from app.ai.types import StreamMeta, Token, Usage
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.metrics import answer_grounding_checks
+from app.core.metrics import answer_grounding_checks, answer_routes, answer_stage_seconds
 from app.db.models import SessionPreferences
 from app.db.session import set_tenant_context
 from app.embeddings.base import EmbeddingProvider
 from app.ingestion import repository as ingestion_repository
 from app.preferences.answer_config import CompiledPreferences
 from app.preferences.compiler import PreferenceCompiler, PreferencesInput
-from app.preferences.enums import QuestionType
+from app.preferences.enums import AnswerLength, QuestionType
 from app.preferences.errors import InvalidPreference
 from app.preferences.prompt_builder import (
     PROMPT_VERSION,
+    BuiltPrompt,
     EvidencePassage,
     EvidenceRef,
     PromptBuilder,
     PromptInputs,
+    retry_question,
 )
 from app.preferences.sanitize import clean_text
 from app.qa import repository
+from app.qa.answer_router import Decision, Mode, RouterSettings, decide
+from app.qa.cache import AnswerCache, cache_key, digest
+from app.qa.caveats import find_caveats
 from app.qa.context import ContextConfig, retrieve_context, truncate
 from app.qa.events import (
     AnswerDelta,
@@ -60,8 +66,22 @@ from app.qa.events import (
     QuestionCreated,
     RetrievalDone,
 )
+from app.qa.extractive import (
+    LENGTH_SLACK,
+    cut_at_sentence,
+    fit_to_words,
+    is_verbatim,
+    section_source,
+    split_for_streaming,
+    word_count,
+)
 from app.qa.grounding import GroundingCheck, check_citations
-from app.retrieval.service import MAX_QUERY_CHARS
+from app.qa.ranking import Ranked, context_from_ranked, retrieve_ranked
+from app.qa.rewrite import rewrite_question
+from app.qa.source import source_payload, source_ref
+from app.qa.validation import check_deterministic, judge_answer, language_matches
+from app.retrieval.service import MAX_QUERY_CHARS, ChunkHit
+from app.retrieval.terms import content_terms
 from app.sessions import repository as sessions_repository
 from app.sessions.materials import is_ready
 from app.sessions.service import session_not_found
@@ -107,11 +127,32 @@ class _Run:
 
     retrieval_ms: int | None = None
     chunk_ids: list[uuid.UUID] = field(default_factory=list)
-    parts: list[str] = field(default_factory=list)
+    parts: list[str] = field(default_factory=list)  # text the user has been shown (and is stored)
+    draft: list[str] = field(default_factory=list)  # a held-back general answer, not yet validated
     meta: StreamMeta | None = None
     first_token_ms: int | None = None
     usage: Usage | None = None
     finished: bool = False  # the outcome is already recorded (never downgrade it to cancelled)
+    source_kind: str | None = None  # D-66: resume | document | synthesis | general
+    source_refs: list[dict[str, Any]] | None = None
+
+
+@dataclass
+class _Plan:
+    """What retrieval and routing decided for one question (D-66)."""
+
+    hits: list[ChunkHit]  # passages for the prompt (synthesis / legacy path)
+    mode: Mode | None = None  # None: the legacy path (router off or shadow)
+    exact: str | None = None  # the verified exact text of an extractive answer
+    selection_terms: list[str] = field(default_factory=list)
+    # A larger word budget for an answer composed from a whole section (None: the session's own).
+    prepared: "_Prepared | None" = None
+
+
+ANSWER_NOT_VALIDATED = "answer_not_validated"
+SAFE_MESSAGES_EXTRA = {
+    ANSWER_NOT_VALIDATED: "I could not produce a reliable answer. Please rephrase and try again."
+}
 
 
 class QuestionAnswerer:
@@ -130,6 +171,22 @@ class QuestionAnswerer:
         self._clock = clock
         self._context = ContextConfig.from_settings(settings)
         self._generation_timeout = settings.qa_request_timeout_seconds
+        self._router_cfg = RouterSettings.from_settings(settings)
+        self._cache: AnswerCache | None = None
+
+    def set_cache(self, cache: AnswerCache | None) -> None:
+        """Attach the per-session answer cache (Redis is created after the answerer)."""
+        self._cache = cache
+
+    async def warm_up(self) -> None:
+        """Load the embedding model and touch the database pool, so the first question is not slow
+        (D-66, Phase 4). Idempotent and cheap once warm; every failure is ignored."""
+        try:
+            await asyncio.to_thread(self._embedder.embed_query, "warm up")
+            async with self._sessionmaker() as db:
+                await db.execute(sql_text("SELECT 1"))
+        except Exception as exc:  # noqa: BLE001 - warming is an optimisation, never a requirement
+            logger.warning("warm-up skipped", extra={"error_type": type(exc).__name__})
 
     # ---------------------------------------------------------------- validation
 
@@ -334,6 +391,8 @@ class QuestionAnswerer:
             first_token_ms=run.first_token_ms,
             total_ms=started_ms,
             retrieved_chunk_ids=list(run.chunk_ids),
+            source_kind=run.source_kind,
+            source_refs=run.source_refs,
             **extra,
         )
 
@@ -375,33 +434,66 @@ class QuestionAnswerer:
                 pass
             return GroundingCheck.errored(len(evidence)).to_json()
 
-    # -------------------------------------------------------------------- main
+    # ------------------------------------------------------- routing and answers (D-66)
 
-    async def ask(
+    def _safe_selection(self, compiled: CompiledPreferences) -> Selection | None:
+        try:
+            return self._selection(compiled)
+        except LLMError:
+            return None
+
+    @staticmethod
+    def _prompt(prepared: _Prepared, question: str, hits: Sequence[ChunkHit]) -> BuiltPrompt:
+        return PromptBuilder().build(
+            prepared.compiled.answer,
+            PromptInputs(
+                question=question,
+                company_name=prepared.company_name,
+                job_description=prepared.job_description,
+                context_passages=[
+                    EvidencePassage(
+                        source_type=hit.source_type,
+                        source_id=hit.source_id,
+                        chunk_index=hit.chunk_index,
+                        text=hit.text,
+                    )
+                    for hit in hits
+                ],
+                history=prepared.history,
+            ),
+        )
+
+    @staticmethod
+    def _heading_of(hit: ChunkHit) -> str | None:
+        return hit.heading.rsplit(" > ", 1)[-1] if hit.heading else None
+
+    def _refs_for(self, hits: Sequence[ChunkHit], ranked: Ranked | None) -> list[dict[str, Any]]:
+        """One reference per source of the prompt passages, in relevance order."""
+        refs: list[dict[str, Any]] = []
+        seen: set[uuid.UUID] = set()
+        for hit in hits:
+            if hit.source_id in seen:
+                continue
+            seen.add(hit.source_id)
+            name = ranked.names.get(hit.source_id) if ranked is not None else None
+            refs.append(source_ref(hit.source_type, hit.source_id, name, self._heading_of(hit)))
+        return refs
+
+    async def _plan(
         self,
         user_id: uuid.UUID,
-        session_id: uuid.UUID,
-        text: str,
-        question_type_override: str | None = None,
-        input_source: str = "typed",
-    ) -> AsyncGenerator[QaEvent, None]:
+        prepared: _Prepared,
+        question: str,
+        run: _Run,
+        detail: str = "full",
+    ) -> _Plan:
+        """Retrieval and routing. With the router off this is exactly the previous behaviour."""
+        settings = self._settings
+        router_mode = settings.qa_router_mode
         started = self._clock()
-        question = self._clean_question(text)
-        override = self._parse_override(question_type_override)
-        if input_source not in (
-            "typed",
-            "screenshot",
-            "audio",
-        ):  # never trust a caller-supplied value
-            raise AppError(422, "validation_error", "input_source is not valid.")
-        prepared = await self._prepare(user_id, session_id, question, override, input_source)
-        run = _Run()
+        ranked: Ranked | None = None
         try:
-            yield QuestionCreated(prepared.question_id, prepared.answer_id)
-
-            # --- retrieval (own short transaction; sources come from the session, not the client)
-            retrieval_started = self._clock()
-            try:
+            if router_mode == "off" and settings.qa_retrieval_mode == "dense":
                 async with self._sessionmaker() as db:
                     await set_tenant_context(db, user_id)
                     hits = await retrieve_context(
@@ -413,100 +505,458 @@ class QuestionAnswerer:
                         document_ids=prepared.document_ids,
                         config=self._context,
                     )
-            except Exception as exc:  # noqa: BLE001 - embedding/DB errors must not leak
-                logger.warning("retrieval failed", extra={"error_type": type(exc).__name__})
-                raise _Failed(RETRIEVAL_FAILED, SAFE_MESSAGES[RETRIEVAL_FAILED], True) from None
-            run.retrieval_ms = self._ms(retrieval_started)
-            run.chunk_ids = [hit.chunk_id for hit in hits]
-            yield RetrievalDone(prepared.question_id, len(hits), run.retrieval_ms)
+            else:
+                ranked = await retrieve_ranked(
+                    self._sessionmaker,
+                    self._embedder,
+                    user_id,
+                    question,
+                    resume_id=prepared.resume_id,
+                    document_ids=prepared.document_ids,
+                    config=self._context,
+                )
+                hits = context_from_ranked(ranked, self._context)
+        except Exception as exc:  # noqa: BLE001 - embedding/DB errors must not leak
+            logger.warning("retrieval failed", extra={"error_type": type(exc).__name__})
+            raise _Failed(RETRIEVAL_FAILED, SAFE_MESSAGES[RETRIEVAL_FAILED], True) from None
+        run.retrieval_ms = self._ms(started)
+        answer_stage_seconds.labels(stage="retrieval").observe(run.retrieval_ms / 1000)
+        run.chunk_ids = [hit.chunk_id for hit in hits]
+        if ranked is None or router_mode == "off":
+            return _Plan(hits)
 
-            # --- prompt + generation: no database session is open from here until the finish
-            prompt = PromptBuilder().build(
-                prepared.compiled.answer,
-                PromptInputs(
-                    question=question,
-                    company_name=prepared.company_name,
-                    job_description=prepared.job_description,
-                    context_passages=[
-                        EvidencePassage(
-                            source_type=hit.source_type,
-                            source_id=hit.source_id,
-                            chunk_index=hit.chunk_index,
-                            text=hit.text,
-                        )
-                        for hit in hits
-                    ],
-                    history=prepared.history,
-                ),
+        compiled = prepared.compiled
+        if detail == "summary":
+            # A spoken half-minute: every model-written answer uses the short band, and an exact
+            # window is cut to it as well.
+            compiled = PreferenceCompiler.from_settings(settings).with_word_budget(
+                compiled,
+                min_words=settings.answer_short_min_words,
+                max_words=settings.answer_short_max_words,
+                length=AnswerLength.SHORT,
             )
-            try:
-                selection = self._selection(prepared.compiled)
-                # `aclosing` guarantees the router (and so the provider stream) is closed when we
-                # stop for any reason: failure, deadline, or the consumer disconnecting.
-                async with aclosing(
-                    self._router.stream_chat(
-                        prompt.messages,
-                        prepared.compiled.generation,
-                        selection=selection,
-                        user_id=user_id,
+            prepared = replace(prepared, compiled=compiled)
+        terms = content_terms(question)
+        decision = decide(
+            question,
+            ranked.resume,
+            ranked.documents,
+            self._router_cfg,
+            resume_opening=ranked.opening,
+        )
+        if decision.mode is Mode.UNCERTAIN and router_mode == "on":
+            # The router is unsure: one short, time-capped rewrite and a second search.
+            rewrite_started = self._clock()
+            new_terms = await rewrite_question(
+                self._router,
+                self._safe_selection(compiled),
+                question,
+                timeout_seconds=settings.qa_rewrite_timeout_seconds,
+                user_id=user_id,
+            )
+            answer_stage_seconds.labels(stage="rewrite").observe(self._clock() - rewrite_started)
+            if new_terms:
+                try:
+                    second = await retrieve_ranked(
+                        self._sessionmaker,
+                        self._embedder,
+                        user_id,
+                        " ".join(new_terms),
+                        resume_id=prepared.resume_id,
+                        document_ids=prepared.document_ids,
+                        config=self._context,
                     )
-                ) as stream:
-                    async for event in stream:
-                        if isinstance(event, StreamMeta):
-                            run.meta = event
+                except Exception as exc:  # noqa: BLE001 - keep the first pass
+                    logger.warning(
+                        "rewrite search failed", extra={"error_type": type(exc).__name__}
+                    )
+                else:
+                    ranked, terms = second, new_terms
+                    hits = context_from_ranked(second, self._context)
+                    run.chunk_ids = [hit.chunk_id for hit in hits]
+                    decision = decide(
+                        question,
+                        second.resume,
+                        second.documents,
+                        self._router_cfg,
+                        resume_opening=second.opening,
+                        terms=new_terms,
+                    )
+            if decision.mode is Mode.UNCERTAIN:
+                decision = Decision(Mode.SYNTHESIS, reason="partial")
+
+        extractive = (Mode.RESUME_EXTRACTIVE, Mode.DOCUMENT_EXTRACTIVE)
+        if (
+            decision.mode in extractive
+            and decision.hit is not None
+            and not language_matches(decision.hit.text, compiled.answer.language)
+        ):
+            # Exact text in another script than the session's language: translate, keep wording.
+            decision = Decision(Mode.SYNTHESIS, decision.hit, reason="language")
+
+        answer_routes.labels(mode=decision.mode.value, reason=decision.reason).inc()
+        logger.info(
+            "answer routed",
+            extra={
+                "question_id": str(prepared.question_id),
+                "answer_id": str(prepared.answer_id),
+                "router_mode": router_mode,
+                "mode": decision.mode.value,
+                "reason": decision.reason,
+            },
+        )
+        if router_mode == "shadow":  # decision recorded only: the answer follows the old path
+            return _Plan(hits)
+
+        if decision.mode in extractive and decision.hit is not None:
+            hit = decision.hit
+            source = await section_source(self._sessionmaker, user_id, decision)
+            if source is not None:
+                budget = compiled.answer.target_max_words
+                too_long = word_count(source) > budget * LENGTH_SLACK
+                if decision.reason == "title" and too_long:
+                    # The user named a section that is longer than their length setting: answer
+                    # from the WHOLE section (complete, in the requested format, keeping its
+                    # wording) instead of cutting the raw text off.
+                    section_hit = replace(
+                        hit, text=cut_at_sentence(source, settings.qa_section_context_max_chars)
+                    )
+                    wide = (
+                        compiled  # a summary keeps the short band set above
+                        if detail == "summary"
+                        else PreferenceCompiler.from_settings(settings).with_word_budget(
+                            compiled,
+                            min_words=settings.answer_long_min_words,
+                            max_words=max(budget, settings.qa_section_answer_max_words),
+                        )
+                    )
+                    guards = await self._role_guard(user_id, prepared, question, [hit])
+                    run.chunk_ids = [hit.chunk_id, *(g.chunk_id for g in guards)]
+                    run.source_kind = "synthesis"
+                    run.source_refs = self._refs_for([hit], ranked)
+                    return _Plan(
+                        [section_hit, *guards],
+                        Mode.SYNTHESIS,
+                        prepared=replace(prepared, compiled=wide),
+                    )
+                exact = fit_to_words(source, budget, terms, anchored_start=decision.anchored_start)
+                if is_verbatim(exact, source):
+                    run.chunk_ids = [hit.chunk_id]
+                    run.source_kind = (
+                        "resume" if decision.mode is Mode.RESUME_EXTRACTIVE else "document"
+                    )
+                    run.source_refs = self._refs_for([hit], ranked)
+                    return _Plan([hit], decision.mode, exact)
+            decision = Decision(Mode.SYNTHESIS, decision.hit, reason="unverified")
+        if decision.mode is Mode.GENERAL:
+            run.chunk_ids = []
+            run.source_kind, run.source_refs = "general", []
+            return _Plan([], Mode.GENERAL, prepared=prepared if detail == "summary" else None)
+        run.source_kind, run.source_refs = "synthesis", self._refs_for(hits, ranked)
+        guards = await self._role_guard(user_id, prepared, question, hits)
+        run.chunk_ids = [*run.chunk_ids, *(g.chunk_id for g in guards)]
+        return _Plan(
+            [*hits, *guards],
+            Mode.SYNTHESIS,
+            prepared=prepared if detail == "summary" else None,
+        )
+
+    async def _role_guard(
+        self,
+        user_id: uuid.UUID,
+        prepared: _Prepared,
+        question: str,
+        main: Sequence[ChunkHit],
+    ) -> list[ChunkHit]:
+        """Passages of the user's selected files that LIMIT the candidate's role on this topic
+        ("I have not written the code myself"), sent along with a model-composed answer so it
+        never claims what the candidate disowns elsewhere (D-66). Best effort: never blocks."""
+        started = self._clock()
+        topic = content_terms(" ".join([question, *(h.heading or "" for h in main[:2])]))
+        try:
+            guards = await find_caveats(
+                self._sessionmaker,
+                user_id,
+                [prepared.resume_id, *prepared.document_ids],
+                topic,
+                exclude=[h.chunk_id for h in main],
+            )
+        except Exception as exc:  # noqa: BLE001 - an optional guard must never break an answer
+            logger.warning("role guard skipped", extra={"error_type": type(exc).__name__})
+            return []
+        answer_stage_seconds.labels(stage="role_guard").observe(self._clock() - started)
+        return guards
+
+    async def _stream(
+        self,
+        user_id: uuid.UUID,
+        prepared: _Prepared,
+        prompt: BuiltPrompt,
+        run: _Run,
+        started: float,
+        *,
+        emit: bool,
+    ) -> AsyncGenerator[QaEvent, None]:
+        """Stream the model's answer into `run`. With `emit` False nothing is yielded: the text is
+        only collected (the general path validates it before showing it)."""
+        try:
+            selection = self._selection(prepared.compiled)
+            # `aclosing` guarantees the router (and so the provider stream) is closed when we
+            # stop for any reason: failure, deadline, or the consumer disconnecting.
+            async with aclosing(
+                self._router.stream_chat(
+                    prompt.messages,
+                    prepared.compiled.generation,
+                    selection=selection,
+                    user_id=user_id,
+                )
+            ) as stream:
+                async for event in stream:
+                    if isinstance(event, StreamMeta):
+                        run.meta = event
+                        if emit:
                             yield AnswerStarted(
                                 prepared.answer_id,
                                 prepared.question_id,
                                 event.provider,
                                 event.model,
                             )
-                        elif isinstance(event, Token):
+                    elif isinstance(event, Token):
+                        if emit:
                             if run.first_token_ms is None:
                                 run.first_token_ms = self._ms(started)  # request -> first token
                             run.parts.append(event.text)
                             yield AnswerDelta(prepared.answer_id, len(run.parts) - 1, event.text)
-                        elif isinstance(event, Usage):
-                            run.usage = event
-                        if self._clock() - started > self._generation_timeout:
-                            raise _Failed(Timeout.code, Timeout.message, True)  # total budget
-            except LLMError as err:
-                raise _Failed(err.code, err.message, err.fallback_eligible) from None
+                        else:  # held back: nothing is stored or shown until it is validated
+                            run.draft.append(event.text)
+                    elif isinstance(event, Usage):
+                        run.usage = event
+                    if self._clock() - started > self._generation_timeout:
+                        raise _Failed(Timeout.code, Timeout.message, True)  # total budget
+        except LLMError as err:
+            raise _Failed(err.code, err.message, err.fallback_eligible) from None
 
-            if not "".join(run.parts).strip() or run.meta is None:
-                raise _Failed(EMPTY_ANSWER, SAFE_MESSAGES[EMPTY_ANSWER], True)
-            total_ms = self._ms(started)
-            # Streaming is over: every delta is already out and nothing below changes the text.
-            grounding_check = self._citation_check(prompt.evidence, "".join(run.parts), prepared)
-            await self._finish(
+    def _done(self, prepared: _Prepared, run: _Run, total_ms: int) -> AnswerDone:
+        meta = run.meta
+        if meta is None:  # callers guarantee a provider/answer source before completing
+            raise _Failed(EMPTY_ANSWER, SAFE_MESSAGES[EMPTY_ANSWER], True)
+        return AnswerDone(
+            answer_id=prepared.answer_id,
+            question_id=prepared.question_id,
+            provider=meta.provider,
+            model=meta.model,
+            retrieval_ms=run.retrieval_ms or 0,
+            first_token_ms=run.first_token_ms if run.first_token_ms is not None else total_ms,
+            total_ms=total_ms,
+            fallback_used=meta.fallback_used,
+            input_tokens=run.usage.input_tokens if run.usage else None,
+            output_tokens=run.usage.output_tokens if run.usage else None,
+            source=source_payload(run.source_kind, run.source_refs),
+        )
+
+    async def _complete(
+        self,
+        user_id: uuid.UUID,
+        prepared: _Prepared,
+        run: _Run,
+        started: float,
+        evidence: Sequence[EvidenceRef] | None,
+    ) -> AnswerDone:
+        """Record a finished answer and build `answer.done`. Everything is already delivered, so
+        nothing here changes the text."""
+        if not "".join(run.parts).strip() or run.meta is None:
+            raise _Failed(EMPTY_ANSWER, SAFE_MESSAGES[EMPTY_ANSWER], True)
+        total_ms = self._ms(started)
+        grounding_check = (
+            self._citation_check(evidence, "".join(run.parts), prepared)
+            if evidence is not None
+            else None
+        )
+        await self._finish(
+            user_id,
+            prepared,
+            self._result("complete", run, total_ms, grounding_check=grounding_check),
+            answered=True,
+        )
+        run.finished = True
+        logger.info(
+            "question answered",
+            extra={
+                "user_id": str(user_id),
+                "session_id": str(prepared.session_id),
+                "question_id": str(prepared.question_id),
+                "answer_id": str(prepared.answer_id),
+                "total_ms": total_ms,
+                "fallback_used": run.meta.fallback_used,
+                "source_kind": run.source_kind,
+            },
+        )
+        return self._done(prepared, run, total_ms)
+
+    async def _answer_exact(
+        self, user_id: uuid.UUID, prepared: _Prepared, exact: str, run: _Run, started: float
+    ) -> AsyncGenerator[QaEvent, None]:
+        """The user's own wording, verbatim: no provider is called."""
+        kind = run.source_kind or "document"
+        run.meta = StreamMeta("extractive", kind, False)
+        yield AnswerStarted(prepared.answer_id, prepared.question_id, "extractive", kind)
+        run.first_token_ms = self._ms(started)
+        for piece in split_for_streaming(exact):
+            run.parts.append(piece)
+            yield AnswerDelta(prepared.answer_id, len(run.parts) - 1, piece)
+        answer_stage_seconds.labels(stage="extractive").observe(self._clock() - started)
+        yield await self._complete(user_id, prepared, run, started, None)
+
+    async def _emit_buffered(
+        self, prepared: _Prepared, run: _Run, started: float, text: str
+    ) -> AsyncGenerator[QaEvent, None]:
+        """Show an answer that was held back for validation."""
+        meta = run.meta
+        if meta is None:
+            raise _Failed(EMPTY_ANSWER, SAFE_MESSAGES[EMPTY_ANSWER], True)
+        run.parts = []
+        yield AnswerStarted(prepared.answer_id, prepared.question_id, meta.provider, meta.model)
+        run.first_token_ms = self._ms(started)  # the user sees text from here, not before
+        for piece in split_for_streaming(text):
+            run.parts.append(piece)
+            yield AnswerDelta(prepared.answer_id, len(run.parts) - 1, piece)
+
+    async def _answer_general(
+        self,
+        user_id: uuid.UUID,
+        prepared: _Prepared,
+        question: str,
+        run: _Run,
+        started: float,
+    ) -> AsyncGenerator[QaEvent, None]:
+        """General-knowledge answer for a question neither the resume nor a document covers. With
+        `QA_VALIDATE_GENERAL=on` it is checked before it is shown: deterministic rules, then a fast
+        judge model, one regeneration on failure, else a safe error."""
+        settings = self._settings
+        compiled = prepared.compiled
+        validate = settings.qa_validate_general == "on"
+        selection = self._safe_selection(compiled)
+        key: str | None = None
+        if validate and self._cache is not None and self._cache.enabled:
+            key = cache_key(
                 user_id,
-                prepared,
-                self._result("complete", run, total_ms, grounding_check=grounding_check),
-                answered=True,
+                prepared.session_id,
+                question,
+                digest(compiled.to_dict()),
+                PROMPT_VERSION,
+                [prepared.resume_id, *prepared.document_ids],
             )
-            run.finished = True
-            logger.info(
-                "question answered",
-                extra={
-                    "user_id": str(user_id),
-                    "session_id": str(prepared.session_id),
-                    "question_id": str(prepared.question_id),
-                    "answer_id": str(prepared.answer_id),
-                    "total_ms": total_ms,
-                    "fallback_used": run.meta.fallback_used,
-                },
+            cached = await self._cache.get(key)
+            if cached is not None:
+                run.meta = StreamMeta(
+                    str(cached.get("provider") or "cache"), str(cached.get("model") or ""), False
+                )
+                run.source_refs = [{"validated": bool(cached.get("validated"))}]
+                async for event in self._emit_buffered(prepared, run, started, cached["text"]):
+                    yield event
+                yield await self._complete(user_id, prepared, run, started, None)
+                return
+
+        attempt_question = question
+        for _attempt in range(2 if validate else 1):
+            prompt = self._prompt(prepared, attempt_question, [])
+            run.parts, run.draft = [], []
+            run.meta, run.first_token_ms, run.usage = None, None, None
+            if not validate:
+                async for event in self._stream(user_id, prepared, prompt, run, started, emit=True):
+                    yield event
+                break
+            generation_started = self._clock()
+            async for _ in self._stream(user_id, prepared, prompt, run, started, emit=False):
+                pass
+            answer_stage_seconds.labels(stage="general").observe(self._clock() - generation_started)
+            text = "".join(run.draft)
+            validation_started = self._clock()
+            verdict = check_deterministic(
+                text,
+                language=compiled.answer.language,
+                max_words=compiled.answer.target_max_words,
             )
-            yield AnswerDone(
-                answer_id=prepared.answer_id,
-                question_id=prepared.question_id,
-                provider=run.meta.provider,
-                model=run.meta.model,
-                retrieval_ms=run.retrieval_ms,
-                first_token_ms=run.first_token_ms if run.first_token_ms is not None else total_ms,
-                total_ms=total_ms,
-                fallback_used=run.meta.fallback_used,
-                input_tokens=run.usage.input_tokens if run.usage else None,
-                output_tokens=run.usage.output_tokens if run.usage else None,
+            if verdict.ok:
+                verdict = await judge_answer(
+                    self._router,
+                    selection,
+                    question,
+                    text,
+                    timeout_seconds=settings.qa_judge_timeout_seconds,
+                    user_id=user_id,
+                )
+            answer_stage_seconds.labels(stage="validation").observe(
+                self._clock() - validation_started
             )
+            if verdict.ok:
+                run.source_refs = [{"validated": verdict.judged}]
+                async for event in self._emit_buffered(prepared, run, started, text):
+                    yield event
+                if key is not None and self._cache is not None and run.meta is not None:
+                    await self._cache.put(
+                        key,
+                        {
+                            "text": text,
+                            "provider": run.meta.provider,
+                            "model": run.meta.model,
+                            "validated": verdict.judged,
+                        },
+                    )
+                break
+            attempt_question = retry_question(question, verdict.reason)
+        else:
+            run.draft = []  # a rejected draft is discarded, never stored or shown
+            raise _Failed(ANSWER_NOT_VALIDATED, SAFE_MESSAGES_EXTRA[ANSWER_NOT_VALIDATED], True)
+        yield await self._complete(user_id, prepared, run, started, None)
+
+    # -------------------------------------------------------------------- main
+
+    async def ask(
+        self,
+        user_id: uuid.UUID,
+        session_id: uuid.UUID,
+        text: str,
+        question_type_override: str | None = None,
+        input_source: str = "typed",
+        detail: str | None = None,
+    ) -> AsyncGenerator[QaEvent, None]:
+        started = self._clock()
+        question = self._clean_question(text)
+        override = self._parse_override(question_type_override)
+        if input_source not in (
+            "typed",
+            "screenshot",
+            "audio",
+        ):  # never trust a caller-supplied value
+            raise AppError(422, "validation_error", "input_source is not valid.")
+        if detail not in (None, "full", "summary"):
+            raise AppError(422, "validation_error", "detail is not valid.")
+        prepared = await self._prepare(user_id, session_id, question, override, input_source)
+        run = _Run()
+        try:
+            yield QuestionCreated(prepared.question_id, prepared.answer_id)
+
+            # --- retrieval + routing (own short transactions; sources come from the session)
+            plan = await self._plan(
+                user_id, prepared, question, run, detail or self._settings.qa_default_detail
+            )
+            yield RetrievalDone(prepared.question_id, len(plan.hits), run.retrieval_ms or 0)
+
+            # --- answer: no database session is open from here until the finish
+            if plan.exact is not None:  # exact text of the resume / a document: no model call
+                async for event in self._answer_exact(user_id, prepared, plan.exact, run, started):
+                    yield event
+            elif plan.mode is Mode.GENERAL:  # neither source covers it: validated general answer
+                writer = plan.prepared or prepared  # a summary uses the short length band
+                async for event in self._answer_general(user_id, writer, question, run, started):
+                    yield event
+            else:  # related passages (synthesis) or the previous pipeline
+                writer = plan.prepared or prepared  # a whole-section answer has a larger budget
+                prompt = self._prompt(writer, question, plan.hits)
+                async for event in self._stream(user_id, writer, prompt, run, started, emit=True):
+                    yield event
+                yield await self._complete(user_id, prepared, run, started, prompt.evidence)
         except _Failed as failure:
             yield await self._failed(user_id, prepared, run, started, failure)
         except Exception as exc:  # noqa: BLE001 - never leak internals to the caller

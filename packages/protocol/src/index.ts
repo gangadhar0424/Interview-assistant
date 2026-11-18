@@ -59,6 +59,7 @@ export interface QuestionSubmit {
 export interface QuestionSubmitPayload {
   text: string;
   question_type_override?: string | null;
+  detail?: "full" | "summary" | null;
 }
 
 export type ClientMessage = ClientHello | Ping | QuestionSubmit | AnswerCancel;
@@ -109,6 +110,7 @@ export interface AnswerDonePayload {
   fallback_used: boolean;
   input_tokens: number | null;
   output_tokens: number | null;
+  source: AnswerSource | null;
 }
 
 export interface AnswerError {
@@ -131,6 +133,19 @@ export interface AnswerMetrics {
   retrieval_ms: number;
   first_token_ms: number;
   total_ms: number;
+}
+
+export interface AnswerSource {
+  kind: "resume" | "document" | "synthesis" | "general";
+  refs: AnswerSourceRef[];
+}
+
+export interface AnswerSourceRef {
+  source_type: "resume" | "document" | null;
+  source_id: string | null;
+  name: string | null;
+  heading: string | null;
+  validated: boolean | null;
 }
 
 export interface AnswerStarted {

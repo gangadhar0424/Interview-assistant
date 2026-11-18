@@ -3,6 +3,7 @@
  * a fake screen and a fake backend (`fetch`). No Electron runtime, no real capture, no network.
  */
 import { DeepLinkInbox } from "../src/main/deep-link";
+import { HANDOFF_LINK, HANDOFF_REDEEM_PATH, settleHandoff } from "./handoff-signin";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -111,6 +112,9 @@ function setup() {
       body: init.body,
     };
     calls.push(call);
+    if (call.path === HANDOFF_REDEEM_PATH) {
+      return json({ access_token: "access-1", expires_in: 900, user, session: sessionRow(SESSION, "ready"), preferences: { language: "en" } }, 200, { "Set-Cookie": "refresh_token=refresh-1; HttpOnly; Path=/api/v1/auth" });
+    }
     if (call.path === "/api/v1/auth/login") {
       return json(
         { access_token: "access-1", expires_in: 900, user },
@@ -143,6 +147,7 @@ function setup() {
   };
   const consent = vi.fn(async () => true);
   const stored = new Map<string, Buffer>();
+  const inbox = new DeepLinkInbox();
   const dispose = registerDesktopIpc({
     ipcMain: {
       handle: (channel: string, fn: Handler) => handlers.set(channel, fn),
@@ -165,7 +170,7 @@ function setup() {
     audioHost: { setIndicator: vi.fn() },
     audioGate: { read: () => ({ state: "idle" as const, source: null }) },
     confirmAudioConsent: async () => true,
-    deepLinks: new DeepLinkInbox(),
+    deepLinks: inbox,
     confirmHandoffSwitch: async () => true,
     confirmHandoffAccountSwitch: async () => true,
     showWindow: () => undefined,
@@ -205,7 +210,9 @@ function setup() {
       rmSync(dir, { recursive: true, force: true });
     },
     login: async () => {
-      expect((await call("auth:login", "p@example.com", "long-password-1")).ok).toBe(true);
+      inbox.deliver(HANDOFF_LINK);
+      await settleHandoff();
+      expect((await call("handoff:get-state")).data.phase).toBe("ready");
     },
     enable: async () => {
       const result = await call("app:update-settings", { screenshotInputEnabled: true });
@@ -374,6 +381,23 @@ describe("the complete flow: capture, preview, confirm, extract, review, ask", (
     await vi.waitFor(() =>
       expect(s.sent.some((m) => m.channel === "stream:message" && JSON.stringify(m.payload).includes("answer.done"))).toBe(true),
     );
+  });
+
+  it("a requested summary reaches the API as detail, and only a known value is accepted (D-66)", async () => {
+    await readyForCapture();
+    const id = "88888888-2222-4333-8444-555555555555";
+    const summary = await s.call("sessions:stream-start", id, SESSION, "Enhancement 1", undefined, "summary");
+    expect(summary.ok).toBe(true);
+    await vi.waitFor(() => expect(s.questionCalls()).toHaveLength(1));
+    expect(JSON.parse(String((s.questionCalls()[0] as FetchCall).body))).toEqual({
+      text: "Enhancement 1",
+      detail: "summary",
+    });
+    for (const bad of ["everything", "full", 5, null, {}]) {
+      const refused = await s.call("sessions:stream-start", "99999999-3333-4333-8444-555555555555", SESSION, "Q", undefined, bad);
+      expect(refused.ok).toBe(false);
+    }
+    expect(s.questionCalls()).toHaveLength(1); // none of the refused ones reached the API
   });
 
   it("a typed question is unchanged: exactly {text}, no input_source", async () => {

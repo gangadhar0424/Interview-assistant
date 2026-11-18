@@ -6,7 +6,7 @@ config, retrieved chunk ids or any provider internals.
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,6 +22,9 @@ class QuestionCreate(BaseModel):
     question_type_override: str | None = Field(default=None, max_length=64)
     # Where the text came from (Phase 11A, D-51): only recorded on the question.
     input_source: Literal["typed", "screenshot", "audio"] = "typed"
+    # D-66: "full" (answer a named section completely) or "summary" (a short spoken answer).
+    # Omitted: the server default (`QA_DEFAULT_DETAIL`). Only affects the answer pipeline.
+    detail: Literal["full", "summary"] | None = None
 
 
 class AnswerOut(BaseModel):
@@ -39,6 +42,8 @@ class AnswerOut(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     created_at: datetime
+    # D-66: `{"kind": resume|document|synthesis|general, "refs": [...]}`; null for older answers.
+    source: dict[str, Any] | None = None
 
 
 class QuestionOut(BaseModel):

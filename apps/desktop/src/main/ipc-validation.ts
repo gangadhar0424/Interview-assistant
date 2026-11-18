@@ -72,6 +72,11 @@ export function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID.test(value);
 }
 
+/** A provider id as the server lists it (a short token; never a name, URL or free text). */
+export function isProviderId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/.test(value);
+}
+
 /** A display id is the operating system's numeric id as text (never a name or a path). */
 export function isDisplayId(value: unknown): value is string {
   return typeof value === "string" && /^[0-9]{1,12}$/.test(value);

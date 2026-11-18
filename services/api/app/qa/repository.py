@@ -34,6 +34,9 @@ class AnswerResult:
     retrieved_chunk_ids: list[uuid.UUID] = field(default_factory=list)
     # Content-free citation-integrity summary (`app.qa.grounding`); None when not checked.
     grounding_check: dict[str, Any] | None = None
+    # D-66: where the answer came from (`app.qa.source`); None on the legacy path.
+    source_kind: str | None = None
+    source_refs: list[dict[str, Any]] | None = None
 
 
 async def create_question_with_answer(
@@ -121,6 +124,8 @@ async def finish_answer(
             total_ms=result.total_ms,
             retrieved_chunk_ids=result.retrieved_chunk_ids,
             grounding_check=result.grounding_check,
+            source_kind=result.source_kind,
+            source_refs=result.source_refs,
         )
         .returning(GeneratedAnswer.id)
     )

@@ -25,6 +25,7 @@ from app.ai.errors import (
     AuthError,
     ContentFiltered,
     InvalidSelection,
+    QuotaExhausted,
     RateLimited,
     Timeout,
     Unavailable,
@@ -314,6 +315,53 @@ def test_claude_errors_map_to_the_fixed_taxonomy_without_leaking(
     with pytest.raises(error) as caught:
         run(provider.complete(MESSAGES, "claude-test", CONFIG))
     assert KEY not in repr(caught.value) and TEXT not in str(caught.value)
+
+
+def test_openai_out_of_credit_is_a_quota_error_not_a_busy_error() -> None:
+    """A 429 whose code says the account has no credit is its own error (retrying cannot help)."""
+    quota = {
+        "error": {
+            "message": f"{KEY} {TEXT}",
+            "type": "insufficient_quota",
+            "code": "insufficient_quota",
+        }
+    }
+    busy = {
+        "error": {"message": f"{KEY} {TEXT}", "type": "requests", "code": "rate_limit_exceeded"}
+    }
+    for body, expected in [(quota, QuotaExhausted), (busy, RateLimited)]:
+        provider = OpenAIProvider(
+            KEY, "gpt-4o-mini", 5, http_client=client(lambda _, b=body: httpx.Response(429, json=b))
+        )
+        with pytest.raises(expected) as caught:
+            run(provider.complete(MESSAGES, "gpt-4o-mini", CONFIG))
+        assert KEY not in repr(caught.value) and TEXT not in str(caught.value)
+        assert (type(caught.value) is QuotaExhausted) == (expected is QuotaExhausted)
+
+
+def test_claude_empty_balance_is_a_quota_error_and_never_leaks() -> None:
+    body = {
+        "type": "error",
+        "error": {
+            "type": "invalid_request_error",
+            "message": f"Your credit balance is too low {KEY} {TEXT}",
+        },
+    }
+    with pytest.raises(QuotaExhausted) as caught:
+        run(
+            claude(lambda _: httpx.Response(400, json=body)).complete(
+                MESSAGES, "claude-test", CONFIG
+            )
+        )
+    assert KEY not in repr(caught.value) and TEXT not in str(caught.value)
+    # any other 400 stays a generic availability error
+    other = {"type": "error", "error": {"type": "invalid_request_error", "message": "bad"}}
+    with pytest.raises(Unavailable):
+        run(
+            claude(lambda _: httpx.Response(400, json=other)).complete(
+                MESSAGES, "claude-test", CONFIG
+            )
+        )
 
 
 def test_claude_timeout_is_a_timeout() -> None:

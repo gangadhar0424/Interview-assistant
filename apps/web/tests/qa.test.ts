@@ -17,9 +17,11 @@ import {
   isTerminal,
   isUuid,
   parseQaEvent,
+  parseSource,
   questionError,
   reduceLive,
   runAsk,
+  sourceLabel,
   toQuestionBody,
   type LiveAction,
   type LiveAnswer,
@@ -407,6 +409,14 @@ test("question validation and request body", () => {
   assert.deepEqual(toQuestionBody("Why?", "behavioral"), { text: "Why?", question_type_override: "behavioral" });
   // Only the documented fields: ownership and materials are never sent.
   assert.deepEqual(Object.keys(toQuestionBody("Why?", "coding")).sort(), ["question_type_override", "text"]);
+  // D-66: the answer detail is sent only when a summary is wanted; the default request is unchanged.
+  assert.deepEqual(toQuestionBody("Why?", "", "full"), { text: "Why?" });
+  assert.deepEqual(toQuestionBody("Why?", "", "summary"), { text: "Why?", detail: "summary" });
+  assert.deepEqual(toQuestionBody("Why?", "coding", "summary"), {
+    text: "Why?",
+    question_type_override: "coding",
+    detail: "summary",
+  });
   assert.equal(isUuid(QID), true);
   assert.equal(isUuid("../../etc/passwd"), false);
   assert.equal(isUuid(`${QID}/extra`), false);
@@ -645,4 +655,68 @@ test("runAsk: a completed answer is not downgraded by an abort that arrives righ
   controller.abort(); // the user clicks Stop / leaves the page just after completion
   assert.equal(r.state.phase, "done");
   assert.equal(r.state.text, "A");
+});
+
+
+// ------------------------------------------------------------------ answer source (D-66)
+
+const REF = { source_type: "document", source_id: "s1", name: "notes.pdf", heading: "40. Enhancement", validated: null };
+
+test("answer.done: the optional source is parsed, and its absence is not an error", () => {
+  const withSource = frame("answer.done", {
+    answer_id: AID,
+    question_id: QID,
+    provider: "extractive",
+    model: "document",
+    metrics: { retrieval_ms: 5, first_token_ms: 9, total_ms: 20 },
+    fallback_used: false,
+    input_tokens: null,
+    output_tokens: null,
+    source: { kind: "document", refs: [REF] },
+  });
+  const parser = new SseParser();
+  const [event] = parser.push(withSource).map((f) => parseQaEvent(f));
+  assert.ok(event && event.type === "answer.done");
+  assert.deepEqual(event.source, { kind: "document", refs: [REF] });
+  const [legacy] = new SseParser().push(done).map((f) => parseQaEvent(f));
+  assert.ok(legacy && legacy.type === "answer.done" && legacy.source === null);
+});
+
+test("parseSource: anything unexpected is no source, never an exception", () => {
+  for (const junk of [null, undefined, 5, "x", [], {}, { kind: "invented", refs: [] }, { kind: "resume" }, { kind: "resume", refs: "no" }]) {
+    assert.equal(parseSource(junk), null);
+  }
+  const ok = parseSource({ kind: "resume", refs: [null, 3, { name: 7, validated: "yes" }, REF] });
+  assert.deepEqual(ok?.refs.map((r) => r.name), [null, "notes.pdf"]);
+  assert.equal(ok?.refs[0]?.validated, null);
+});
+
+test("sourceLabel: says where an answer came from, in plain words", () => {
+  assert.equal(sourceLabel(null), null);
+  assert.equal(sourceLabel({ kind: "resume", refs: [] }), "From your resume");
+  assert.equal(sourceLabel({ kind: "document", refs: [REF] }), "From document: notes.pdf");
+  assert.equal(sourceLabel({ kind: "document", refs: [] }), "From your document");
+  assert.equal(sourceLabel({ kind: "synthesis", refs: [] }), "Written from your resume and documents");
+  assert.equal(sourceLabel({ kind: "synthesis", refs: [REF] }), "Based on: notes.pdf");
+  assert.equal(sourceLabel({ kind: "general", refs: [{ ...REF, validated: true }] }), "General knowledge (validated)");
+  assert.equal(sourceLabel({ kind: "general", refs: [{ ...REF, validated: false }] }), "General knowledge (not fully validated)");
+  assert.equal(sourceLabel({ kind: "general", refs: [] }), "General knowledge");
+});
+
+test("the live state records the source from answer.done and shows a safe message for a rejected answer", () => {
+  const action: LiveAction = {
+    type: "answer.done",
+    answerId: AID,
+    questionId: QID,
+    provider: "extractive",
+    model: "resume",
+    metrics: { retrieval_ms: 1, first_token_ms: 2, total_ms: 3 },
+    fallbackUsed: false,
+    inputTokens: null,
+    outputTokens: null,
+    source: { kind: "resume", refs: [] },
+  };
+  const running = reduceLive(IDLE, { type: "start", questionText: "q" });
+  assert.deepEqual(reduceLive(running, action).source, { kind: "resume", refs: [] });
+  assert.match(answerErrorMessage("answer_not_validated"), /reliable answer/);
 });

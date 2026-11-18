@@ -13,6 +13,7 @@ from app.qa.context import (
     ContextConfig,
     _CachedQueryEmbedder,
     apply_budget,
+    drop_irrelevant_documents,
     merge_hits,
     order_for_prompt,
     truncate,
@@ -247,3 +248,33 @@ def test_api_protection_settings_are_configurable(monkeypatch: pytest.MonkeyPatc
     s = load_settings()
     assert (s.qa_rate_limit_per_minute, s.qa_max_concurrent_generations) == (5, 1)
     assert s.qa_request_timeout_seconds == 30.0
+
+
+# ------------------------------------------------- document relevance (D-64)
+
+
+def _resume_hit(name: str, similarity: float) -> ChunkHit:
+    return dataclasses.replace(hit(name, similarity), source_type="resume")
+
+
+def test_irrelevant_document_passages_are_dropped_but_the_resume_is_kept() -> None:
+    resume = _resume_hit("r", 0.10)  # a weak resume match is still kept (intro questions)
+    near, far = hit("near", 0.85), hit("far", 0.60)
+    kept = drop_irrelevant_documents([resume, near, far], 0.80)
+    assert kept == [resume, near]
+
+
+def test_zero_threshold_disables_the_document_filter() -> None:
+    hits = [hit("a", 0.01), hit("b", 0.9)]
+    assert drop_irrelevant_documents(hits, 0.0) == hits
+
+
+def test_threshold_boundary_is_inclusive() -> None:
+    assert drop_irrelevant_documents([hit("edge", 0.8)], 0.8) != []
+
+
+def test_document_similarity_setting_defaults_and_validates() -> None:
+    assert ContextConfig().min_document_similarity == 0.0
+    assert Settings().qa_min_document_similarity == 0.0  # off by default
+    with pytest.raises(ValueError):
+        Settings(qa_min_document_similarity=1.5)

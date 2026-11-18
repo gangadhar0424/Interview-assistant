@@ -1,3 +1,4 @@
+import { sourceLabel } from "../../../shared/answer-source";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useDesktopStore } from "../store";
@@ -5,12 +6,13 @@ import { CreateSessionPage } from "./CreateSessionPage";
 import { AudioPanel } from "./AudioPanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 
-type Page = "home" | "create" | "assistant" | "history" | "settings";
+type Page = "home" | "create" | "assistant" | "history" | "account" | "settings";
 
 const navigation: Array<{ id: Page; label: string; icon: string }> = [
   { id: "home", label: "Sessions", icon: "⌂" },
   { id: "assistant", label: "Assistant", icon: "✦" },
   { id: "history", label: "History", icon: "↻" },
+  { id: "account", label: "Account", icon: "☺" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -26,6 +28,13 @@ export default function App() {
   const checkBackend = useDesktopStore((state) => state.checkBackend);
   const checked = useRef(false);
   const [page, setPage] = useState<Page>("home");
+  const handoffPhase = useDesktopStore((state) => state.handoff.phase);
+
+  // Start Interview from the web opens the Sessions list (the prepared session is selected and
+  // announced by the READY banner); the user then opens it in the Assistant.
+  useEffect(() => {
+    if (handoffPhase === "ready") setPage("home");
+  }, [handoffPhase]);
 
   useEffect(() => {
     if (checked.current) return;
@@ -48,7 +57,7 @@ export default function App() {
   }, [initialize, handleStreamMessage, handleAudioEvent, expireSession, handleHandoffEvent, checkBackend]);
 
   if (!initialized) return <LoadingScreen />;
-  if (!user) return <LoginScreen />;
+  if (!user) return <SignedOutScreen />;
 
   return (
     <div className="window-shell">
@@ -93,10 +102,15 @@ export default function App() {
             </button>
           ))}
           <div className="sidebar-spacer" />
-          <div className="user-chip" title={user.email}>
+          <button
+            className="user-chip"
+            onClick={() => setPage("account")}
+            title={`Signed in as ${user.email} — view account`}
+            type="button"
+          >
             <span className="user-avatar">{user.email.slice(0, 1).toUpperCase()}</span>
             <span className="user-email">{user.email}</span>
-          </div>
+          </button>
         </aside>
 
         <main className="main-panel">
@@ -124,6 +138,7 @@ export default function App() {
               )}
               {page === "assistant" && <AssistantPage />}
               {page === "history" && <HistoryPage />}
+              {page === "account" && <AccountPage />}
               {page === "settings" && <SettingsPage />}
             </motion.section>
           </AnimatePresence>
@@ -277,15 +292,28 @@ function AssistantPage() {
   const selectSession = useDesktopStore((state) => state.selectSession);
   const liveAnswer = useDesktopStore((state) => state.liveAnswer);
   const ask = useDesktopStore((state) => state.ask);
+  const answerDetail = useDesktopStore((state) => state.answerDetail);
+  const setAnswerDetail = useDesktopStore((state) => state.setAnswerDetail);
   const cancel = useDesktopStore((state) => state.cancel);
   const reportError = useDesktopStore((state) => state.reportError);
   const error = useDesktopStore((state) => state.error);
   const screenshotEnabled = useDesktopStore(
     (state) => state.settings?.screenshotInputEnabled === true,
   );
-  const audioEnabled = useDesktopStore((state) => state.settings?.audioInputEnabled === true);
+  const answerProvider = useDesktopStore((state) => state.answerProvider);
+  const saveAnswerProvider = useDesktopStore((state) => state.saveAnswerProvider);
+  const answerRef = useRef<HTMLDivElement>(null);
   const [question, setQuestion] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // The answer card sits below the audio and screenshot panels. When a new answer starts (typed, or a
+  // heard question sent automatically) bring it into view so it is never missed off-screen.
+  // It runs again when the provider picker appears under a failed answer, so the picker is visible too.
+  const answerRequestId = liveAnswer?.requestId;
+  const pickerShown = answerProvider.choices !== null;
+  useEffect(() => {
+    if (answerRequestId) answerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [answerRequestId, pickerShown]);
   const streaming =
     !!liveAnswer && ["sending", "retrieving", "generating", "streaming"].includes(liveAnswer.phase);
 
@@ -369,6 +397,21 @@ function AssistantPage() {
             />
             <div className="composer-footer">
               <span className="character-count">{question.length}/2000</span>
+              <label className="detail-picker">
+                <span className="detail-label">Answer</span>
+                <select
+                  aria-label="Answer detail"
+                  className="field-control detail-select"
+                  disabled={streaming}
+                  onChange={(event) =>
+                    setAnswerDetail(event.target.value === "summary" ? "summary" : "full")
+                  }
+                  value={answerDetail}
+                >
+                  <option value="full">Full detail</option>
+                  <option value="summary">Short summary</option>
+                </select>
+              </label>
               {streaming ? (
                 <button className="button button-stop" onClick={() => void cancel()} type="button">
                   Stop generation
@@ -387,10 +430,72 @@ function AssistantPage() {
           </form>
 
           {screenshotEnabled && <ScreenshotPanel ready={selected?.status === "ready"} />}
-          {audioEnabled && <AudioPanel ready={selected?.status === "ready"} />}
+          <AudioPanel ready={selected?.status === "ready"} />
 
-          {liveAnswer && <LiveAnswerCard answer={liveAnswer} onCopy={() => void copyAnswer()} copied={copied} />}
+          <div ref={answerRef}>
+            {liveAnswer && <LiveAnswerCard answer={liveAnswer} onCopy={() => void copyAnswer()} copied={copied} />}
+            {liveAnswer?.phase === "failed" && answerProvider.choices && (
+              <AnswerProviderFix
+                choices={answerProvider.choices}
+                onSave={(id) => void saveAnswerProvider(id)}
+                saving={answerProvider.saving}
+              />
+            )}
+            {answerProvider.notice && (
+              <p className="capture-hint" role="status">
+                {answerProvider.notice}
+              </p>
+            )}
+          </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/** After a provider failure (no credit, outage, busy): choose another answer provider for the session. */
+function AnswerProviderFix({
+  choices,
+  onSave,
+  saving,
+}: {
+  choices: { id: string; label: string }[];
+  onSave: (providerId: string) => void;
+  saving: boolean;
+}) {
+  const [picked, setPicked] = useState("");
+  const selected = choices.some((c) => c.id === picked) ? picked : (choices[0]?.id ?? "");
+  return (
+    <div className="voice-setup" role="group" aria-label="Answer provider">
+      <p className="capture-hint">
+        Try a different answer provider for this session, then ask your question again.
+      </p>
+      {choices.length === 0 ? (
+        <p className="inline-error">No answer provider is enabled on the server.</p>
+      ) : (
+        <div className="voice-setup-row">
+          <select
+            aria-label="Answer provider"
+            className="field-control"
+            disabled={saving}
+            onChange={(event) => setPicked(event.target.value)}
+            value={selected}
+          >
+            {choices.map((choice) => (
+              <option key={choice.id} value={choice.id}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="button button-primary"
+            disabled={!selected || saving}
+            onClick={() => onSave(selected)}
+            type="button"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -442,11 +547,12 @@ function LiveAnswerCard({
       )}
       <div className="answer-footer">
         <span>
-          {answer.provider && answer.model
+          {sourceLabel(answer.source) ??
+          (answer.provider && answer.model
             ? `${answer.provider} · ${answer.model}`
             : answer.phase === "done"
               ? "Answer ready"
-              : "Session context only"}
+              : "Session context only")}
           {answer.metrics?.total_ms != null ? ` · ${(answer.metrics.total_ms / 1000).toFixed(1)}s` : ""}
         </span>
         <button
@@ -524,7 +630,7 @@ function HistoryPage() {
                       <span className={`mini-status mini-status-${answer.status}`}>
                         {humanize(answer.status)}
                       </span>
-                      <span>{answer.provider && answer.model ? `${answer.provider} · ${answer.model}` : "—"}</span>
+                      <span>{sourceLabel(answer.source) ?? (answer.provider && answer.model ? `${answer.provider} · ${answer.model}` : "—")}</span>
                       <span>{answer.total_ms == null ? "—" : `${(answer.total_ms / 1000).toFixed(1)}s`}</span>
                     </div>
                   </div>
@@ -677,6 +783,58 @@ function SettingsPage() {
   );
 }
 
+function AccountPage() {
+  const user = useDesktopStore((state) => state.user);
+  const sessions = useDesktopStore((state) => state.sessions);
+  const backendBaseUrl = useDesktopStore((state) => state.settings?.backendBaseUrl);
+  const logout = useDesktopStore((state) => state.logout);
+  if (!user) return null;
+  const since = new Date(user.created_at);
+  return (
+    <div className="page-scroll">
+      <PageHeading
+        description="The account this app is signed in to. Every session and answer here belongs to it."
+        eyebrow="ACCOUNT"
+        title="Your account"
+      />
+      <section className="settings-section account-details">
+        <div className="account-identity">
+          <span className="user-avatar account-avatar">{user.email.slice(0, 1).toUpperCase()}</span>
+          <div>
+            <span className="settings-help">Signed in as</span>
+            <strong className="account-email">{user.email}</strong>
+          </div>
+        </div>
+        <dl className="account-facts">
+          <div>
+            <dt>Sessions</dt>
+            <dd>{sessions.length}</dd>
+          </div>
+          {!Number.isNaN(since.getTime()) && (
+            <div>
+              <dt>Member since</dt>
+              <dd>{since.toLocaleDateString()}</dd>
+            </div>
+          )}
+          {backendBaseUrl && (
+            <div>
+              <dt>Backend</dt>
+              <dd>{backendBaseUrl}</dd>
+            </div>
+          )}
+        </dl>
+        <p className="settings-help">
+          To work with a different account, press Start Interview in the web app while signed in as
+          that account, or sign out here and sign in again.
+        </p>
+        <button className="button button-secondary full-button" onClick={() => void logout()} type="button">
+          Sign out
+        </button>
+      </section>
+    </div>
+  );
+}
+
 function ToggleRow({
   checked,
   label,
@@ -750,27 +908,11 @@ function HandoffBanner({ onLogin = false }: { onLogin?: boolean }) {
   return null;
 }
 
-function LoginScreen() {
-  const login = useDesktopStore((state) => state.login);
-  const signup = useDesktopStore((state) => state.signup);
+/** Shown while no one is signed in (D-65). There is no sign-in or sign-up form on the desktop:
+ * the account comes from the web app, through its Start Interview button (D-56). */
+function SignedOutScreen() {
   const error = useDesktopStore((state) => state.error);
-  const clearError = useDesktopStore((state) => state.clearError);
-  const busy = useDesktopStore((state) => state.busy);
   const connection = useDesktopStore((state) => state.connection);
-  const [mode, setMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    clearError();
-    try {
-      if (mode === "signup") await signup(email, password);
-      else await login(email, password);
-    } catch {
-      // The store provides the safe error message for this screen.
-    }
-  }
 
   return (
     <div className="login-shell">
@@ -793,65 +935,20 @@ function LoginScreen() {
           <h1>Show up ready.</h1>
           <p className="login-subtitle">A focused desktop space for your prepared sessions and answers.</p>
         </div>
-        <div className="login-card">
-          <div className="auth-tabs" role="tablist">
-            <button
-              aria-selected={mode === "login"}
-              className={mode === "login" ? "auth-tab auth-tab-active" : "auth-tab"}
-              onClick={() => { setMode("login"); clearError(); }}
-              role="tab"
-              type="button"
-            >
-              Sign in
-            </button>
-            <button
-              aria-selected={mode === "signup"}
-              className={mode === "signup" ? "auth-tab auth-tab-active" : "auth-tab"}
-              onClick={() => { setMode("signup"); clearError(); }}
-              role="tab"
-              type="button"
-            >
-              Create account
-            </button>
-          </div>
+        <div className="login-card" data-testid="signed-out">
+          <h2 className="signed-out-title">Start from the web app</h2>
+          <ol className="signed-out-steps">
+            <li>Sign in (or create your account) in the web app.</li>
+            <li>Open a session that shows Ready.</li>
+            <li>Click <strong>Start Interview</strong>. This app opens already signed in to that account.</li>
+          </ol>
           <HandoffBanner onLogin />
-          <form className="login-form" onSubmit={(event) => void submit(event)}>
-            <label className="field-label" htmlFor="email">Email</label>
-            <input
-              autoComplete="username"
-              className="field-control"
-              id="email"
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              type="email"
-              value={email}
-            />
-            <label className="field-label" htmlFor="password">Password</label>
-            <input
-              autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              className="field-control"
-              id="password"
-              minLength={mode === "signup" ? 10 : undefined}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              type="password"
-              value={password}
-            />
-            {error && <ErrorBanner message={error} />}
-            <button
-              className="button button-primary full-button"
-              disabled={busy || connection !== "connected"}
-              type="submit"
-            >
-              {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
-              {!busy && <span aria-hidden="true">↗</span>}
-            </button>
-            {connection !== "connected" && (
-              <p className="login-hint">Connect to the backend before signing in.</p>
-            )}
-          </form>
+          {error && <ErrorBanner message={error} />}
+          {connection !== "connected" && (
+            <p className="login-hint">Connect to the backend, then choose Start Interview in the web app.</p>
+          )}
           <p className="secure-note">
-            <span>●</span> Sign-in credentials stay in the protected desktop process.
+            <span>●</span> Your password is never entered or stored in this app.
           </p>
         </div>
       </div>

@@ -13,6 +13,18 @@ export const QUESTION_MAX_CHARS = 2000; // UX hint mirroring the server limit (t
 
 export type AnswerStatus = "streaming" | "complete" | "cancelled" | "error";
 
+// Where an answer came from (D-66): exact text of a file, a model answer from related passages, or
+// general knowledge. References carry ids, a file name and a heading, never source text.
+export type SourceRef = {
+  source_type: string | null;
+  source_id: string | null;
+  name: string | null;
+  heading: string | null;
+  validated: boolean | null;
+};
+export type SourceKind = "resume" | "document" | "synthesis" | "general";
+export type AnswerSource = { kind: SourceKind; refs: SourceRef[] };
+
 // GET /api/v1/sessions/{id}/questions and /answers/{answer_id}
 export type AnswerItem = {
   id: string;
@@ -29,6 +41,7 @@ export type AnswerItem = {
   input_tokens: number | null;
   output_tokens: number | null;
   created_at: string;
+  source?: AnswerSource | null;
 };
 
 export type QuestionItem = {
@@ -67,6 +80,7 @@ export type QaEvent =
       fallbackUsed: boolean;
       inputTokens: number | null;
       outputTokens: number | null;
+      source?: AnswerSource | null;
     }
   | {
       type: "answer.error";
@@ -154,6 +168,49 @@ function intOrNull(o: Obj, key: string): number | null {
   return v === null || v === undefined ? null : int(o, key);
 }
 
+const SOURCE_KINDS: readonly string[] = ["resume", "document", "synthesis", "general"];
+
+/** The optional answer source (D-66). Anything unexpected is treated as "no source", never an error. */
+export function parseSource(raw: unknown): AnswerSource | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const o = raw as Obj;
+  const kind = o["kind"];
+  if (typeof kind !== "string" || !SOURCE_KINDS.includes(kind) || !Array.isArray(o["refs"])) return null;
+  const refs: SourceRef[] = [];
+  for (const item of o["refs"] as unknown[]) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+    const r = item as Obj;
+    refs.push({
+      source_type: typeof r["source_type"] === "string" ? r["source_type"] : null,
+      source_id: typeof r["source_id"] === "string" ? r["source_id"] : null,
+      name: typeof r["name"] === "string" ? r["name"] : null,
+      heading: typeof r["heading"] === "string" ? r["heading"] : null,
+      validated: typeof r["validated"] === "boolean" ? r["validated"] : null,
+    });
+  }
+  return { kind: kind as SourceKind, refs };
+}
+
+/** A short label for where an answer came from, or null for answers without a recorded source. */
+export function sourceLabel(source: AnswerSource | null | undefined): string | null {
+  if (!source) return null;
+  const first = source.refs[0];
+  switch (source.kind) {
+    case "resume":
+      return "From your resume";
+    case "document":
+      return first?.name ? `From document: ${first.name}` : "From your document";
+    case "synthesis":
+      return first?.name ? `Based on: ${first.name}` : "Written from your resume and documents";
+    case "general":
+      return first?.validated === false
+        ? "General knowledge (not fully validated)"
+        : first?.validated === true
+          ? "General knowledge (validated)"
+          : "General knowledge";
+  }
+}
+
 function strOrNull(o: Obj, key: string): string | null {
   const v = o[key];
   return v === null || v === undefined ? null : str(o, key);
@@ -220,6 +277,7 @@ export function parseQaEvent(frame: SseFrame): QaEvent | null {
         fallbackUsed: o["fallback_used"],
         inputTokens: intOrNull(o, "input_tokens"),
         outputTokens: intOrNull(o, "output_tokens"),
+        source: parseSource(o["source"]),
       };
     }
     default: // answer.error
@@ -299,6 +357,7 @@ export type LiveAnswer = {
   model: string | null;
   metrics: Metrics | null;
   fallbackUsed: boolean;
+  source: AnswerSource | null;
   failure: FailureInfo | null;
 };
 
@@ -314,6 +373,7 @@ export const IDLE: LiveAnswer = {
   model: null,
   metrics: null,
   fallbackUsed: false,
+  source: null,
   failure: null,
 };
 
@@ -401,6 +461,7 @@ export function reduceLive(state: LiveAnswer, action: LiveAction): LiveAnswer {
         model: action.model,
         metrics: action.metrics,
         fallbackUsed: action.fallbackUsed,
+        source: action.source ?? null,
       };
     case "answer.error":
       return { ...state, phase: "failed", failure: { code: action.code, retryable: action.retryable } };
@@ -414,11 +475,14 @@ export function reduceLive(state: LiveAnswer, action: LiveAction): LiveAnswer {
 const ANSWER_ERRORS: Record<string, string> = {
   llm_unavailable: "The AI service is unavailable right now.",
   llm_rate_limited: "The AI service is busy. Please wait a moment.",
+  llm_quota_exhausted:
+    "This AI provider has no credit or quota left. Create a new session with a different answer provider, or switch it in the desktop app.",
   llm_timeout: "The AI service took too long to answer.",
   llm_content_filtered: "The AI service could not answer this question.",
   invalid_provider_selection: "This session's AI provider or model is not available.",
   retrieval_failed: "Your materials could not be searched.",
   empty_answer: "The AI service returned an empty answer.",
+  answer_not_validated: "A reliable answer could not be produced. Please rephrase and try again.",
   internal_error: "Something went wrong while answering.",
   generation_interrupted: "The answer was interrupted before it finished.",
   stream_interrupted: "The connection ended before the answer was complete.",
@@ -489,10 +553,21 @@ export function questionError(text: string): string | null {
   return null;
 }
 
-/** Body of POST /sessions/{id}/questions: only the question (and the optional type override). */
-export function toQuestionBody(text: string, override: string): { text: string; question_type_override?: string } {
-  const body: { text: string; question_type_override?: string } = { text: text.trim() };
+/** How much detail an answer gives (D-66): "full" (default, a named section answered completely) or "summary". */
+export type AnswerDetail = "full" | "summary";
+
+/**
+ * Body of POST /sessions/{id}/questions: only the question, the optional type override and the optional
+ * detail. `detail` is sent only for "summary", so the default request is exactly what it always was.
+ */
+export function toQuestionBody(
+  text: string,
+  override: string,
+  detail: AnswerDetail = "full",
+): { text: string; question_type_override?: string; detail?: "summary" } {
+  const body: { text: string; question_type_override?: string; detail?: "summary" } = { text: text.trim() };
   if (override !== "") body.question_type_override = override;
+  if (detail === "summary") body.detail = "summary";
   return body;
 }
 

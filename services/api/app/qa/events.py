@@ -3,6 +3,7 @@ retrieval.done, answer.started, answer.delta, answer.done, answer.error)."""
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,8 @@ class AnswerDone:
     fallback_used: bool
     input_tokens: int | None
     output_tokens: int | None
+    # D-66: where the answer came from, `{"kind": ..., "refs": [...]}`; None on the legacy path.
+    source: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

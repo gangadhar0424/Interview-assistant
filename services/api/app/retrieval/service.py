@@ -38,6 +38,12 @@ class ChunkHit:
     chunk_index: int
     text: str
     similarity: float  # cosine similarity in [-1, 1]; higher is more similar
+    # D-66 (section-aware chunks; None for fixed-size chunks) and hybrid-search signals.
+    heading: str | None = None
+    section_start: int | None = None
+    section_end: int | None = None
+    fused_score: float = 0.0  # reciprocal-rank-fusion score (hybrid search only)
+    lexical_rank: float | None = None  # ts_rank_cd; None when the lexical branch did not match
 
 
 async def search_chunks(
@@ -84,6 +90,7 @@ async def search_chunks(
         params["st"] = source_type
     stmt_text = (
         "SELECT c.id AS chunk_id, c.source_type, c.source_id, c.chunk_index, c.text, "
+        "       c.heading, c.section_start, c.section_end, "
         "       1 - (e.embedding <=> CAST(CAST(:q AS text) AS vector)) AS similarity "
         "FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id "
         "WHERE " + " AND ".join(where)
@@ -108,6 +115,9 @@ async def search_chunks(
             chunk_index=r.chunk_index,
             text=r.text,
             similarity=float(r.similarity),
+            heading=r.heading,
+            section_start=r.section_start,
+            section_end=r.section_end,
         )
         for r in rows
     ]

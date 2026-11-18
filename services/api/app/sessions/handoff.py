@@ -15,6 +15,7 @@ startable, a disabled account) is the same `404 handoff_invalid`. The code is ne
 Handoff changes no session status and starts no capture.
 """
 
+import asyncio
 import uuid
 from typing import Annotated
 
@@ -102,6 +103,12 @@ async def issue_handoff(
         raise AppError(
             503, "handoff_unavailable", "Starting the desktop app is temporarily unavailable."
         ) from None
+    # D-66 (Phase 4): the interview is about to start, so make sure the first question is fast
+    # (embedding model loaded, database pool warm). Fire and forget; a failure is ignored.
+    tasks: set[asyncio.Task[None]] = request.app.state.background_tasks
+    warm_up = asyncio.create_task(request.app.state.question_answerer.warm_up())
+    tasks.add(warm_up)
+    warm_up.add_done_callback(tasks.discard)
     response.headers["Cache-Control"] = "no-store"
     return HandoffIssueResponse(code=code, expires_in=store.ttl_seconds)
 

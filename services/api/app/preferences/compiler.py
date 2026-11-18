@@ -6,7 +6,7 @@ optional provider/model happens where a session is created (Phase 7B), not here.
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 # Provider/model identifiers are opaque ids from config; only their shape is checked here.
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$")
 _INDIC = frozenset({Language.HI, Language.TE})
+REASONING_HEADROOM_TOKENS = 200  # added by `with_word_budget` (D-66)
 _MAX_OUTPUT_TOKENS_CAP = 32768  # the Phase 6 GenerationConfig ceiling
 
 # Sampling temperature per question type: factual/technical answers are sampled more tightly.
@@ -131,6 +132,33 @@ class PreferenceCompiler:
         if language in _INDIC:
             factor *= self._targets.indic_token_multiplier
         return min(_MAX_OUTPUT_TOKENS_CAP, max(1, math.ceil(max_words * factor)))
+
+    def with_word_budget(
+        self,
+        compiled: CompiledPreferences,
+        *,
+        min_words: int,
+        max_words: int,
+        length: AnswerLength = AnswerLength.LONG,
+    ) -> CompiledPreferences:
+        """The same preferences with a larger word budget (the long band) and a matching output
+        token limit, for an answer that must cover a whole section (D-66)."""
+        answer = replace(
+            compiled.answer,
+            answer_length=length,
+            target_min_words=min(min_words, max_words),
+            target_max_words=max_words,
+        )
+        generation = GenerationConfig(
+            temperature=compiled.generation.temperature,
+            # Headroom for a reasoning model's hidden thinking tokens, which count against the
+            # limit: without it a short answer is cut off mid-sentence.
+            max_output_tokens=min(
+                _MAX_OUTPUT_TOKENS_CAP,
+                self._max_output_tokens(answer.language, max_words) + REASONING_HEADROOM_TOKENS,
+            ),
+        )
+        return CompiledPreferences(answer=answer, generation=generation)
 
     def compile(self, prefs: PreferencesInput) -> CompiledPreferences:
         language = _parse_enum(Language, prefs.language, "language")

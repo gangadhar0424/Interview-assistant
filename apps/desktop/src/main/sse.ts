@@ -1,3 +1,4 @@
+import { parseAnswerSource } from "../shared/answer-source";
 import type { QaEvent } from "../shared/contracts";
 
 export class SseProtocolError extends Error {}
@@ -146,6 +147,7 @@ export function parseSseEvent(frame: { event: string; data: string }): QaEvent |
         fallbackUsed: value.fallback_used,
         inputTokens: nullableInteger(value, "input_tokens"),
         outputTokens: nullableInteger(value, "output_tokens"),
+        source: parseAnswerSource(value.source),
       };
     }
     default:

@@ -44,6 +44,28 @@ from tests.test_files import upload
 from tests.test_ingestion_jobs import Env, env  # noqa: F401  (fixture reused)
 from tests.test_sessions import SESSIONS, body, create, new_file
 
+# Most tests check isolation and prompt content, not relevance: the fake hash embedder gives
+# unrelated texts low similarity, so the D-64 document relevance floor is off unless a test
+# passes RELEVANCE_SETTINGS explicitly.
+# Context knobs are pinned to the code defaults so local .env tuning never changes test results.
+_DEFAULT_CONTEXT = {
+    "qa_retrieval_top_k": 8,
+    "qa_resume_quota": 3,
+    "qa_context_max_chars": 6000,
+    # Module-level settings are built at import time, before the conftest fixture pins the
+    # environment, so the answer-pipeline switches are stated here as well (D-66).
+    "qa_retrieval_mode": "dense",
+    "qa_router_mode": "off",
+    "qa_validate_general": "off",
+    "qa_answer_cache_ttl_seconds": 0,
+}
+ISOLATION_SETTINGS = get_settings().model_copy(
+    update={**_DEFAULT_CONTEXT, "qa_min_document_similarity": 0.0}
+)
+# The floor is off by default (D-64); relevance tests turn it on explicitly.
+RELEVANCE_SETTINGS = get_settings().model_copy(
+    update={**_DEFAULT_CONTEXT, "qa_min_document_similarity": 0.5}
+)
 RESUME_CANARY = "RESUME-CANARY-ALICE"
 SELECTED_CANARY = "DOC-CANARY-SELECTED"
 UNSELECTED_CANARY = "DOC-CANARY-UNSELECTED"
@@ -113,14 +135,17 @@ def run_ask(
     tracker: OpenSessionTracker | None = None,
     stop_after: Callable[[QaEvent], bool] | None = None,
     settings: Settings | None = None,
+    cache: Any = None,
+    detail: str | None = None,
 ) -> list[QaEvent]:
     async def go(sessions: Any) -> list[QaEvent]:
         maker: Any = TrackedSessionMaker(sessions, tracker) if tracker else sessions
         answerer = QuestionAnswerer(
-            maker, settings or get_settings(), router, embedder or FakeEmbeddingProvider()
+            maker, settings or ISOLATION_SETTINGS, router, embedder or FakeEmbeddingProvider()
         )
+        answerer.set_cache(cache)
         events: list[QaEvent] = []
-        agen = answerer.ask(uid, uuid.UUID(session_id), text, override)
+        agen = answerer.ask(uid, uuid.UUID(session_id), text, override, detail=detail)
         try:
             async for event in agen:
                 events.append(event)
@@ -277,7 +302,7 @@ def test_a_question_flows_through_every_stage_and_is_persisted(
         False,
     )
     assert answer["input_tokens"] > 0 and answer["output_tokens"] > 0
-    assert answer["error_code"] is None and answer["prompt_version"] == "v2"
+    assert answer["error_code"] is None and answer["prompt_version"] == "v4"
     assert str(answer["user_id"]) == str(scenario.alice_id)
     config = answer["generation_config"]
     assert (
@@ -341,6 +366,35 @@ def test_only_selected_materials_of_the_asking_user_reach_the_provider(
     )
     assert {str(r["source_id"]) for r in sources} == {scenario_full.resume, scenario_full.doc}
     assert {str(r["user_id"]) for r in sources} == {str(scenario_full.alice_id)}
+
+
+def test_unrelated_question_skips_the_selected_document_but_keeps_the_resume(
+    scenario_full: Scenario,
+) -> None:
+    """D-64: a selected document that does not match the question is not sent; the resume is."""
+    provider = RecordingProvider()
+    scenario_full.ask(
+        make_router([provider]), "Explain how a hash map works", settings=RELEVANCE_SETTINGS
+    )
+    (call,) = provider.recorded
+    material = call.block("candidate_material")
+    assert RESUME_CANARY in material
+    assert SELECTED_CANARY not in material
+    assert UNSELECTED_CANARY not in call.user and BOB_CANARY not in call.user
+
+
+def test_question_matching_the_selected_document_includes_it(scenario_full: Scenario) -> None:
+    """D-64: a selected document that matches the question is sent along with the resume."""
+    provider = RecordingProvider()
+    scenario_full.ask(
+        make_router([provider]),
+        f"{SELECTED_CANARY} led the billing migration.",
+        settings=RELEVANCE_SETTINGS,
+    )
+    (call,) = provider.recorded
+    material = call.block("candidate_material")
+    assert SELECTED_CANARY in material and RESUME_CANARY in material
+    assert UNSELECTED_CANARY not in call.user and BOB_CANARY not in call.user
 
 
 def test_a_question_naming_other_users_secrets_cannot_pull_their_chunks(

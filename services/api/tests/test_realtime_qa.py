@@ -164,7 +164,7 @@ def test_a_question_streams_in_order_with_consecutive_sequence_numbers(
     assert answer["status"] == "complete" and answer["text"] == streamed_text(events)
     assert set(done) == {
         "answer_id", "question_id", "provider", "model", "metrics", "fallback_used",
-        "input_tokens", "output_tokens",
+        "input_tokens", "output_tokens", "source",
     }  # fmt: skip
     assert idle(limits, world.alice_id)
 

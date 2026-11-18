@@ -319,6 +319,7 @@ async def _serve(websocket: WebSocket, conn: Connection, settings: Settings) -> 
                     sessionmaker=app_state.sessionmaker,
                     text=message.payload.text,
                     question_type_override=message.payload.question_type_override,
+                    detail=message.payload.detail,
                     on_account_inactive=lambda: conn.request_close(proto.CLOSE_POLICY),
                 )
                 session.generation = generation

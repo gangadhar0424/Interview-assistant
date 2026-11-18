@@ -249,6 +249,22 @@
             ],
             "default": null,
             "title": "Question Type Override"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "enum": [
+                  "full",
+                  "summary"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Detail"
           }
         },
         "required": [
@@ -487,6 +503,17 @@
               }
             ],
             "title": "Output Tokens"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AnswerSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -497,7 +524,8 @@
           "metrics",
           "fallback_used",
           "input_tokens",
-          "output_tokens"
+          "output_tokens",
+          "source"
         ],
         "title": "AnswerDonePayload",
         "type": "object"
@@ -596,6 +624,113 @@
           "total_ms"
         ],
         "title": "AnswerMetrics",
+        "type": "object"
+      },
+      "AnswerSource": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "resume",
+              "document",
+              "synthesis",
+              "general"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "refs": {
+            "items": {
+              "$ref": "#/$defs/AnswerSourceRef"
+            },
+            "title": "Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "refs"
+        ],
+        "title": "AnswerSource",
+        "type": "object"
+      },
+      "AnswerSourceRef": {
+        "additionalProperties": false,
+        "description": "One source of an answer (D-66): ids and headings only, never the source text.",
+        "properties": {
+          "source_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "resume",
+                  "document"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Type"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Heading"
+          },
+          "validated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Validated"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id",
+          "name",
+          "heading",
+          "validated"
+        ],
+        "title": "AnswerSourceRef",
         "type": "object"
       },
       "AnswerStarted": {

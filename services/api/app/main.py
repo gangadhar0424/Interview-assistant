@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import time
@@ -32,6 +33,7 @@ from app.ingestion.dispatch import DramatiqDispatcher
 from app.jobs_import.fetch import SafeFetcher
 from app.jobs_import.limiter import SlidingWindowLimiter
 from app.jobs_import.service import JobImporter
+from app.qa.cache import AnswerCache
 from app.qa.limits import QuestionLimits
 from app.qa.service import QuestionAnswerer
 from app.realtime.limits import ConnectionRegistry
@@ -163,6 +165,15 @@ def create_app() -> FastAPI:
             socket_timeout=2,
         )
         app.state.ticket_store = TicketStore(ticket_redis, settings.ws_ticket_ttl_seconds)
+        # Answer pipeline (D-66, Phase 4): the validated-general-answer cache, and a background
+        # warm-up so the first question does not pay for loading the embedding model.
+        app.state.question_answerer.set_cache(
+            AnswerCache(ticket_redis, settings.qa_answer_cache_ttl_seconds)
+        )
+        app.state.background_tasks = set()
+        warm_up_task = asyncio.create_task(app.state.question_answerer.warm_up())
+        app.state.background_tasks.add(warm_up_task)
+        warm_up_task.add_done_callback(app.state.background_tasks.discard)
         app.state.ws_ticket_limiter = SlidingWindowLimiter(
             settings.ws_ticket_rate_limit_per_minute, 60.0
         )
@@ -188,6 +199,8 @@ def create_app() -> FastAPI:
         )
         app.state.session_channels = session_channels
         yield
+        for task in list(app.state.background_tasks):
+            task.cancel()
         await session_channels.shutdown()  # cancel detached generations; their answers are stored
         await registry.aclose()
         await stt_router.aclose()

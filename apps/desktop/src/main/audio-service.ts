@@ -46,11 +46,13 @@ export type AudioPorts = {
   isSignedIn(): boolean;
   windowState(): WindowState;
   sessionReady(sessionId: string): Promise<boolean>;
+  /** True when the session has a voice-listening provider chosen (D-57). Checked before arming. */
+  voiceProviderChosen(sessionId: string): Promise<boolean>;
   transcribe(wav: Buffer, sessionId: string, signal: AbortSignal): Promise<TranscribeResult>;
   /** A safe, user-facing message for a failed transcription (never content). */
   describeError(error: unknown): string;
-  /** True when the failure means audio input cannot work at all (stop listening). */
-  isFatal(error: unknown): boolean;
+  /** Why listening must stop when this failure means audio input cannot work at all, else null. */
+  fatalReason(error: unknown): AudioStopReason | null;
   emit(event: AudioEvent): void;
   /** Visible, main-process-owned indication (tray tooltip, taskbar flash). */
   setIndicator(state: AudioIndicator, source: AudioSource | null): void;
@@ -79,6 +81,8 @@ const STOP_MESSAGES: Record<AudioStopReason, string> = {
   timeout: "No audio arrived, so listening stopped.",
   limit: "The maximum listening time was reached, so listening stopped.",
   unavailable: "Audio input is not available on this server.",
+  voice_provider_required:
+    "Choose a voice listening provider for this session before using audio input.",
   error: "Listening stopped.",
 };
 
@@ -128,6 +132,14 @@ export class AudioService {
     this.requireWindowReady();
     if (!(await this.ports.sessionReady(sessionId))) {
       throw new AudioRefusal("session_not_ready", "Select a ready session before listening.");
+    }
+    // Nothing may be captured for a session that has no voice provider: refuse BEFORE arming, so
+    // the recording indicator never appears for audio that could not be transcribed.
+    if (!(await this.ports.voiceProviderChosen(sessionId))) {
+      throw new AudioRefusal(
+        "stt_provider_required",
+        STOP_MESSAGES.voice_provider_required,
+      );
     }
     // Conditions can change while we waited for the network: check everything again.
     this.requireEnabledAndSignedIn();
@@ -226,8 +238,9 @@ export class AudioService {
       });
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (this.ports.isFatal(error)) {
-        this.stop("unavailable");
+      const fatal = this.ports.fatalReason(error);
+      if (fatal) {
+        this.stop(fatal);
         return;
       }
       this.ports.emit({ type: "notice", message: this.ports.describeError(error) });

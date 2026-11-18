@@ -11,6 +11,7 @@ are page-limited here, and extracted text is size-limited after normalisation.
 """
 
 import io
+import re
 from typing import Protocol
 
 import docx
@@ -85,10 +86,28 @@ def _docx_blocks(document: DocxDocument) -> list[str]:
     for item in document.iter_inner_content():  # paragraphs and tables, in document order
         if isinstance(item, Paragraph):
             if item.text.strip():
-                blocks.append(item.text)
+                blocks.append(_heading_prefix(item) + item.text)
         elif isinstance(item, Table):
             blocks.extend(_table_rows(item))
     return blocks
+
+
+_HEADING_STYLE = re.compile(r"^heading\s*(\d)\b", re.IGNORECASE)
+
+
+def _heading_prefix(paragraph: Paragraph) -> str:
+    """A Markdown heading marker for a paragraph in a Word heading style ("Heading 1" ..., "Title"),
+    so the section-aware chunker (D-66) sees the document's real structure. Three levels at most."""
+    try:
+        name = (paragraph.style.name or "") if paragraph.style is not None else ""
+    except Exception:  # noqa: BLE001 - a broken style table must never fail extraction
+        return ""
+    if name.strip().lower() == "title":
+        return "# "
+    match = _HEADING_STYLE.match(name.strip())
+    if match is None:
+        return ""
+    return "#" * max(1, min(3, int(match.group(1)))) + " "
 
 
 def _table_rows(table: Table) -> list[str]:

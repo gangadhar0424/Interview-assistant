@@ -250,6 +250,23 @@ describe("the typed question flow is unchanged", () => {
     ]);
   });
 
+  it("sends the short-summary choice only when it was chosen (D-66)", async () => {
+    expect(state().answerDetail).toBe("full"); // the default
+    state().setAnswerDetail("summary");
+    await state().ask("Enhancement 1");
+    expect(desktop.sessions.startQuestion.mock.calls[0]).toEqual([
+      "44444444-2222-4333-8444-555555555555",
+      SESSION,
+      "Enhancement 1",
+      undefined,
+      "summary",
+    ]);
+    state().setAnswerDetail("full");
+    desktop.sessions.startQuestion.mockClear();
+    await state().ask("Enhancement 1");
+    expect(desktop.sessions.startQuestion.mock.calls[0]).toHaveLength(3); // back to the original call
+  });
+
   it("still requires a selected session", async () => {
     useDesktopStore.setState({ selectedSessionId: null });
     await state().ask("Hello");

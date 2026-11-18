@@ -5,6 +5,7 @@
  * reaches disk, logs or the renderer settings.
  */
 import { DeepLinkInbox } from "../src/main/deep-link";
+import { HANDOFF_LINK, HANDOFF_REDEEM_PATH, settleHandoff } from "./handoff-signin";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,6 +73,7 @@ function setup() {
   };
   const calls: FetchCall[] = [];
   const backend = {
+    voice: "fake" as string | null,
     transcribe: (): Response =>
       json({ text: TRANSCRIPT, truncated: false, is_question: true, confidence: 0.9, provider: "fake", model: "m", latency_ms: 3 }),
   };
@@ -82,11 +84,21 @@ function setup() {
       headers: { ...(init.headers as Record<string, string>) }, body: init.body,
     };
     calls.push(call);
+    if (call.path === HANDOFF_REDEEM_PATH) {
+      return json({ access_token: "access-1", expires_in: 900, user, session: sessionRow(SESSION, "ready"), preferences: { language: "en" } }, 200, { "Set-Cookie": "refresh_token=refresh-1; HttpOnly; Path=/api/v1/auth" });
+    }
     if (call.path === "/api/v1/auth/login") {
       return json({ access_token: "access-1", expires_in: 900, user }, 200, { "Set-Cookie": "refresh_token=refresh-1; HttpOnly; Path=/api/v1/auth" });
     }
     if (call.path === "/api/v1/auth/logout") return json({}, 200);
     if (call.path === "/api/v1/sessions") return json({ items: [sessionRow(SESSION, "ready"), sessionRow(NOT_READY, "draft")], next_cursor: null });
+    if (call.path === `/api/v1/sessions/${SESSION}` && call.method === "GET") {
+      return json({ ...sessionRow(SESSION, "ready"), preferences: { stt_provider: backend.voice } });
+    }
+    if (call.path === `/api/v1/sessions/${SESSION}` && call.method === "PATCH") {
+      backend.voice = (JSON.parse(String(call.body)) as { preferences: { stt_provider: string } }).preferences.stt_provider;
+      return json({ ...sessionRow(SESSION, "ready"), preferences: { stt_provider: backend.voice } });
+    }
     if (call.path.endsWith("/transcribe")) return backend.transcribe();
     if (call.path.endsWith("/questions")) return sse(createdFrame + doneFrame);
     return json({ error: { code: "not_found", message: "no" } }, 404);
@@ -95,6 +107,7 @@ function setup() {
   const gate = { read: (): AudioGateState => ({ state: "idle", source: null }) };
   const indicator = vi.fn();
   const consent = vi.fn(async () => true);
+  const inbox = new DeepLinkInbox();
   const dispose = registerDesktopIpc({
     ipcMain: {
       handle: (channel: string, fn: Handler) => handlers.set(channel, fn),
@@ -113,7 +126,7 @@ function setup() {
     audioHost: { setIndicator: indicator },
     audioGate: gate,
     confirmAudioConsent: consent,
-    deepLinks: new DeepLinkInbox(),
+    deepLinks: inbox,
     confirmHandoffSwitch: async () => true,
     confirmHandoffAccountSwitch: async () => true,
     showWindow: () => undefined,
@@ -140,7 +153,10 @@ function setup() {
     questionCalls: () => calls.filter((c) => c.path.endsWith("/questions")),
     backend,
     cleanup: () => { dispose(); rmSync(dir, { recursive: true, force: true }); },
-    login: async () => expect((await call("auth:login", "p@example.com", "long-password-1")).ok).toBe(true),
+    login: async () => {
+      inbox.deliver(HANDOFF_LINK);
+      await settleHandoff();
+      expect((await call("handoff:get-state")).data.phase).toBe("ready");    },
     enable: async () => expect((await call("app:update-settings", { audioInputEnabled: true })).ok).toBe(true),
     speakOnePhrase: async () => {
       await frames(tone(40, 12_000));

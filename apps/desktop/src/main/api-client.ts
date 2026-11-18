@@ -172,6 +172,8 @@ export class DesktopApiClient {
     }
   }
 
+  /** Not reachable from the renderer or IPC (D-65): accounts are created and signed in on the web,
+   * and the desktop gets its login from the handoff. Kept for the API-client unit tests. */
   async login(email: string, password: string): Promise<DesktopUser> {
     const { response, payload } = await this.requestJson<TokenResponse>(
       "/api/v1/auth/login",
@@ -179,15 +181,6 @@ export class DesktopApiClient {
     );
     if (!response.ok) throw errorFromResponse(response, payload);
     return this.acceptTokenResponse(response, payload).user;
-  }
-
-  async signup(email: string, password: string): Promise<DesktopUser> {
-    const { response, payload } = await this.requestJson<unknown>(
-      "/api/v1/auth/signup",
-      { email, password },
-    );
-    if (!response.ok) throw errorFromResponse(response, payload);
-    return this.login(email, password);
   }
 
   async logout(): Promise<void> {
@@ -225,6 +218,39 @@ export class DesktopApiClient {
       cursor = page.next_cursor;
     }
     return items;
+  }
+
+  /**
+   * The voice-listening provider id saved on a session, or null when none was chosen (sessions
+   * created before D-57). Only that one field leaves this method, never the job description or the
+   * rest of the preferences.
+   */
+  async getSessionVoiceProvider(sessionId: string): Promise<string | null> {
+    const detail = await this.authenticatedJson<{ preferences?: { stt_provider?: unknown } }>(
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}`,
+    );
+    const provider = detail.preferences?.stt_provider;
+    return typeof provider === "string" && provider.length > 0 ? provider : null;
+  }
+
+  /** Saves the user's voice-listening provider choice on a session (D-57: the user chooses it). */
+  async setSessionVoiceProvider(sessionId: string, provider: string): Promise<void> {
+    await this.patchSessionPreferences(sessionId, { stt_provider: provider });
+  }
+
+  /** Saves the user's answer (reasoning) provider choice on a session (D-57, D-63). */
+  async setSessionReasoningProvider(sessionId: string, provider: string): Promise<void> {
+    await this.patchSessionPreferences(sessionId, { provider });
+  }
+
+  private async patchSessionPreferences(
+    sessionId: string,
+    preferences: Record<string, string>,
+  ): Promise<void> {
+    await this.authenticatedJson<unknown>(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "PATCH",
+      body: { preferences },
+    });
   }
 
   /**
@@ -494,12 +520,13 @@ export class DesktopApiClient {
     signal: AbortSignal,
     onEvent: (event: QaEvent) => void,
     inputSource?: "screenshot" | "audio",
+    detail?: "summary",
   ): Promise<void> {
     const path = `/api/v1/sessions/${encodeURIComponent(sessionId)}/questions`;
-    let response = await this.authenticatedStream(path, text, signal, inputSource);
+    let response = await this.authenticatedStream(path, text, signal, inputSource, detail);
     if (response.status === 401) {
       await this.refreshSession();
-      response = await this.rawQuestionStream(path, text, signal, inputSource);
+      response = await this.rawQuestionStream(path, text, signal, inputSource, detail);
     }
     if (!response.ok) throw await responseError(response);
     const contentType = response.headers.get("Content-Type") ?? "";
@@ -564,6 +591,7 @@ export class DesktopApiClient {
     text: string,
     signal: AbortSignal,
     inputSource?: "screenshot" | "audio",
+    detail?: "summary",
   ) {
     if (!this.accessToken) {
       throw new DesktopApiError({
@@ -573,7 +601,7 @@ export class DesktopApiClient {
         message: "Sign in again to continue.",
       });
     }
-    return this.rawQuestionStream(path, text, signal, inputSource);
+    return this.rawQuestionStream(path, text, signal, inputSource, detail);
   }
 
   private async rawQuestionStream(
@@ -581,6 +609,7 @@ export class DesktopApiClient {
     text: string,
     signal: AbortSignal,
     inputSource?: "screenshot" | "audio",
+    detail?: "summary",
   ) {
     return this.request(path, {
       method: "POST",
@@ -590,13 +619,20 @@ export class DesktopApiClient {
         "Content-Type": "application/json",
       },
       // Typed questions keep the exact body they always had; only a completed screenshot flow
-      // adds `input_source`.
-      body: JSON.stringify(inputSource ? { text, input_source: inputSource } : { text }),
+      // adds `input_source`, and only a requested summary adds `detail` (D-66).
+      body: JSON.stringify({
+        text,
+        ...(inputSource ? { input_source: inputSource } : {}),
+        ...(detail ? { detail } : {}),
+      }),
       signal,
     });
   }
 
-  private async authenticatedJson<T>(path: string): Promise<T> {
+  private async authenticatedJson<T>(
+    path: string,
+    send?: { method: "PATCH"; body: unknown },
+  ): Promise<T> {
     if (!this.accessToken) {
       throw new DesktopApiError({
         kind: "http",
@@ -605,14 +641,18 @@ export class DesktopApiClient {
         message: "Sign in again to continue.",
       });
     }
-    let response = await this.request(path, {
-      headers: { Authorization: `Bearer ${this.accessToken}` },
-    });
+    const options = (token: string): RequestInit =>
+      send
+        ? {
+            method: send.method,
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify(send.body),
+          }
+        : { headers: { Authorization: `Bearer ${token}` } };
+    let response = await this.request(path, options(this.accessToken));
     if (response.status === 401) {
       await this.refreshSession();
-      response = await this.request(path, {
-        headers: { Authorization: `Bearer ${this.accessToken ?? ""}` },
-      });
+      response = await this.request(path, options(this.accessToken ?? ""));
     }
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) throw errorFromResponse(response, payload);

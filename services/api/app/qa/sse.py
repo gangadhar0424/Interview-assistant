@@ -66,23 +66,22 @@ def event_to_frame(event: QaEvent) -> bytes:
                 {"answer_id": str(event.answer_id), "index": event.index, "text": event.text},
             )
         case AnswerDone():
-            return sse_frame(
-                "answer.done",
-                {
-                    "answer_id": str(event.answer_id),
-                    "question_id": str(event.question_id),
-                    "provider": event.provider,
-                    "model": event.model,
-                    "metrics": {
-                        "retrieval_ms": event.retrieval_ms,
-                        "first_token_ms": event.first_token_ms,
-                        "total_ms": event.total_ms,
-                    },
-                    "fallback_used": event.fallback_used,
-                    "input_tokens": event.input_tokens,
-                    "output_tokens": event.output_tokens,
+            done: dict[str, object] = {
+                "answer_id": str(event.answer_id),
+                "question_id": str(event.question_id),
+                "provider": event.provider,
+                "model": event.model,
+                "metrics": {
+                    "retrieval_ms": event.retrieval_ms,
+                    "first_token_ms": event.first_token_ms,
+                    "total_ms": event.total_ms,
                 },
-            )
+                "fallback_used": event.fallback_used,
+                "input_tokens": event.input_tokens,
+                "output_tokens": event.output_tokens,
+            }
+            done["source"] = event.source  # additive (D-66): null on the legacy path
+            return sse_frame("answer.done", done)
         case AnswerFailed():
             return sse_frame(
                 "answer.error",

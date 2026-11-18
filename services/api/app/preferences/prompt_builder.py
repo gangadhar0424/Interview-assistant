@@ -22,7 +22,11 @@ from app.ai.types import Message
 from app.preferences.answer_config import AnswerConfig
 from app.preferences.sanitize import clean_text
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v4"
+# Versions that render evidence tags (v1 has none). v3 keeps the tags for the model's reference but
+# tells it never to print them and to answer general questions from its own knowledge (D-61).
+# v4 (D-64): source order is resume wording, relevant selected documents, then general knowledge.
+_TAGGED_VERSIONS = frozenset({"v2", "v3", "v4"})
 TEMPLATES_ROOT = Path(__file__).resolve().parent / "templates"
 _BASE_TEMPLATE_VERSION = "v1"
 
@@ -203,7 +207,7 @@ class PromptBuilder:
                 if not isinstance(passage.source_id, UUID):
                     raise PromptError("invalid evidence metadata")
                 text = clean_text(passage.text)
-                if text and self.version == "v2":
+                if text and self.version in _TAGGED_VERSIONS:
                     text = neutralize_evidence_tags(text)
                     material_entries.append(
                         f"[E{index} | {passage.source_type} | source {passage.source_id} "
@@ -218,18 +222,20 @@ class PromptBuilder:
                     material_entries.append(text)
             else:
                 text = clean_text(passage)
-                if text and self.version == "v2":
+                if text and self.version in _TAGGED_VERSIONS:
                     text = neutralize_evidence_tags(text)
                 if text:
-                    material_entries.append(f"[E{index}] {text}" if self.version == "v2" else text)
-                    if self.version == "v2":
+                    material_entries.append(
+                        f"[E{index}] {text}" if self.version in _TAGGED_VERSIONS else text
+                    )
+                    if self.version in _TAGGED_VERSIONS:
                         evidence.append(EvidenceRef(index, None, None, None))
         material = "\n\n".join(material_entries)
         exchanges = "\n\n".join(
             f"Q: {clean_text(q)}\nA: {clean_text(a)}" for q, a in inputs.history
         )
         # v1 has no evidence tags: its output stays byte-for-byte unchanged
-        tags = self.version == "v2"
+        tags = self.version in _TAGGED_VERSIONS
         user = _render(
             self._t("user.md"),
             {
@@ -254,3 +260,47 @@ class PromptBuilder:
             prompt_version=self.version,
             evidence=tuple(evidence),
         )
+
+
+def build_rewrite_messages(question: str) -> list[Message]:
+    """Messages for the adaptive question-rewrite step (D-66). Only the question is sent, never
+    any document text."""
+    return [
+        Message("system", _read("aux_prompts", "v1/rewrite.md")),
+        Message("user", wrap_untrusted("question", question)),
+    ]
+
+
+def build_judge_messages(question: str, answer: str) -> list[Message]:
+    """Messages for the general-answer judge (D-66). It sees the question and the draft answer
+    only, never a document, so there is no document text that could carry an injection."""
+    return [
+        Message("system", _read("aux_prompts", "v1/judge.md")),
+        Message(
+            "user",
+            wrap_untrusted("question", question) + "\n\n" + wrap_untrusted("draft_answer", answer),
+        ),
+    ]
+
+
+@lru_cache(maxsize=1)
+def _reviewer_notes() -> dict[str, str]:
+    """Fixed, content-free notes (template file) added to the question when a general answer is
+    regenerated once (D-66). Prompt text lives in templates, never in the validators."""
+    notes: dict[str, str] = {}
+    for line in _read("aux_prompts", "v1/reviewer_notes.md").splitlines():
+        reason, _, note = line.partition(":")
+        if note.strip():
+            notes[reason.strip()] = note.strip()
+    return notes
+
+
+def reviewer_note(reason: str) -> str:
+    """The retry note for a failed check (a generic one for an unknown reason)."""
+    notes = _reviewer_notes()
+    return notes.get(reason, notes["off_topic"])
+
+
+def retry_question(question: str, reason: str) -> str:
+    """The question with a fixed reviewer note, for the one regeneration of a rejected answer."""
+    return question + chr(10) * 2 + "[Reviewer note: " + reviewer_note(reason) + "]"

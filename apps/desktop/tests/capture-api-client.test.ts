@@ -169,4 +169,23 @@ describe("question requests", () => {
     expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({ text: "From screen", input_source: "screenshot" });
     expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual({ text: "From screen", input_source: "screenshot" });
   });
+
+  it("a requested summary adds detail (D-66), also after a token refresh and next to input_source", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = await signedIn(fetcher);
+    fetcher
+      .mockResolvedValueOnce(error(401, "not_authenticated"))
+      .mockResolvedValueOnce(tokens("access-2", "r2"))
+      .mockResolvedValueOnce(stream());
+    await client.streamQuestion(SESSION, "Short please", new AbortController().signal, () => undefined, undefined, "summary");
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({ text: "Short please", detail: "summary" });
+    expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual({ text: "Short please", detail: "summary" });
+    fetcher.mockResolvedValueOnce(stream());
+    await client.streamQuestion(SESSION, "Both", new AbortController().signal, () => undefined, "screenshot", "summary");
+    expect(JSON.parse(String(fetcher.mock.calls[3]?.[1]?.body))).toEqual({
+      text: "Both",
+      input_source: "screenshot",
+      detail: "summary",
+    });
+  });
 });

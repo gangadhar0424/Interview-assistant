@@ -77,6 +77,7 @@ async def _validation_error_handler(_: Request, exc: Exception) -> JSONResponse:
 
 _LLM_STATUS = {
     "llm_rate_limited": 429,
+    "llm_quota_exhausted": 503,
     "llm_timeout": 504,
     "llm_unavailable": 503,
     "llm_content_filtered": 422,

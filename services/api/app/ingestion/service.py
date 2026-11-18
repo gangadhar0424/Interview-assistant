@@ -41,7 +41,7 @@ from app.embeddings.base import (
 from app.files import repository as file_repository
 from app.ingestion import chunks as chunk_store
 from app.ingestion import repository as ingestion_repository
-from app.ingestion.chunking import ChunkConfig, chunk_text
+from app.ingestion.chunking import ChunkConfig, chunk_sections
 from app.ingestion.dispatch import JobDispatcher
 from app.ingestion.extractors import MAX_TEXT_CHARS, ExtractionError, extractor_for
 from app.ingestion.normalize import is_effectively_empty, normalize_text
@@ -318,7 +318,7 @@ async def _run_embed_stage(
         )
     if stored is None:
         raise StageError("text_missing", "The extracted text is no longer available.")
-    chunks = chunk_text(stored.text, chunk_config)
+    chunks = chunk_sections(stored.text, chunk_config)
     if not chunks:
         raise StageError("no_chunks", "The text could not be split into searchable parts.")
     if len(chunks) > MAX_CHUNKS_PER_FILE:
@@ -331,7 +331,7 @@ async def _run_embed_stage(
         )
     vectors: list[list[float]] | None = None
     if not unchanged:  # an unchanged, already-embedded file is never embedded again
-        vectors = await asyncio.to_thread(_embed_all, embedder, [c.text for c in chunks])
+        vectors = await asyncio.to_thread(_embed_all, embedder, [c.embed_text for c in chunks])
 
     async with sessions() as session:
         await set_tenant_context(session, claim.user_id)
@@ -470,29 +470,40 @@ async def reset_failed_jobs(
 
 
 async def enqueue_missing_embeddings(
-    session: AsyncSession, embedding_model: str
+    session: AsyncSession, embedding_model: str, *, rechunk: bool = False
 ) -> list[uuid.UUID]:
     """Queue `embed` jobs for every extracted text lacking vectors for `embedding_model`.
 
-    Used when the embedding model changes (re-embedding). Skips sources whose embed job is already
-    pending/processing. Returns the job ids to dispatch.
+    Used when the embedding model changes (re-embedding). With `rechunk=True` (D-66, section-aware
+    chunking) EVERY extracted text is queued instead: the embed stage compares the new chunk set
+    with the stored one and leaves an unchanged file untouched, so only files whose chunks changed
+    are re-embedded, and each file's old chunks are replaced atomically only once the new set is
+    ready. Skips sources whose embed job is already pending/processing. Returns the job ids to
+    dispatch.
     """
+    missing_only = (
+        ""
+        if rechunk
+        else (
+            "WHERE NOT EXISTS ("
+            "  SELECT 1 FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id "
+            "  WHERE c.user_id = t.user_id AND c.source_type = t.source_type "
+            "    AND c.source_id = t.source_id AND e.embedding_model = :model) "
+        )
+    )
     rows = (
         await session.execute(
             text(
-                "INSERT INTO ingestion_jobs (user_id, source_type, source_id, stage) "
+                "INSERT INTO ingestion_jobs (user_id, source_type, source_id, stage) "  # noqa: S608
                 "SELECT t.user_id, t.source_type, t.source_id, 'embed' FROM extracted_texts t "
-                "WHERE NOT EXISTS ("
-                "  SELECT 1 FROM chunks c JOIN chunk_embeddings e ON e.chunk_id = c.id "
-                "  WHERE c.user_id = t.user_id AND c.source_type = t.source_type "
-                "    AND c.source_id = t.source_id AND e.embedding_model = :model) "
-                "ON CONFLICT ON CONSTRAINT uq_ingestion_jobs_source DO UPDATE SET "
+                + missing_only
+                + "ON CONFLICT ON CONSTRAINT uq_ingestion_jobs_source DO UPDATE SET "
                 "  status = 'pending', attempt = 0, error_code = NULL, error_message = NULL, "
                 "  locked_at = NULL, started_at = NULL, finished_at = NULL, updated_at = now() "
                 "WHERE ingestion_jobs.status IN ('completed', 'failed') "
                 "RETURNING id"
             ),
-            {"model": embedding_model},
+            {"model": embedding_model} if not rechunk else {},
         )
     ).all()
     await session.commit()

@@ -162,6 +162,7 @@ describe("AudioService", () => {
   let enabled = true;
   let signedIn = true;
   let ready = true;
+  let voiceChosen = true;
   let windowState = { visible: true, focused: true, minimized: false };
   let events: AudioEvent[] = [];
   let indicators: Array<[string, string | null]> = [];
@@ -174,9 +175,15 @@ describe("AudioService", () => {
       isSignedIn: () => signedIn,
       windowState: () => windowState,
       sessionReady: async () => ready,
+      voiceProviderChosen: async () => voiceChosen,
       transcribe: (wav, sessionId, signal) => transcribe(wav, sessionId, signal),
       describeError: () => "Transcription failed.",
-      isFatal: (error) => error instanceof Error && error.message === "fatal",
+      fatalReason: (error) => {
+        if (!(error instanceof Error)) return null;
+        if (error.message === "fatal") return "unavailable";
+        if (error.message === "voice_required") return "voice_provider_required";
+        return null;
+      },
       emit: (event) => events.push(event),
       setIndicator: (state, source) => indicators.push([state, source]),
       now: () => now,
@@ -185,6 +192,7 @@ describe("AudioService", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     now = 1_000_000;
+    voiceChosen = true;
     enabled = true;
     signedIn = true;
     ready = true;
@@ -366,6 +374,27 @@ describe("AudioService", () => {
     await push(service, silence(60));
     expect(service.state).toBe("idle");
     expect(events.at(-1)).toMatchObject({ type: "stopped", reason: "unavailable" });
+  });
+
+  it("a session without a voice provider is refused before anything is armed or recorded", async () => {
+    voiceChosen = false;
+    await expect(make().start("microphone", SESSION)).rejects.toMatchObject({
+      code: "stt_provider_required",
+    });
+    expect(events).toEqual([]); // no "arming"/"listening" state, so no RECORDING banner
+    expect(indicators).toEqual([]); // no tray/taskbar recording indicator either
+  });
+
+  it("a voice-provider-required error while listening stops with its own reason", async () => {
+    transcribe = async () => {
+      throw new Error("voice_required");
+    };
+    const service = make();
+    await service.start("microphone", SESSION);
+    await push(service, speech(40));
+    await push(service, silence(60));
+    expect(service.state).toBe("idle");
+    expect(events.at(-1)).toMatchObject({ type: "stopped", reason: "voice_provider_required" });
   });
 
   it("a transient provider error is a notice and listening continues", async () => {

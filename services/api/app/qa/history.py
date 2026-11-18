@@ -18,6 +18,7 @@ from app.core.errors import AppError
 from app.db.models import GeneratedAnswer
 from app.qa import repository
 from app.qa.schemas import AnswerOut, QuestionList, QuestionOut
+from app.qa.source import source_payload
 from app.sessions import repository as sessions_repository
 from app.sessions.service import session_not_found
 
@@ -42,6 +43,7 @@ def to_answer_out(answer: GeneratedAnswer) -> AnswerOut:
         input_tokens=answer.input_tokens,
         output_tokens=answer.output_tokens,
         created_at=answer.created_at,
+        source=source_payload(answer.source_kind, answer.source_refs),
     )
 
 

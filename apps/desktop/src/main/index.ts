@@ -5,6 +5,8 @@ import type { AudioIndicator } from "./audio-service";
 import { captureElectronDisplay, listElectronDisplays, makeElectronPreview } from "./capture-electron";
 import type { IndicatorState } from "./capture-service";
 import { registerDesktopIpc } from "./ipc";
+import { startPresenceServer } from "./presence-server";
+import type { Server } from "node:http";
 import { SettingsStore } from "./settings-store";
 import { isTrustedRenderer } from "./ipc-security";
 import {
@@ -20,6 +22,7 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let disposeIpc: (() => void) | null = null;
+let presenceServer: Server | null = null;
 // Read by the media-permission handlers below; the live audio service (ipc.ts) replaces `read`.
 const audioGate: { read: () => AudioGateState } = { read: () => IDLE_GATE };
 
@@ -145,6 +148,21 @@ function registerProtocol(): void {
     app.setAsDefaultProtocolClient(PROTOCOL_SCHEME, process.execPath, [resolve(process.argv[1])]);
   } else {
     app.setAsDefaultProtocolClient(PROTOCOL_SCHEME);
+  }
+}
+
+/**
+ * A development run registers the OS protocol handler against the electron binary in this
+ * checkout (see registerProtocol). Without cleanup that registration outlives the dev session and
+ * keeps launching the dev build after the packaged app is uninstalled. Only the exact dev
+ * registration is removed (same binary and arguments), never a packaged app's.
+ */
+function unregisterDevProtocol(): void {
+  if (!process.defaultApp || !process.argv[1]) return;
+  try {
+    app.removeAsDefaultProtocolClient(PROTOCOL_SCHEME, process.execPath, [resolve(process.argv[1])]);
+  } catch {
+    // best effort; a failure here must never block quitting
   }
 }
 
@@ -321,6 +339,9 @@ if (!gotLock) {
 function startApp(): void {
   app.whenReady().then(() => {
     const settings = settingsStore.load();
+    void startPresenceServer().then((server) => {
+      presenceServer = server;
+    });
     mainWindow = createWindow();
     applyWindowSettings(mainWindow, settings);
     setExpanded(mainWindow, settings.expanded);
@@ -345,4 +366,7 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
   tray?.destroy();
   tray = null;
+  presenceServer?.close();
+  presenceServer = null;
+  unregisterDevProtocol();
 });

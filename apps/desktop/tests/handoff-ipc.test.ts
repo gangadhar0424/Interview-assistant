@@ -38,11 +38,15 @@ const tokens = (user: typeof USER_A, access: string) => ({ access_token: access,
 const notFound = () => json({ error: { code: "handoff_invalid", message: "SERVER-SECRET-TEXT" } }, 404);
 
 /** The minted login is for this user; refresh cookies map back to the user they belong to. */
-const world = { minted: USER_A, status: "ready" };
+const world = { minted: USER_A, status: "ready", priorSignIn: false };
 const cookieOwner: Record<string, typeof USER_A> = { "refresh-1": USER_A, "refresh-b": USER_B };
 
 function handoffResponse(): Response {
   const owner = world.minted;
+  if (world.priorSignIn) {
+    // The sign-in that precedes the scenario under test (see `login` in setup()).
+    return json({ ...tokens(owner, "access-1"), session: sessionRow(SESSION, "ready"), preferences: { language: "en" } }, 200, cookie("refresh-1"));
+  }
   const refresh = owner.id === USER_B.id ? "handoff-refresh-b" : "handoff-refresh-a";
   cookieOwner[refresh] = owner;
   return json(
@@ -71,6 +75,7 @@ function setup(redeem: (call: FetchCall) => Response | Promise<Response> = () =>
   const calls: FetchCall[] = [];
   world.minted = USER_A;
   world.status = "ready";
+  world.priorSignIn = false;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     const call: FetchCall = {
@@ -86,6 +91,9 @@ function setup(redeem: (call: FetchCall) => Response | Promise<Response> = () =>
     }
     if (call.path === "/api/v1/auth/logout") return json({}, 200);
     if (call.path === "/api/v1/sessions") return json({ items: [sessionRow(SESSION, "ready")], next_cursor: null });
+    if (call.path === `/api/v1/sessions/${SESSION}` && call.method === "GET") {
+      return json({ ...sessionRow(SESSION, "ready"), preferences: { stt_provider: "fake" } });
+    }
     if (call.path === "/api/v1/sessions/handoff/redeem") return redeem(call);
     return json({ error: { code: "not_found", message: "no" } }, 404);
   }));
@@ -136,7 +144,20 @@ function setup(redeem: (call: FetchCall) => Response | Promise<Response> = () =>
     redeemCalls: () => calls.filter((c) => c.path === "/api/v1/sessions/handoff/redeem"),
     logoutCalls: () => calls.filter((c) => c.path === "/api/v1/auth/logout"),
     states: () => sent.filter((s) => s.channel === "handoff:event").map((s) => s.payload as HandoffState),
-    login: async () => expect((await call("auth:login", "a@example.com", "long-password-1")).ok).toBe(true),
+    login: async () => {
+      // Signs in as USER_A the way the real app does (through a handoff), then forgets that
+      // handoff so the scenario under test starts from a plainly signed-in desktop.
+      const before = world.minted;
+      world.minted = USER_A;
+      world.priorSignIn = true;
+      inbox.deliver(LINK);
+      await flush();
+      world.priorSignIn = false;
+      world.minted = before;
+      await call("handoff:dismiss");
+      calls.splice(0, calls.length);
+      expect(readFileSync(join(dir, "refresh-token.bin"), "utf8")).toBe("refresh-1");
+    },
     state: async () => (await call("handoff:get-state")).data as HandoffState,
     whoAmI: async () => (await call("auth:get-state")).data.user as typeof USER_A | null,
     storedRefresh: () => readFileSync(join(dir, "refresh-token.bin"), "utf8"),

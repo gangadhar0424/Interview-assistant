@@ -120,6 +120,7 @@ class QuestionSubmitPayload(_Strict):
     # real 2000-character limit after cleaning.
     text: str = Field(min_length=1, max_length=20000)
     question_type_override: str | None = Field(default=None, max_length=64)
+    detail: Literal["full", "summary"] | None = None  # D-66, as in the REST body
 
 
 class AnswerCancelPayload(_Strict):
@@ -211,6 +212,21 @@ class AnswerMetrics(_Strict):
     total_ms: int
 
 
+class AnswerSourceRef(_Strict):
+    """One source of an answer (D-66): ids and headings only, never the source text."""
+
+    source_type: Literal["resume", "document"] | None = None
+    source_id: str | None = None
+    name: str | None = None  # the file name, for display
+    heading: str | None = None
+    validated: bool | None = None  # general answers: True when the judge model confirmed it
+
+
+class AnswerSource(_Strict):
+    kind: Literal["resume", "document", "synthesis", "general"]
+    refs: list[AnswerSourceRef]
+
+
 class AnswerDonePayload(_Strict):
     answer_id: uuid.UUID
     question_id: uuid.UUID
@@ -220,6 +236,7 @@ class AnswerDonePayload(_Strict):
     fallback_used: bool
     input_tokens: int | None
     output_tokens: int | None
+    source: AnswerSource | None = None  # additive (D-66); absent for answers made the old way
 
 
 class AnswerErrorPayload(_Strict):

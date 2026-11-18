@@ -26,6 +26,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -36,6 +37,7 @@ from app.qa import repository
 from app.qa.events import AnswerDone, AnswerFailed, QaEvent, QuestionCreated
 from app.qa.limits import QuestionLimits, Slot
 from app.qa.service import QuestionAnswerer
+from app.qa.source import source_payload
 from app.realtime import adapter
 from app.realtime import schemas as proto
 from app.realtime.session_channel import SessionChannel
@@ -55,6 +57,8 @@ class _StoredAnswer:
     first_token_ms: int | None
     total_ms: int | None
     error_code: str | None
+    source_kind: str | None = None
+    source_refs: list[dict[str, Any]] | None = None
 
 
 class Generation:
@@ -69,6 +73,7 @@ class Generation:
         sessionmaker: async_sessionmaker[AsyncSession],
         text: str,
         question_type_override: str | None,
+        detail: str | None = None,
         on_account_inactive: Callable[[], None],
     ) -> None:
         self._user_id = user_id
@@ -79,6 +84,7 @@ class Generation:
         self._sessionmaker = sessionmaker
         self._text = text
         self._override = question_type_override
+        self._detail = detail
         self._on_account_inactive = on_account_inactive
         self._task: asyncio.Task[None] | None = None
         self._cancel_requested = False
@@ -154,6 +160,8 @@ class Generation:
                     first_token_ms=row.first_token_ms,
                     total_ms=row.total_ms,
                     error_code=row.error_code,
+                    source_kind=row.source_kind,
+                    source_refs=[dict(r) for r in row.source_refs] if row.source_refs else None,
                 )
         except Exception as exc:  # noqa: BLE001 - fall back to `cancelled`; never leak the reason
             logger.warning("ws stored answer unreadable", extra={"error_type": type(exc).__name__})
@@ -183,6 +191,7 @@ class Generation:
                     fallback_used=stored.fallback_used,
                     input_tokens=stored.input_tokens,
                     output_tokens=stored.output_tokens,
+                    source=source_payload(stored.source_kind, stored.source_refs),
                 )
             )
         elif stored is not None and stored.status == "error":
@@ -211,7 +220,9 @@ class Generation:
                 self._on_account_inactive()  # the gateway flushes the error and closes (1008)
                 return
             slot = self._limits.admit(self._user_id)
-            stream = self._answerer.ask(self._user_id, self._session_id, self._text, self._override)
+            stream = self._answerer.ask(
+                self._user_id, self._session_id, self._text, self._override, detail=self._detail
+            )
             async for event in stream:
                 if isinstance(event, QuestionCreated):
                     self.question_id, self.answer_id = event.question_id, event.answer_id

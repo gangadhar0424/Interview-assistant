@@ -55,3 +55,19 @@ answer_grounding_checks = Counter(
     "Citation-integrity check outcomes for completed answers (not a grounding guarantee)",
     ("status",),
 )
+answer_routes = Counter(
+    "interview_answer_routes",
+    "Answer router decisions (D-66): mode and reason only; never content",
+    ("mode", "reason"),
+)
+answer_stage_seconds = Histogram(
+    "interview_answer_stage_seconds",
+    "Duration of one answer-pipeline stage in seconds",
+    ("stage",),
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
+)
+answer_cache = Counter(
+    "interview_answer_cache",
+    "Per-session answer cache lookups for general answers",
+    ("result",),
+)

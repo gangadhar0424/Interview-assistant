@@ -15,6 +15,7 @@ import { hasErrors, parseDraft, toCreateBody, validateDraft } from "../shared/se
 import {
   isAudioSource,
   isDisplayId,
+  isProviderId,
   isUuid,
   validateCopyText,
   validateSettingsPatch,
@@ -152,6 +153,7 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     }),
     sessionReady: async (sessionId) =>
       (await api.listSessions()).some((item) => item.id === sessionId && item.status === "ready"),
+    voiceProviderChosen: async (sessionId) => (await api.getSessionVoiceProvider(sessionId)) !== null,
     transcribe: async (wav, sessionId, signal) => {
       try {
         return await api.transcribeUtterance(sessionId, wav, signal);
@@ -161,7 +163,12 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
       }
     },
     describeError: (error) => asDesktopError(error).message,
-    isFatal: (error) => error instanceof DesktopApiError && error.details.code === "stt_unavailable",
+    fatalReason: (error) => {
+      if (!(error instanceof DesktopApiError)) return null;
+      if (error.details.code === "stt_unavailable") return "unavailable";
+      if (error.details.code === "stt_provider_required") return "voice_provider_required";
+      return null;
+    },
     emit: (event) => {
       if (!window.isDestroyed()) window.webContents.send("audio:event", event);
     },
@@ -286,18 +293,6 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
   });
 
   handle("auth:get-state", async () => ({ user: await trackAuth(api.initialize()) }));
-  handle("auth:login", async (_event, email, password) => {
-    if (typeof email !== "string" || typeof password !== "string") {
-      throw new Error("Enter an email and password.");
-    }
-    return trackAuth(api.login(email, password));
-  });
-  handle("auth:signup", async (_event, email, password) => {
-    if (typeof email !== "string" || typeof password !== "string") {
-      throw new Error("Enter an email and password.");
-    }
-    return trackAuth(api.signup(email, password));
-  });
   handle("auth:logout", async () => {
     handoff.onSignedOut();
     capture.discard("signed_out");
@@ -312,13 +307,14 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     if (!validateId(sessionId)) throw new Error("Choose a valid session.");
     return api.listQuestions(sessionId);
   }, true);
-  handle("sessions:stream-start", (event, requestId, sessionId, text, extractionId) => {
+  handle("sessions:stream-start", (event, requestId, sessionId, text, extractionId, detail) => {
     if (!validateId(requestId) || !validateId(sessionId)) {
       throw new Error("The session request is invalid.");
     }
     if (typeof text !== "string" || !text.trim() || text.length > 2000) {
       throw new Error("Enter a question of 1–2000 characters.");
     }
+    if (detail !== undefined && detail !== "summary") throw new Error("The answer detail is invalid.");
     if (streams.has(requestId)) throw new Error("This answer is already running.");
     // `input_source = screenshot` only follows a completed screenshot extraction in this session.
     let inputSource: "screenshot" | "audio" | undefined;
@@ -343,6 +339,7 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
             sendToRenderer(window, { requestId, event: qaEvent });
           },
           inputSource,
+          detail,
         )
         .catch((error: unknown) => {
           // The question never started (refused or failed early): the user may simply try again.
@@ -380,6 +377,22 @@ export function registerDesktopIpc(deps: IpcDependencies): () => void {
     }
     // The backend stays authoritative for readiness, ownership, limits and the enum values.
     return api.createSession(toCreateBody(draft));
+  }, true);
+
+  // The user picks a voice provider for a session that has none (created before D-57). Only a UUID
+  // and a short provider token are accepted; the backend validates it against its allowlist.
+  handle("sessions:set-voice", async (_event, sessionId, provider) => {
+    if (!isUuid(sessionId) || !isProviderId(provider)) {
+      throw new Error("Choose a session and a voice provider.");
+    }
+    await api.setSessionVoiceProvider(sessionId, provider);
+  }, true);
+
+  handle("sessions:set-reasoning", async (_event, sessionId, provider) => {
+    if (!isUuid(sessionId) || !isProviderId(provider)) {
+      throw new Error("Choose a session and an answer provider.");
+    }
+    await api.setSessionReasoningProvider(sessionId, provider);
   }, true);
 
   // ---- Screenshot input channels (Phase 11B). Named and validated; no generic capture API. ----

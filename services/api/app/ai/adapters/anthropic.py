@@ -24,6 +24,7 @@ from app.ai.errors import (
     ContentFiltered,
     InvalidSelection,
     LLMError,
+    QuotaExhausted,
     RateLimited,
     Unavailable,
 )
@@ -85,6 +86,14 @@ def map_anthropic_error(error: APIError) -> LLMError:
         return ProviderTimeout()
     if isinstance(error, APIConnectionError):
         return Unavailable()
+    # Anthropic reports an empty balance as a 400 invalid_request_error whose message mentions the
+    # credit balance. Matched on the message only to choose the user-facing code; never forwarded.
+    if (
+        isinstance(error, APIStatusError)
+        and error.status_code == 400
+        and "credit balance" in str(getattr(error, "message", "")).lower()
+    ):
+        return QuotaExhausted()
     return Unavailable()  # 5xx (including 529 overloaded), 4xx we cannot act on, anything else
 
 

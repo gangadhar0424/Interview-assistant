@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useDesktopStore } from "../store";
 
 /**
- * Live audio input UI (Phase 12, D-53). Shown only when the user turned the feature on in Settings.
- * Listening starts only on an explicit Start press and shows an always-visible recording banner.
- * Transcript lines are kept in memory only; a question is answered only when the user presses Ask.
+ * Live audio input UI (Phase 12, D-53; simplified by D-59). Always shown on the Assistant page. The
+ * first Listen press asks for consent once (native dialog, remembered). Listening starts only on an
+ * explicit Listen press and shows an always-visible recording banner. Transcript lines are kept in
+ * memory only; a detected question is answered at once, anything else waits for the Ask button.
  */
 export function AudioPanel({ ready }: { ready: boolean }) {
   const audio = useDesktopStore((state) => state.audio);
@@ -13,6 +14,8 @@ export function AudioPanel({ ready }: { ready: boolean }) {
   const askFromAudio = useDesktopStore((state) => state.askFromAudio);
   const dismissAudioLine = useDesktopStore((state) => state.dismissAudioLine);
   const clearAudioLines = useDesktopStore((state) => state.clearAudioLines);
+  const saveVoiceProvider = useDesktopStore((state) => state.saveVoiceProvider);
+  const [pickedVoice, setPickedVoice] = useState("");
   const streaming = useDesktopStore(
     (state) =>
       !!state.liveAnswer &&
@@ -29,6 +32,9 @@ export function AudioPanel({ ready }: { ready: boolean }) {
   );
 
   const active = audio.state !== "idle";
+  const choices = audio.voiceChoices;
+  const needsVoice = choices !== null;
+  const selectedVoice = choices?.some((c) => c.id === pickedVoice) ? pickedVoice : (choices?.[0]?.id ?? "");
   const sourceLabel = audio.source === "system" ? "system audio" : "your microphone";
 
   return (
@@ -36,8 +42,8 @@ export function AudioPanel({ ready }: { ready: boolean }) {
       <div className="capture-heading">
         <span className="eyebrow">AUDIO INPUT</span>
         <span className="capture-hint">
-          Listening starts only when you press Start. Nothing is saved; nothing is answered without
-          your confirmation.
+          Press Listen and ask your question: it is answered as soon as it is heard. Listening
+          happens only while this is on; nothing is saved.
         </span>
       </div>
 
@@ -53,6 +59,44 @@ export function AudioPanel({ ready }: { ready: boolean }) {
         </p>
       )}
 
+      {choices && (
+        <div className="voice-setup" role="group" aria-label="Voice listening provider">
+          <p className="capture-hint">
+            This session has no voice listening provider yet. Choose one: your speech is sent to it
+            only while you are listening.
+          </p>
+          {choices.length === 0 ? (
+            <p className="inline-error" role="alert">
+              No voice listening provider is enabled on the server.
+            </p>
+          ) : (
+            <div className="voice-setup-row">
+              <select
+                aria-label="Voice listening provider"
+                className="field-control"
+                disabled={audio.voiceSaving}
+                onChange={(event) => setPickedVoice(event.target.value)}
+                value={selectedVoice}
+              >
+                {choices.map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="button button-primary"
+                disabled={!selectedVoice || audio.voiceSaving}
+                onClick={() => void saveVoiceProvider(selectedVoice)}
+                type="button"
+              >
+                {audio.voiceSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {active ? (
         <button
           className="button button-secondary full-button"
@@ -65,7 +109,7 @@ export function AudioPanel({ ready }: { ready: boolean }) {
         <div className="audio-start-row">
           <button
             className="button button-secondary full-button"
-            disabled={!ready}
+            disabled={!ready || needsVoice}
             onClick={() => void startAudio("microphone")}
             type="button"
           >
@@ -73,7 +117,7 @@ export function AudioPanel({ ready }: { ready: boolean }) {
           </button>
           <button
             className="button button-secondary full-button"
-            disabled={!ready}
+            disabled={!ready || needsVoice}
             onClick={() => void startAudio("system")}
             type="button"
           >

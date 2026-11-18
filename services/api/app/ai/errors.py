@@ -20,6 +20,19 @@ class RateLimited(LLMError):
     counts_against_provider = True
 
 
+class QuotaExhausted(LLMError):
+    """The provider account has no credit or quota left (not a temporary rate limit). Retrying the
+    same provider cannot help; the user must choose another provider or the operator must top up."""
+
+    code = "llm_quota_exhausted"
+    message = (
+        "This AI provider has no credit or quota left. Choose a different answer provider "
+        "for this session."
+    )
+    fallback_eligible = True
+    counts_against_provider = True
+
+
 class Timeout(LLMError):
     code = "llm_timeout"
     message = "The AI service took too long to respond."

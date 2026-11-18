@@ -3,6 +3,7 @@
  * fake ipcMain, a fake window and a fake backend. No Electron runtime and no network.
  */
 import { DeepLinkInbox } from "../src/main/deep-link";
+import { HANDOFF_LINK, HANDOFF_REDEEM_PATH, settleHandoff } from "./handoff-signin";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,6 +89,9 @@ function setup() {
     const url = new URL(String(input));
     const call: Call = { path: url.pathname, method: init.method ?? "GET", headers: { ...(init.headers as Record<string, string>) }, body: init.body };
     calls.push(call);
+    if (call.path === HANDOFF_REDEEM_PATH) {
+      return json({ access_token: "access-1", expires_in: 900, user, session: { id: "11111111-2222-4333-8444-555555555555", title: "Backend", company_name: "Acme", status: "ready", job_description: "x", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }, preferences: { language: "en" } }, 200, { "Set-Cookie": "refresh_token=refresh-1; HttpOnly; Path=/api/v1/auth" });
+    }
     if (call.path === "/api/v1/auth/login") {
       return json({ access_token: "access-1", expires_in: 900, user }, 200, { "Set-Cookie": "refresh_token=refresh-1; HttpOnly; Path=/api/v1/auth" });
     }
@@ -104,6 +108,7 @@ function setup() {
     return json({ error: { code: "not_found", message: "no" } }, 404);
   });
   vi.stubGlobal("fetch", fakeFetch);
+  const inbox = new DeepLinkInbox();
   const dispose = registerDesktopIpc({
     ipcMain: { handle: (channel: string, fn: Handler) => handlers.set(channel, fn), removeHandler: (channel: string) => handlers.delete(channel), on: () => undefined, removeListener: () => undefined } as never,
     window: win as never,
@@ -117,7 +122,7 @@ function setup() {
     audioHost: { setIndicator: vi.fn() },
     audioGate: { read: () => ({ state: "idle" as const, source: null }) },
     confirmAudioConsent: async () => true,
-    deepLinks: new DeepLinkInbox(),
+    deepLinks: inbox,
     confirmHandoffSwitch: async () => true,
     confirmHandoffAccountSwitch: async () => true,
     showWindow: () => undefined,
@@ -128,7 +133,11 @@ function setup() {
   return {
     handlers, win, sent, calls, backend, trusted, untrusted, call,
     posts: () => calls.filter((c) => c.path === "/api/v1/sessions" && c.method === "POST"),
-    login: async () => expect((await call("auth:login", "p@example.com", "long-password-1")).ok).toBe(true),
+    login: async () => {
+      inbox.deliver(HANDOFF_LINK);
+      await settleHandoff();
+      expect((await call("handoff:get-state")).data.phase).toBe("ready");
+    },
     cleanup: () => { dispose(); rmSync(dir, { recursive: true, force: true }); },
   };
 }
@@ -202,7 +211,7 @@ describe("loading the form options", () => {
     expect(result.data.options.voice_providers).toEqual([{ id: "fake", label: "Fake voice" }]);
     const serialized = JSON.stringify(result);
     expect(serialized).not.toMatch(/access-1|refresh-1|capabilities|fake-echo|fake-stt-model|content_type|error_message/);
-    const reads = s.calls.filter((c) => c.path.startsWith("/api/v1/") && !c.path.includes("auth"));
+    const reads = s.calls.filter((c) => c.path.startsWith("/api/v1/") && !c.path.includes("auth") && !c.path.includes("handoff"));
     expect(reads.every((c) => c.headers.Authorization === "Bearer access-1")).toBe(true);
     expect(s.calls.find((c) => c.path === "/api/v1/resumes")).toBeDefined();
   });

@@ -78,6 +78,7 @@ async def ask_question(
         body.text,
         body.question_type_override,
         input_source=body.input_source,
+        detail=body.detail,
     )
     try:
         # Runs validation and the first short transaction. A refusal (404, 409, 422) raises here,

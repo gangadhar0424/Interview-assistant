@@ -8,6 +8,15 @@ function fakeBridge() {
     auth: {},
     sessions: {
       questions: async () => ({ ok: true, data: [] }),
+      createOptions: async () => ({
+        ok: true,
+        data: {
+          resumes: [],
+          documents: [],
+          options: { providers: [{ id: "groq", label: "Groq" }], voice_providers: [] },
+        },
+      }),
+      setReasoning: async () => ({ ok: true, data: undefined }),
     },
     onStreamMessage: () => () => undefined,
     onSessionExpired: () => () => undefined,
@@ -30,9 +39,11 @@ describe("live answer state", () => {
         metrics: null,
         deltaCount: 0,
         errorMessage: null,
+        errorCode: null,
       },
       selectedSessionId: "session",
       history: [],
+      answerProvider: { choices: null, saving: false, notice: null },
     });
   });
 
@@ -111,5 +122,40 @@ describe("live answer state", () => {
     const updated = await useDesktopStore.getState().updateSettings({ opacity: 0.8 });
     expect(updated).toBe(false);
     expect(useDesktopStore.getState().error).toBe("window.desktop.app.updateSettings is not a function");
+  });
+
+  it("a provider failure shows a clear message and offers other answer providers", async () => {
+    useDesktopStore.getState().handleStreamMessage({
+      requestId: "request",
+      event: { type: "answer.error", answerId: "a", questionId: "q", code: "llm_quota_exhausted", retryable: false },
+    });
+    const live = useDesktopStore.getState().liveAnswer;
+    expect(live?.phase).toBe("failed");
+    expect(live?.errorCode).toBe("llm_quota_exhausted");
+    expect(live?.errorMessage).toMatch(/no credit or quota/i); // not the misleading "busy" text
+    await vi.waitFor(() =>
+      expect(useDesktopStore.getState().answerProvider.choices).toEqual([{ id: "groq", label: "Groq" }]),
+    );
+  });
+
+  it("a timeout or refused question does not offer a provider switch", async () => {
+    useDesktopStore.getState().handleStreamMessage({
+      requestId: "request",
+      event: { type: "answer.error", answerId: "a", questionId: "q", code: "llm_timeout", retryable: true },
+    });
+    await Promise.resolve();
+    expect(useDesktopStore.getState().answerProvider.choices).toBeNull();
+  });
+
+  it("saving an answer provider clears the offer and asks the user to ask again", async () => {
+    const setReasoning = vi.fn(async () => ({ ok: true as const, data: undefined }));
+    vi.stubGlobal("window", { desktop: { ...fakeBridge(), sessions: { ...fakeBridge().sessions, setReasoning } } });
+    useDesktopStore.setState({ answerProvider: { choices: [{ id: "groq", label: "Groq" }], saving: false, notice: null } });
+    await useDesktopStore.getState().saveAnswerProvider("groq");
+    expect(setReasoning).toHaveBeenCalledWith("session", "groq");
+    const state = useDesktopStore.getState().answerProvider;
+    expect(state.choices).toBeNull();
+    expect(state.saving).toBe(false);
+    expect(state.notice).toMatch(/ask your question again/i);
   });
 });

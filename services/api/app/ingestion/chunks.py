@@ -26,7 +26,8 @@ async def is_indexed(
     rows = (
         await session.execute(
             text(
-                "SELECT c.chunk_index, c.content_hash, (e.chunk_id IS NOT NULL) AS embedded "
+                "SELECT c.chunk_index, c.content_hash, c.heading, c.section_start, c.section_end, "
+                "       (e.chunk_id IS NOT NULL) AS embedded "
                 "FROM chunks c LEFT JOIN chunk_embeddings e "
                 "  ON e.chunk_id = c.id AND e.embedding_model = :model AND e.user_id = :uid "
                 "WHERE c.user_id = :uid AND c.source_type = :st AND c.source_id = :sid "
@@ -38,7 +39,12 @@ async def is_indexed(
     if len(rows) != len(expected):
         return False
     return all(
-        r.chunk_index == c.index and r.content_hash == c.content_hash and r.embedded
+        r.chunk_index == c.index
+        and r.content_hash == c.content_hash
+        and r.heading == c.heading
+        and r.section_start == c.section_start
+        and r.section_end == c.section_end
+        and r.embedded
         for r, c in zip(rows, expected, strict=True)
     )
 
@@ -66,8 +72,8 @@ async def replace_chunks(
     await session.execute(
         text(
             "INSERT INTO chunks (id, user_id, source_type, source_id, chunk_index, text, "
-            "char_start, char_end, content_hash) "
-            "VALUES (:id, :uid, :st, :sid, :idx, :text, :cs, :ce, :h)"
+            "char_start, char_end, content_hash, heading, section_start, section_end) "
+            "VALUES (:id, :uid, :st, :sid, :idx, :text, :cs, :ce, :h, :hd, :ss, :se)"
         ),
         [
             {
@@ -80,6 +86,9 @@ async def replace_chunks(
                 "cs": c.start,
                 "ce": c.end,
                 "h": c.content_hash,
+                "hd": c.heading,
+                "ss": c.section_start,
+                "se": c.section_end,
             }
             for chunk_id, c in zip(ids, chunks, strict=True)
         ],

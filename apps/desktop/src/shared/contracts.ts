@@ -1,3 +1,4 @@
+import type { AnswerSource } from "./answer-source";
 import type { SessionDraft, SessionOptions } from "./session-form";
 
 export type DesktopSettings = {
@@ -80,6 +81,7 @@ export type AnswerItem = {
   input_tokens: number | null;
   output_tokens: number | null;
   created_at: string;
+  source?: AnswerSource | null;
 };
 
 export type QuestionItem = {
@@ -123,6 +125,7 @@ export type QaEvent =
       fallbackUsed: boolean;
       inputTokens: number | null;
       outputTokens: number | null;
+      source?: AnswerSource | null;
     }
   | {
       type: "answer.error";
@@ -187,6 +190,7 @@ export type AudioStopReason =
   | "timeout"
   | "limit"
   | "unavailable"
+  | "voice_provider_required"
   | "error";
 
 /** Pushed by the main process. Audio itself never travels to the renderer, only text. */
@@ -247,8 +251,6 @@ export type DesktopBridge = {
   };
   auth: {
     getState(): Promise<DesktopResult<AuthState>>;
-    login(email: string, password: string): Promise<DesktopResult<DesktopUser>>;
-    signup(email: string, password: string): Promise<DesktopResult<DesktopUser>>;
     logout(): Promise<DesktopResult<void>>;
   };
   sessions: {
@@ -259,12 +261,18 @@ export type DesktopBridge = {
       sessionId: string,
       text: string,
       extractionId?: string,
+      /** D-66: "summary" asks for a short spoken answer; omitted means full detail. */
+      detail?: "summary",
     ): Promise<DesktopResult<void>>;
     cancelQuestion(requestId: string): Promise<DesktopResult<void>>;
     /** Ready/not-ready resumes and documents plus the answer-style options (Phase 11.5). */
     createOptions(): Promise<DesktopResult<CreateSessionOptions>>;
     /** Validates in main, then calls the existing `POST /sessions`. */
     create(draft: SessionDraft): Promise<DesktopResult<SessionSummary>>;
+    /** Saves the voice-listening provider the user picked for a session that had none (D-57). */
+    setVoice(sessionId: string, provider: string): Promise<DesktopResult<void>>;
+    /** Saves a different answer (reasoning) provider for a session whose provider failed (D-63). */
+    setReasoning(sessionId: string, provider: string): Promise<DesktopResult<void>>;
   };
   handoff: {
     /** The current handoff state (the link can arrive before the renderer is listening). */

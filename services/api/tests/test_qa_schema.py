@@ -65,7 +65,7 @@ def test_tables_have_exactly_the_typed_qa_columns(world: QaWorld) -> None:
         "id", "question_id", "session_id", "user_id", "text", "generation_config", "prompt_version",
         "provider", "model", "retrieved_chunk_ids", "input_tokens", "output_tokens", "retrieval_ms",
         "first_token_ms", "total_ms", "fallback_used", "status", "error_code", "created_at",
-        "grounding_check",
+        "grounding_check", "source_kind", "source_refs",
     }  # fmt: skip
 
 
@@ -89,12 +89,18 @@ def test_expected_indexes_exist(world: QaWorld) -> None:
     }
 
 
-def test_migration_chain_has_a_single_head_at_0010() -> None:
+def test_migration_chain_has_a_single_head_at_0011() -> None:
     cfg = Config(str(API_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(API_DIR / "alembic"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0010"]
-    for rev, parent in (("0010", "0009"), ("0009", "0008"), ("0008", "0007"), ("0007", "0006")):
+    assert script.get_heads() == ["0011"]
+    for rev, parent in (
+        ("0011", "0010"),
+        ("0010", "0009"),
+        ("0009", "0008"),
+        ("0008", "0007"),
+        ("0007", "0006"),
+    ):
         revision = script.get_revision(rev)
         assert revision is not None and revision.down_revision == parent
 

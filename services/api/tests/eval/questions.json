@@ -1,0 +1,488 @@
+{
+ "description": "Evaluation questions for the answer pipeline (D-66). Expected phrases are short markers searched in the retrieved passages; no document text is stored here.",
+ "questions": [
+  {
+   "id": "q01",
+   "group": "vague",
+   "expect": "document",
+   "question": "enhancement in ewm",
+   "contains": [
+    "Receiving Excess Qty",
+    "Putaway by Cart",
+    "Unloading By ASN"
+   ]
+  },
+  {
+   "id": "q02",
+   "group": "vague",
+   "expect": "document",
+   "question": "queue issues",
+   "contains": [
+    "SMQ1",
+    "SMQ2"
+   ]
+  },
+  {
+   "id": "q03",
+   "group": "vague",
+   "expect": "document",
+   "question": "replenishment",
+   "contains": [
+    "Replenishment moves stock from a reserve location"
+   ]
+  },
+  {
+   "id": "q04",
+   "group": "vague",
+   "expect": "document",
+   "question": "POSC",
+   "contains": [
+    "POSC defines the external flow"
+   ]
+  },
+  {
+   "id": "q05",
+   "group": "vague",
+   "expect": "document",
+   "question": "BAdI",
+   "contains": [
+    "SE18"
+   ]
+  },
+  {
+   "id": "q06",
+   "group": "exact",
+   "expect": "document",
+   "question": "what is the inbound process in EWM",
+   "contains": [
+    "ERP creates the PO and an inbound delivery"
+   ]
+  },
+  {
+   "id": "q07",
+   "group": "exact",
+   "expect": "document",
+   "question": "how do you tell whether a queue belongs to the ERP side or the EWM side",
+   "contains": [
+    "SMQ1 (outbound queue) in ERP"
+   ]
+  },
+  {
+   "id": "q08",
+   "group": "exact",
+   "expect": "document",
+   "question": "explain the receiving excess qty enhancement",
+   "contains": [
+    "Receiving Excess Qty"
+   ]
+  },
+  {
+   "id": "q09",
+   "group": "exact",
+   "expect": "document",
+   "question": "explain the putaway by cart enhancement",
+   "contains": [
+    "Assignment of Totes"
+   ]
+  },
+  {
+   "id": "q10",
+   "group": "exact",
+   "expect": "document",
+   "question": "explain the unloading by ASN enhancement",
+   "contains": [
+    "Unloading by ASN",
+    "Unloading By ASN"
+   ]
+  },
+  {
+   "id": "q11",
+   "group": "exact",
+   "expect": "document",
+   "question": "what is POSC and how does it work",
+   "contains": [
+    "POSC defines the external flow"
+   ]
+  },
+  {
+   "id": "q12",
+   "group": "exact",
+   "expect": "document",
+   "question": "what configuration is required for POSC",
+   "contains": [
+    "External process steps and storage process definition"
+   ]
+  },
+  {
+   "id": "q13",
+   "group": "exact",
+   "expect": "document",
+   "question": "difference between decentralized and embedded EWM",
+   "contains": [
+    "Decentralized EWM runs on a separate system"
+   ]
+  },
+  {
+   "id": "q14",
+   "group": "exact",
+   "expect": "document",
+   "question": "what configuration is needed for replenishment",
+   "contains": [
+    "Replenishment moves stock from a reserve location"
+   ]
+  },
+  {
+   "id": "q15",
+   "group": "exact",
+   "expect": "document",
+   "question": "how do you set up automatic replenishment from a high rack to a low rack picking bin",
+   "contains": [
+    "high-rack storage type"
+   ]
+  },
+  {
+   "id": "q16",
+   "group": "exact",
+   "expect": "document",
+   "question": "how do you create a new storage type in an existing warehouse",
+   "contains": [
+    "Define Storage Type"
+   ]
+  },
+  {
+   "id": "q17",
+   "group": "exact",
+   "expect": "document",
+   "question": "what are the fields in an EWM storage type",
+   "contains": [
+    "Storage type role"
+   ]
+  },
+  {
+   "id": "q18",
+   "group": "exact",
+   "expect": "document",
+   "question": "how do you create warehouse bins in mass",
+   "contains": [
+    "/SCWM/LS10"
+   ]
+  },
+  {
+   "id": "q19",
+   "group": "exact",
+   "expect": "document",
+   "question": "what are the different ticket types",
+   "contains": [
+    "Major incident"
+   ]
+  },
+  {
+   "id": "q20",
+   "group": "exact",
+   "expect": "document",
+   "question": "what do P1 to P4 priorities mean and what is the resolution time",
+   "contains": [
+    "Warehouse down, no"
+   ]
+  },
+  {
+   "id": "q21",
+   "group": "exact",
+   "expect": "document",
+   "question": "how are tickets prioritized and assigned",
+   "contains": [
+    "business impact"
+   ]
+  },
+  {
+   "id": "q22",
+   "group": "exact",
+   "expect": "document",
+   "question": "explain your experience with physical inventory in EWM",
+   "contains": [
+    "/SCWM/PI"
+   ]
+  },
+  {
+   "id": "q23",
+   "group": "exact",
+   "expect": "document",
+   "question": "tell me one critical issue you worked on in STAR format",
+   "contains": [
+    "SYSFAIL"
+   ]
+  },
+  {
+   "id": "q24",
+   "group": "exact",
+   "expect": "document",
+   "question": "tell me five incidents from past projects",
+   "contains": [
+    "Putaway WT not created"
+   ]
+  },
+  {
+   "id": "q25",
+   "group": "exact",
+   "expect": "document",
+   "question": "how do you identify the correct BAdI",
+   "contains": [
+    "SE18"
+   ]
+  },
+  {
+   "id": "q26",
+   "group": "exact",
+   "expect": "document",
+   "question": "a BAdI works in development but not production what do you check",
+   "contains": [
+    "transport contents"
+   ]
+  },
+  {
+   "id": "q27",
+   "group": "exact",
+   "expect": "document",
+   "question": "how would you do custom wave determination",
+   "contains": [
+    "Wave Management BAdI"
+   ]
+  },
+  {
+   "id": "q28",
+   "group": "exact",
+   "expect": "document",
+   "question": "how do you handle warehouse order creation rule determination",
+   "contains": [
+    "Warehouse Order Creation Rule"
+   ]
+  },
+  {
+   "id": "q29",
+   "group": "exact",
+   "expect": "document",
+   "question": "customer specific packing validation for export customers",
+   "contains": [
+    "EX_POD_VALIDATE_ACTION"
+   ]
+  },
+  {
+   "id": "q30",
+   "group": "exact",
+   "expect": "document",
+   "question": "route determination and route validation",
+   "contains": [
+    "Route Determination and Route Check"
+   ]
+  },
+  {
+   "id": "q31",
+   "group": "exact",
+   "expect": "document",
+   "question": "custom validation before post goods issue",
+   "contains": [
+    "Post Goods Issue"
+   ]
+  },
+  {
+   "id": "q32",
+   "group": "exact",
+   "expect": "document",
+   "question": "pick denial and shortage communication to ERP",
+   "contains": [
+    "Pick denial and shortage"
+   ]
+  },
+  {
+   "id": "q33",
+   "group": "exact",
+   "expect": "document",
+   "question": "damaged stock exception during RF picking",
+   "contains": [
+    "Damaged stock exception"
+   ]
+  },
+  {
+   "id": "q34",
+   "group": "exact",
+   "expect": "document",
+   "question": "delivery split based on route",
+   "contains": [
+    "Delivery split based on route"
+   ]
+  },
+  {
+   "id": "q35",
+   "group": "exact",
+   "expect": "document",
+   "question": "how do you control inbound and outbound separately for two warehouses",
+   "contains": [
+    "two warehouse numbers"
+   ]
+  },
+  {
+   "id": "q36",
+   "group": "exact",
+   "expect": "document",
+   "question": "how does TM integration with EWM work",
+   "contains": [
+    "Transportation Management"
+   ]
+  },
+  {
+   "id": "q37",
+   "group": "exact",
+   "expect": "document",
+   "question": "did you write custom code yourself",
+   "contains": [
+    "I have not written the code myself"
+   ]
+  },
+  {
+   "id": "q38",
+   "group": "intro",
+   "expect": "resume",
+   "question": "tell me about yourself",
+   "contains": [
+    "Total Experience",
+    "SAP Summary",
+    "15 years"
+   ]
+  },
+  {
+   "id": "q39",
+   "group": "intro",
+   "expect": "resume",
+   "question": "what is your total experience",
+   "contains": [
+    "15 years"
+   ]
+  },
+  {
+   "id": "q40",
+   "group": "resume",
+   "expect": "resume",
+   "question": "what are your technical skills",
+   "contains": [
+    "Technical Skills"
+   ]
+  },
+  {
+   "id": "q41",
+   "group": "resume",
+   "expect": "resume",
+   "question": "what is your educational qualification",
+   "contains": [
+    "Educational Qualification",
+    "M.Tech"
+   ]
+  },
+  {
+   "id": "q42",
+   "group": "resume",
+   "expect": "resume",
+   "question": "which projects have you worked on",
+   "contains": [
+    "Project #1"
+   ]
+  },
+  {
+   "id": "q43",
+   "group": "resume",
+   "expect": "resume",
+   "question": "what did you do on incidents and stuck qRFC queues in support projects",
+   "contains": [
+    "qRFC"
+   ]
+  },
+  {
+   "id": "q44",
+   "group": "resume",
+   "expect": "resume",
+   "question": "have you worked on an AGV interface",
+   "contains": [
+    "AGV Interface"
+   ]
+  },
+  {
+   "id": "q45",
+   "group": "resume",
+   "expect": "resume",
+   "question": "have you worked on warehouse rollouts in the US Canada and Mexico",
+   "contains": [
+    "Canada"
+   ]
+  },
+  {
+   "id": "q46",
+   "group": "general",
+   "expect": "general",
+   "question": "what is a kubernetes pod",
+   "contains": []
+  },
+  {
+   "id": "q47",
+   "group": "general",
+   "expect": "general",
+   "question": "explain newtons third law of motion",
+   "contains": []
+  },
+  {
+   "id": "q48",
+   "group": "general",
+   "expect": "general",
+   "question": "what is the difference between TCP and UDP",
+   "contains": []
+  },
+  {
+   "id": "q49",
+   "group": "general",
+   "expect": "general",
+   "question": "what is the capital of France",
+   "contains": []
+  },
+  {
+   "id": "q50",
+   "group": "general",
+   "expect": "general",
+   "question": "how does a hash map work internally",
+   "contains": []
+  },
+  {
+   "id": "q51",
+   "group": "general",
+   "expect": "general",
+   "question": "what is the CAP theorem",
+   "contains": []
+  },
+  {
+   "id": "q52",
+   "group": "numbered",
+   "expect": "document",
+   "question": "enhancement 1",
+   "contains": [
+    "Receiving Excess Qty"
+   ]
+  },
+  {
+   "id": "q53",
+   "group": "numbered",
+   "expect": "document",
+   "question": "enhancement 2",
+   "contains": [
+    "Putaway by Cart",
+    "Assignment of Totes"
+   ]
+  },
+  {
+   "id": "q54",
+   "group": "numbered",
+   "expect": "document",
+   "question": "enhancement 3",
+   "contains": [
+    "Unloading by ASN",
+    "Unloading By ASN"
+   ]
+  }
+ ]
+}

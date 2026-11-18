@@ -25,6 +25,7 @@ from app.ai.errors import (
     ContentFiltered,
     InvalidSelection,
     LLMError,
+    QuotaExhausted,
     RateLimited,
     Unavailable,
 )
@@ -100,6 +101,9 @@ def map_openai_error(error: APIError) -> LLMError:
     if isinstance(error, RateLimitError) or (
         isinstance(error, APIStatusError) and error.status_code == 429
     ):
+        # A 429 whose code says the account is out of credit is not "busy": retrying cannot help.
+        if _is_quota_exhausted(error):
+            return QuotaExhausted()
         return RateLimited()
     if isinstance(error, APITimeoutError) or (
         isinstance(error, APIStatusError) and error.status_code in (408, 504)
@@ -112,6 +116,21 @@ def map_openai_error(error: APIError) -> LLMError:
     if isinstance(error, APIStatusError) and _is_content_filter(error.body):
         return ContentFiltered()
     return Unavailable()
+
+
+_QUOTA_CODES = frozenset({"insufficient_quota", "credit_balance_exhausted"})
+
+
+def _is_quota_exhausted(error: APIError) -> bool:
+    """True when the provider says the account has no credit/quota (by code only, never by text)."""
+    codes = {str(getattr(error, "code", "") or "")}
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        detail = body.get("error", body)
+        if isinstance(detail, dict):
+            codes.add(str(detail.get("code") or ""))
+            codes.add(str(detail.get("type") or ""))
+    return bool(codes & _QUOTA_CODES)
 
 
 def _is_content_filter(body: object) -> bool:

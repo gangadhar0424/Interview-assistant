@@ -207,6 +207,12 @@ class Chunk(Base):
     __table_args__ = (
         CheckConstraint("source_type IN ('resume', 'document')", name="source_type"),
         CheckConstraint("chunk_index >= 0", name="chunk_index_nonneg"),
+        CheckConstraint(
+            "(section_start IS NULL AND section_end IS NULL) "
+            "OR (section_start IS NOT NULL AND section_end IS NOT NULL "
+            "AND section_start >= 0 AND section_end > section_start)",
+            name="section_range",
+        ),
         UniqueConstraint("source_type", "source_id", "chunk_index", name="uq_chunks_source_index"),
         Index("ix_chunks_user_id_source", "user_id", "source_type", "source_id"),
     )
@@ -224,6 +230,10 @@ class Chunk(Base):
     char_start: Mapped[int] = mapped_column(Integer, nullable=False)  # offsets in extracted text
     char_end: Mapped[int] = mapped_column(Integer, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # D-66: heading path and section range of a section-aware chunk (NULL for fixed-size chunks).
+    heading: Mapped[str | None] = mapped_column(Text, nullable=True)  # sensitive
+    section_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -447,6 +457,14 @@ class GeneratedAnswer(Base):
             "grounding_check IS NULL OR jsonb_typeof(grounding_check) = 'object'",
             name="grounding_check_object",
         ),
+        CheckConstraint(
+            "source_kind IS NULL OR source_kind IN ('resume', 'document', 'synthesis', 'general')",
+            name="source_kind",
+        ),
+        CheckConstraint(
+            "source_refs IS NULL OR jsonb_typeof(source_refs) = 'array'",
+            name="source_refs_array",
+        ),
         Index("ix_generated_answers_question_id", "question_id"),
         Index("ix_generated_answers_session_id_created_at", "session_id", "created_at"),
     )
@@ -485,6 +503,11 @@ class GeneratedAnswer(Base):
     # NULL for answers that were not checked (streaming, cancelled, error, or created before 0009).
     # It is not proof that the answer is grounded.
     grounding_check: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    # D-66: where the answer came from; ids and headings only, never source text.
+    source_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    source_refs: Mapped[list[dict[str, object]] | None] = mapped_column(
         JSONB(none_as_null=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(

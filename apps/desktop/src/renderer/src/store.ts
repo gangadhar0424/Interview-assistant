@@ -4,6 +4,7 @@ import {
   hasErrors,
   validateDraft,
   type DraftErrors,
+  type ProviderChoice,
   type SessionDraft,
 } from "../../shared/session-form";
 import { startAudioCapture, type ActiveCapture } from "./audio/capture";
@@ -25,6 +26,7 @@ import type {
   SessionSummary,
   StreamMessage,
 } from "../../shared/contracts";
+import type { AnswerSource } from "../../shared/answer-source";
 import { IDLE_HANDOFF } from "../../shared/contracts";
 
 type LiveAnswer = {
@@ -37,8 +39,11 @@ type LiveAnswer = {
   provider: string | null;
   model: string | null;
   metrics: AnswerMetrics | null;
+  source?: AnswerSource | null;
   deltaCount: number;
   errorMessage: string | null;
+  /** The server's error code for a failed answer (drives the "choose another provider" offer). */
+  errorCode: string | null;
 };
 
 /** Screenshot flow state (Phase 11B). The full image never reaches the renderer; only a thumbnail. */
@@ -57,10 +62,23 @@ export type AudioUi = {
   source: AudioSourceId | null;
   lines: AudioLine[];
   notice: string | null;
+  /**
+   * Set when the selected session has no voice-listening provider (created before D-57): the
+   * providers the server offers, shown as a picker. Null otherwise.
+   */
+  voiceChoices: ProviderChoice[] | null;
+  voiceSaving: boolean;
 };
 
 const MAX_UI_LINES = 200;
-const IDLE_AUDIO: AudioUi = { state: "idle", source: null, lines: [], notice: null };
+const IDLE_AUDIO: AudioUi = {
+  state: "idle",
+  source: null,
+  lines: [],
+  notice: null,
+  voiceChoices: null,
+  voiceSaving: false,
+};
 let activeCapture: ActiveCapture | null = null;
 
 function endLocalCapture(): void {
@@ -101,19 +119,22 @@ type AppState = {
   capture: CaptureUi;
   captureNotice: string | null;
   audio: AudioUi;
+  /** Offer to switch a session's answer provider after a provider failure (D-63). */
+  answerProvider: { choices: ProviderChoice[] | null; saving: boolean; notice: string | null };
   /** Web -> desktop handoff (D-55): state pushed by main; it never contains the code. */
   handoff: HandoffState;
   busy: boolean;
   error: string | null;
   initialize(): Promise<void>;
-  login(email: string, password: string): Promise<void>;
-  signup(email: string, password: string): Promise<void>;
   logout(): Promise<void>;
   checkBackend(): Promise<void>;
   refreshSessions(): Promise<void>;
   selectSession(sessionId: string): Promise<void>;
   loadHistory(): Promise<void>;
   ask(question: string, extractionId?: string): Promise<void>;
+  /** Answer detail for the next questions (D-66): the full answer or a short spoken summary. */
+  answerDetail: "full" | "summary";
+  setAnswerDetail(detail: "full" | "summary"): void;
   openCapture(): Promise<void>;
   startCapture(displayId: string): Promise<void>;
   cancelCapture(): Promise<void>;
@@ -126,6 +147,8 @@ type AppState = {
   askFromAudio(lineId: string): Promise<void>;
   dismissAudioLine(lineId: string): void;
   clearAudioLines(): void;
+  saveVoiceProvider(providerId: string): Promise<void>;
+  saveAnswerProvider(providerId: string): Promise<void>;
   handleAudioEvent(event: AudioEvent): void;
   cancel(): Promise<void>;
   handleStreamMessage(message: StreamMessage): void;
@@ -209,12 +232,15 @@ function answerError(code: string): string {
   const messages: Record<string, string> = {
     llm_unavailable: "The answer service is temporarily unavailable.",
     llm_rate_limited: "The answer service is busy. Please try again shortly.",
+    llm_quota_exhausted:
+      "This answer provider has no credit or quota left. Choose a different provider for this session.",
     llm_timeout: "The answer took too long. Please try again.",
     llm_content_filtered: "The answer could not be generated for this question.",
     invalid_provider_selection: "This session's answer provider is no longer available.",
     retrieval_failed: "The selected session materials could not be searched.",
     empty_answer: "The answer service returned no content.",
     internal_error: "The answer could not be completed.",
+    answer_not_validated: "A reliable answer could not be produced. Please rephrase and try again.",
   };
   return messages[code] ?? "The answer could not be completed.";
 }
@@ -267,6 +293,7 @@ function updateLive(answer: LiveAnswer, event: QaEvent): LiveAnswer {
         provider: event.provider,
         model: event.model,
         metrics: event.metrics,
+        source: event.source ?? null,
       };
     case "answer.error":
       return {
@@ -275,6 +302,7 @@ function updateLive(answer: LiveAnswer, event: QaEvent): LiveAnswer {
         answerId: event.answerId ?? answer.answerId,
         questionId: event.questionId ?? answer.questionId,
         errorMessage: answerError(event.code),
+        errorCode: event.code,
       };
   }
 }
@@ -322,6 +350,8 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   sessions: [],
   selectedSessionId: null,
   history: [],
+  answerDetail: "full",
+  setAnswerDetail: (detail) => set({ answerDetail: detail }),
   liveAnswer: null,
   errorKind: null,
   createOptions: null,
@@ -333,6 +363,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   captureNotice: null,
   audio: IDLE_AUDIO,
   handoff: IDLE_HANDOFF,
+  answerProvider: { choices: null, saving: false, notice: null },
   busy: false,
   error: null,
   initialize: async () => {
@@ -350,34 +381,6 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       set({ initialized: true });
     } catch (error) {
       set({ ...errorState(error), initialized: true });
-    } finally {
-      set({ busy: false });
-    }
-  },
-  login: async (email, password) => {
-    set({ busy: true, error: null });
-    try {
-      const user = unwrap<DesktopUser>(await window.desktop.auth.login(email, password));
-      set({ user });
-      await get().refreshSessions();
-      await selectHandedOffSession(get, set);
-    } catch (error) {
-      set(errorState(error));
-      throw error;
-    } finally {
-      set({ busy: false });
-    }
-  },
-  signup: async (email, password) => {
-    set({ busy: true, error: null });
-    try {
-      const user = unwrap<DesktopUser>(await window.desktop.auth.signup(email, password));
-      set({ user });
-      await get().refreshSessions();
-      await selectHandedOffSession(get, set);
-    } catch (error) {
-      set(errorState(error));
-      throw error;
     } finally {
       set({ busy: false });
     }
@@ -465,6 +468,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     const requestId = crypto.randomUUID();
     set({
       error: null,
+      answerProvider: { choices: null, saving: false, notice: null },
       liveAnswer: {
         requestId,
         question,
@@ -477,11 +481,20 @@ export const useDesktopStore = create<AppState>((set, get) => ({
         metrics: null,
         deltaCount: 0,
         errorMessage: null,
+        errorCode: null,
       },
     });
     try {
-      const result =
-        extractionId === undefined
+      const summary = get().answerDetail === "summary";
+      const result = summary
+        ? await window.desktop.sessions.startQuestion(
+            requestId,
+            sessionId,
+            question,
+            extractionId,
+            "summary",
+          )
+        : extractionId === undefined
           ? await window.desktop.sessions.startQuestion(requestId, sessionId, question)
           : await window.desktop.sessions.startQuestion(
               requestId,
@@ -534,6 +547,9 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       set({ liveAnswer: updateLive(current, message.event) });
       if (message.event.type === "answer.done" || message.event.type === "answer.error") {
         void get().loadHistory();
+      }
+      if (message.event.type === "answer.error" && PROVIDER_FIX_CODES.has(message.event.code)) {
+        void offerAnswerProviders();
       }
       return;
     }
@@ -704,6 +720,18 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       return;
     }
     set((s) => ({ audio: { ...s.audio, notice: null } }));
+    if (get().settings?.audioInputEnabled !== true) {
+      // First Listen press: the native, main-process consent dialog appears once and the choice is
+      // remembered (Settings can turn it off again). A compromised renderer cannot fake it.
+      const enabled = await get().updateSettings({ audioInputEnabled: true });
+      if (!enabled) {
+        set((s) => ({
+          error: null,
+          audio: { ...s.audio, notice: "Listening was not turned on. Press Listen to try again." },
+        }));
+        return;
+      }
+    }
     try {
       // Main validates, shows the indicator and only then grants the media permission.
       unwrap<void>(await window.desktop.audio.start(source, sessionId));
@@ -720,6 +748,44 @@ export const useDesktopStore = create<AppState>((set, get) => ({
           notice: denied ? "Audio capture was not allowed or no device was found." : safeMessage(error),
         },
       }));
+      if (error instanceof StoreError && error.code === "stt_provider_required") {
+        await offerVoiceChoices();
+      }
+    }
+  },
+  saveAnswerProvider: async (providerId) => {
+    const sessionId = get().selectedSessionId;
+    if (!sessionId || get().answerProvider.saving) return;
+    set((s) => ({ answerProvider: { ...s.answerProvider, saving: true, notice: null } }));
+    try {
+      unwrap<void>(await window.desktop.sessions.setReasoning(sessionId, providerId));
+      set({
+        answerProvider: {
+          choices: null,
+          saving: false,
+          notice: "Answer provider saved for this session. Ask your question again.",
+        },
+      });
+    } catch (error) {
+      set((s) => ({ answerProvider: { ...s.answerProvider, saving: false, notice: safeMessage(error) } }));
+    }
+  },
+  saveVoiceProvider: async (providerId) => {
+    const sessionId = get().selectedSessionId;
+    if (!sessionId || get().audio.voiceSaving) return;
+    set((s) => ({ audio: { ...s.audio, voiceSaving: true, notice: null } }));
+    try {
+      unwrap<void>(await window.desktop.sessions.setVoice(sessionId, providerId));
+      set((s) => ({
+        audio: {
+          ...s.audio,
+          voiceChoices: null,
+          voiceSaving: false,
+          notice: "Voice provider saved for this session. Press Listen to start.",
+        },
+      }));
+    } catch (error) {
+      set((s) => ({ audio: { ...s.audio, voiceSaving: false, notice: safeMessage(error) } }));
     }
   },
   stopAudio: async () => {
@@ -765,6 +831,18 @@ export const useDesktopStore = create<AppState>((set, get) => ({
             ].slice(-MAX_UI_LINES),
           },
         }));
+        {
+          // The user pressed Listen, so a detected question is answered at once. Anything else, or
+          // a question that arrives while an answer is still streaming, waits for the Ask button.
+          const current = get();
+          const session = current.sessions.find((x) => x.id === current.selectedSessionId);
+          const answering =
+            !!current.liveAnswer &&
+            ["sending", "retrieving", "generating", "streaming"].includes(current.liveAnswer.phase);
+          if (event.isQuestion && !event.truncated && session?.status === "ready" && !answering) {
+            void current.askFromAudio(event.id);
+          }
+        }
         return;
       case "notice":
         set((s) => ({ audio: { ...s.audio, notice: event.message } }));
@@ -772,6 +850,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       case "stopped":
         endLocalCapture();
         set((s) => ({ audio: { ...s.audio, state: "idle", source: null, notice: event.message } }));
+        if (event.reason === "voice_provider_required") void offerVoiceChoices();
         return;
     }
   },
@@ -877,4 +956,39 @@ function clearedCreate(options: CreateSessionOptions | null = null) {
     createFieldErrors: {} as DraftErrors,
     ...(options ? {} : { createOptions: null }),
   };
+}
+
+/**
+ * The selected session has no voice-listening provider: load the providers the server offers so the
+ * Audio panel can show a picker. If they cannot be loaded the notice already tells the user why
+ * listening did not start, and Listen can simply be pressed again later.
+ */
+async function offerVoiceChoices(): Promise<void> {
+  const store = useDesktopStore;
+  try {
+    const loaded = unwrap<CreateSessionOptions>(await window.desktop.sessions.createOptions());
+    store.setState((s) => ({ audio: { ...s.audio, voiceChoices: loaded.options.voice_providers } }));
+  } catch (error) {
+    store.setState((s) => ({ audio: { ...s.audio, notice: safeMessage(error) } }));
+  }
+}
+
+/** Failures that a different answer provider can fix (a timeout or a refused question cannot). */
+const PROVIDER_FIX_CODES = new Set([
+  "llm_quota_exhausted",
+  "llm_unavailable",
+  "llm_rate_limited",
+  "invalid_provider_selection",
+]);
+
+/** Loads the answer providers the server offers so the Assistant page can show a picker. */
+async function offerAnswerProviders(): Promise<void> {
+  try {
+    const loaded = unwrap<CreateSessionOptions>(await window.desktop.sessions.createOptions());
+    useDesktopStore.setState({
+      answerProvider: { choices: loaded.options.providers, saving: false, notice: null },
+    });
+  } catch {
+    // The failure message on the answer card already explains what happened.
+  }
 }

@@ -142,7 +142,7 @@ def test_create_stores_session_preferences_and_document_links(kit: Kit) -> None:
     assert data["resume"] == {"id": kit.resume, "filename": "cv.pdf"}
     assert data["documents"] == [{"id": kit.doc, "filename": "notes.txt", "available": True}]
     assert data["document_count"] == 1
-    assert data["preferences"]["prompt_version"] == "v2"
+    assert data["preferences"]["prompt_version"] == "v4"
     assert data["preferences"]["provider"] == "fake" and data["preferences"]["model"] is None
     assert data["preferences"]["stt_provider"] == "fake"
     assert data["preferences"]["stt_model"] is None
@@ -153,7 +153,7 @@ def test_create_stores_session_preferences_and_document_links(kit: Kit) -> None:
     link = kit.run_sql("SELECT * FROM session_documents")[0]
     assert str(link["user_id"]) == str(owner) and str(link["document_id"]) == kit.doc
     prefs = kit.run_sql("SELECT * FROM session_preferences")[0]
-    assert prefs["prompt_version"] == "v2"
+    assert prefs["prompt_version"] == "v4"
     assert prefs["generation_config"]["answer"]["language"] == "en"
     assert prefs["generation_config"]["generation"]["max_output_tokens"] == 360  # 180 words x 2
 

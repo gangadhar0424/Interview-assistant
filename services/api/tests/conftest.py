@@ -46,6 +46,18 @@ def _base_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ACCESS_TOKEN_TTL_MINUTES", "15")
     monkeypatch.setenv("REFRESH_TOKEN_TTL_DAYS", "14")
     monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000")
+    # Answer-pipeline knobs: tests run on the code defaults, whatever a developer tuned in .env.
+    for name, value in {
+        "QA_RETRIEVAL_TOP_K": "8",
+        "QA_RESUME_QUOTA": "3",
+        "QA_CONTEXT_MAX_CHARS": "6000",
+        "QA_MIN_DOCUMENT_SIMILARITY": "0",
+        "QA_RETRIEVAL_MODE": "dense",
+        "QA_ROUTER_MODE": "off",
+        "QA_VALIDATE_GENERAL": "off",
+        "QA_ANSWER_CACHE_TTL_SECONDS": "0",
+    }.items():
+        monkeypatch.setenv(name, value)
     get_settings.cache_clear()
 
 

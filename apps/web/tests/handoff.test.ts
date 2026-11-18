@@ -15,6 +15,7 @@ import {
   parseDownloadUrl,
   type LaunchDeps,
 } from "../lib/handoff.ts";
+import { PRESENCE_PORT, PRESENCE_TIMEOUT_MS, PRESENCE_URL } from "../lib/desktop-presence.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CODE = "A".repeat(43);
@@ -197,4 +198,39 @@ test("creating a session goes straight to it, after validating the id", () => {
   assert.ok(wizard.includes("isUuid(created.id)"));
   assert.ok(wizard.includes("`/sessions/${created.id}`"));
   assert.ok(wizard.includes('"/home"')); // safe fallback
+});
+
+// ------------------------------------------------------------------- presence check (D-60)
+test("when the desktop app is not detected nothing is requested or launched", async () => {
+  const h = harness({ left: true });
+  let requested = false;
+  h.deps.requestCode = async () => {
+    requested = true;
+    return { code: CODE, expires_in: 60 };
+  };
+  h.deps.detect = async () => false;
+  assert.deepEqual(await launchDesktop(h.deps), { kind: "not-detected" });
+  assert.equal(requested, false);
+  assert.deepEqual(h.calls, []);
+  assert.deepEqual(h.navigated, []);
+});
+
+test("when the desktop app is detected the normal launch runs", async () => {
+  const h = harness({ left: true });
+  h.deps.detect = async () => true;
+  assert.deepEqual(await launchDesktop(h.deps), { kind: "opened" });
+  assert.deepEqual(h.navigated, [`interviewassistant://start?h=${CODE}`]);
+});
+
+test("the presence beacon is a loopback URL on the documented port", () => {
+  assert.equal(PRESENCE_URL, `http://127.0.0.1:${PRESENCE_PORT}/ia-presence`);
+  assert.ok(PRESENCE_TIMEOUT_MS >= 200 && PRESENCE_TIMEOUT_MS <= 3000);
+});
+
+test("the presence check is the only unauthenticated request: fixed loopback URL, no credentials", () => {
+  const presence = source("lib/desktop-presence.ts");
+  assert.equal((presence.match(/\bfetch\(/g) ?? []).length, 1);
+  assert.ok(presence.includes("PRESENCE_URL"));
+  assert.ok(presence.includes('mode: "no-cors"') && presence.includes('credentials: "omit"'));
+  assert.equal(/console\.|localStorage|sessionStorage/.test(presence), false);
 });
