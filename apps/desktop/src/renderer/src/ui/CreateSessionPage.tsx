@@ -330,6 +330,11 @@ export function CreateSessionPage({
             )}
           </section>
 
+          <p className="settings-help">
+            Audio and screenshot help asks you to accept an acceptable-use notice before first use. You are
+            responsible for following the rules of your interview, meeting or assessment.
+          </p>
+
           <div className="capture-actions">
             <button className="button button-primary" disabled={submitting} type="submit">
               {submitting ? "Creating…" : "Create session"}

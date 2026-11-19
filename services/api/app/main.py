@@ -41,6 +41,7 @@ from app.realtime.session_channel import SessionChannels
 from app.realtime.tickets import TicketStore
 from app.screenshots.limits import ScreenshotLimits
 from app.screenshots.service import ScreenshotExtractor
+from app.sessions.idempotency import IdempotencyStore
 from app.storage.local import LocalFileStorage
 
 logger = logging.getLogger("app.request")
@@ -165,6 +166,7 @@ def create_app() -> FastAPI:
             socket_timeout=2,
         )
         app.state.ticket_store = TicketStore(ticket_redis, settings.ws_ticket_ttl_seconds)
+        app.state.idempotency_store = IdempotencyStore(ticket_redis)  # M-9: duplicate creates
         # Answer pipeline (D-66, Phase 4): the validated-general-answer cache, and a background
         # warm-up so the first question does not pay for loading the embedding model.
         app.state.question_answerer.set_cache(

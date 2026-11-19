@@ -79,6 +79,10 @@ export function normalizeBackendUrl(value: string): string {
   return url.origin;
 }
 
+function sessionPath(sessionId: string): string {
+  return `/api/v1/sessions/${encodeURIComponent(sessionId)}`;
+}
+
 function errorFromResponse(response: Response, payload: unknown): DesktopApiError {
   const error = (payload as ErrorEnvelope | null)?.error;
   const retry = Number(response.headers.get("Retry-After"));
@@ -233,6 +237,51 @@ export class DesktopApiClient {
     return typeof provider === "string" && provider.length > 0 ? provider : null;
   }
 
+  /** M-9: title only. The server keeps a completed session's title editable. */
+  async renameSession(sessionId: string, title: string): Promise<SessionSummary> {
+    return this.authenticatedJson<SessionSummary>(sessionPath(sessionId), {
+      method: "PATCH",
+      body: { title },
+    });
+  }
+
+  async endSession(sessionId: string): Promise<SessionSummary> {
+    return this.authenticatedJson<SessionSummary>(`${sessionPath(sessionId)}/end`, {
+      method: "POST",
+    });
+  }
+
+  async reopenSession(sessionId: string): Promise<SessionSummary> {
+    return this.authenticatedJson<SessionSummary>(`${sessionPath(sessionId)}/reopen`, {
+      method: "POST",
+    });
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.authenticatedJson<unknown>(sessionPath(sessionId), { method: "DELETE" });
+  }
+
+  /** M-9: the export file's text, for the main process to write where the user chose. */
+  async exportSession(sessionId: string, format: "markdown" | "json"): Promise<string> {
+    if (!this.accessToken) {
+      throw new DesktopApiError({
+        kind: "http",
+        status: 401,
+        code: "not_authenticated",
+        message: "Sign in again to continue.",
+      });
+    }
+    const path = `${sessionPath(sessionId)}/export?format=${format}`;
+    const send = (token: string) => this.request(path, { headers: { Authorization: `Bearer ${token}` } });
+    let response = await send(this.accessToken);
+    if (response.status === 401) {
+      await this.refreshSession();
+      response = await send(this.accessToken ?? "");
+    }
+    if (!response.ok) throw await responseError(response);
+    return response.text();
+  }
+
   /** Saves the user's voice-listening provider choice on a session (D-57: the user chooses it). */
   async setSessionVoiceProvider(sessionId: string, provider: string): Promise<void> {
     await this.patchSessionPreferences(sessionId, { stt_provider: provider });
@@ -261,6 +310,7 @@ export class DesktopApiClient {
     sessionId: string,
     wav: Uint8Array,
     signal: AbortSignal,
+    onServerMs?: (ms: number) => void,
   ): Promise<{ text: string; truncated: boolean; isQuestion: boolean; confidence: number }> {
     const path = `/api/v1/sessions/${encodeURIComponent(sessionId)}/transcribe`;
     if (!this.accessToken) {
@@ -288,11 +338,13 @@ export class DesktopApiClient {
     }
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) throw errorFromResponse(response, payload);
+    reportServerMs(payload, onServerMs);
     const body = payload as {
       text?: unknown;
       truncated?: unknown;
       is_question?: unknown;
       confidence?: unknown;
+      latency_ms?: unknown;
     } | null;
     if (
       typeof body?.text !== "string" ||
@@ -447,13 +499,17 @@ export class DesktopApiClient {
     };
   }
 
-  async createSession(body: Record<string, unknown>): Promise<SessionSummary> {
+  async createSession(
+    body: Record<string, unknown>,
+    idempotencyKey?: string,
+  ): Promise<SessionSummary> {
     const send = () =>
       this.request("/api/v1/sessions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.accessToken ?? ""}`,
           "Content-Type": "application/json",
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
         },
         body: JSON.stringify(body),
       });
@@ -548,6 +604,7 @@ export class DesktopApiClient {
     sessionId: string,
     png: Uint8Array,
     signal: AbortSignal,
+    onServerMs?: (ms: number) => void,
   ): Promise<{ text: string; truncated: boolean }> {
     const path = `/api/v1/sessions/${encodeURIComponent(sessionId)}/screenshots`;
     if (!this.accessToken) {
@@ -575,7 +632,12 @@ export class DesktopApiClient {
     }
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) throw errorFromResponse(response, payload);
-    const body = payload as { extracted_text?: unknown; truncated?: unknown } | null;
+    reportServerMs(payload, onServerMs);
+    const body = payload as {
+      extracted_text?: unknown;
+      truncated?: unknown;
+      latency_ms?: unknown;
+    } | null;
     if (typeof body?.extracted_text !== "string" || typeof body.truncated !== "boolean") {
       throw new DesktopApiError({
         kind: "unknown",
@@ -631,7 +693,7 @@ export class DesktopApiClient {
 
   private async authenticatedJson<T>(
     path: string,
-    send?: { method: "PATCH"; body: unknown },
+    send?: { method: "PATCH" | "POST" | "DELETE"; body?: unknown },
   ): Promise<T> {
     if (!this.accessToken) {
       throw new DesktopApiError({
@@ -645,8 +707,11 @@ export class DesktopApiClient {
       send
         ? {
             method: send.method,
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify(send.body),
+            headers: {
+              Authorization: `Bearer ${token}`,
+              ...(send.body !== undefined ? { "Content-Type": "application/json" } : {}),
+            },
+            ...(send.body !== undefined ? { body: JSON.stringify(send.body) } : {}),
           }
         : { headers: { Authorization: `Bearer ${token}` } };
     let response = await this.request(path, options(this.accessToken));
@@ -754,6 +819,13 @@ export function asDesktopError(error: unknown): DesktopError {
 }
 
 export type { DesktopSettings, AnswerItem };
+
+/** Hand the server's own timing (one number, never content) to the perf recorder, if usable. */
+function reportServerMs(payload: unknown, report?: (ms: number) => void): void {
+  if (!report || typeof payload !== "object" || payload === null) return;
+  const value = (payload as { latency_ms?: unknown }).latency_ms;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) report(value);
+}
 
 async function consumeSse(
   response: Response,

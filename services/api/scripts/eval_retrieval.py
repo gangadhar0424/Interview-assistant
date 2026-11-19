@@ -62,6 +62,12 @@ async def main() -> None:
     parser.add_argument("--user", required=True)
     parser.add_argument("--mode", choices=["dense", "hybrid", "router"], default="hybrid")
     parser.add_argument("--max-words", type=int, default=150)
+    parser.add_argument(
+        "--questions",
+        type=Path,
+        default=QUESTIONS,
+        help="question set JSON (default: tests/eval/questions.json)",
+    )
     args = parser.parse_args()
     session_id, user_id = uuid.UUID(args.session), uuid.UUID(args.user)
 
@@ -71,7 +77,7 @@ async def main() -> None:
     embedder = build_embedding_provider(settings)
     config = ContextConfig.from_settings(settings)
     router_cfg = RouterSettings.from_settings(settings)
-    questions = json.loads(QUESTIONS.read_text(encoding="utf-8"))["questions"]
+    questions = json.loads(args.questions.read_text(encoding="utf-8"))["questions"]
 
     async with maker() as db:
         await set_tenant_context(db, user_id)
@@ -135,9 +141,7 @@ async def main() -> None:
                 row["mode"] = decision.mode.value
                 row["mode_ok"] = decision.mode in EXPECTED_MODES[q["expect"]]
                 if decision.mode in (Mode.RESUME_EXTRACTIVE, Mode.DOCUMENT_EXTRACTIVE):
-                    answer = await extractive_text(
-                        maker, user_id, decision, terms, args.max_words
-                    )
+                    answer = await extractive_text(maker, user_id, decision, terms, args.max_words)
                     row["verbatim_hit"] = answer is not None and contains_marker(answer, markers)
         row["ms"] = (time.monotonic() - started) * 1000
         if markers:
@@ -149,9 +153,7 @@ async def main() -> None:
     for k in (5, 8):
         hit = sum(1 for r in scored if r.get("rank") and int(str(r["rank"])) <= k)
         print(f"recall@{k}: {hit}/{len(scored)} = {hit / len(scored):.2f}")  # noqa: T201
-    mrr = statistics.fmean(
-        1 / int(str(r["rank"])) if r.get("rank") else 0.0 for r in scored
-    )
+    mrr = statistics.fmean(1 / int(str(r["rank"])) if r.get("rank") else 0.0 for r in scored)
     print(f"MRR: {mrr:.3f}")  # noqa: T201
     if args.mode == "router":
         ok = sum(1 for r in rows if r.get("mode_ok"))

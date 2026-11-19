@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Form
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { isUuid } from "@/lib/qa";
+import { CreateAttempt } from "@/lib/session-management";
 import {
   isReady,
   labelFor,
@@ -69,6 +70,7 @@ export function SessionWizard() {
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState<Note | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const attempt = useRef(new CreateAttempt());
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -194,9 +196,14 @@ export function SessionWizard() {
     setSubmitting(true);
     setSubmitError(null);
     try {
+      // A retry of the same request (after a lost response) carries the same key, so the server
+      // returns the session it already made instead of a second one.
+      const payload = toCreatePayload(form);
       const created = await authedRequest<{ id: string }>("/api/v1/sessions", {
-        body: toCreatePayload(form),
+        body: payload,
+        headers: { "Idempotency-Key": attempt.current.keyFor(payload) },
       });
+      attempt.current.succeeded();
       // Straight to the new session, where Start Interview is. Fall back to the dashboard.
       router.push(typeof created?.id === "string" && isUuid(created.id) ? `/sessions/${created.id}` : "/home");
     } catch (err) {
@@ -243,6 +250,11 @@ export function SessionWizard() {
         <h1 id="wizard-title" ref={headingRef} tabIndex={-1} style={{ margin: 0 }}>
           {step === 1 ? "Job and materials" : "Answer preferences"}
         </h1>
+        <p style={ui.hint}>
+          Live audio and screenshot help runs in the desktop app, which asks you to accept an
+          acceptable-use notice first. You are responsible for following the rules of your
+          interview, meeting or assessment.
+        </p>
       </div>
 
       {submitError && (

@@ -1,3 +1,4 @@
+import { ACCEPTABLE_USE_VERSION } from "../shared/acknowledgement";
 import type { DesktopSettings } from "../shared/contracts";
 
 export const MIN_OPACITY = 0.65;
@@ -57,6 +58,17 @@ export function validateSettingsPatch(value: unknown): Partial<DesktopSettings> 
     throw new Error("Unsupported setting.");
   }
   return patch;
+}
+
+/** The wording version the user is accepting: it must be exactly the one this build requires. */
+export function validateAcknowledgementVersion(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error("The acceptable-use notice is invalid.");
+  }
+  if (value !== ACCEPTABLE_USE_VERSION) {
+    throw new Error("The acceptable-use notice has changed. Please read it again.");
+  }
+  return value;
 }
 
 /** Validates text the renderer asks the main process to place on the clipboard. */

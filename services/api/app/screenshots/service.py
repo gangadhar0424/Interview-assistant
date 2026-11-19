@@ -20,7 +20,11 @@ from app.ai.vision import ImageInput
 from app.ai.vision_router import VisionRouter
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.metrics import screenshot_extractions
+from app.core.metrics import (
+    screenshot_extractions,
+    screenshot_validate_seconds,
+    vision_request_seconds,
+)
 from app.db.session import set_tenant_context
 from app.preferences.prompt_builder import build_vision_extraction_prompt
 from app.preferences.sanitize import clean_text
@@ -89,12 +93,14 @@ class ScreenshotExtractor:
         if len(data) > self.max_bytes:
             _count("too_large")
             raise too_large()
+        validate_started = self._clock()
         try:
             png = validate_png(
                 data,
                 max_long_edge=self._settings.screenshot_max_long_edge,
                 max_pixels=self._settings.screenshot_max_pixels,
             )
+            screenshot_validate_seconds.observe(self._clock() - validate_started)
         except InvalidImage:
             _count("invalid_image")
             logger.info(
@@ -107,9 +113,13 @@ class ScreenshotExtractor:
             )
             raise AppError(422, "invalid_image", INVALID_IMAGE_MESSAGE) from None
         image = ImageInput(png.data, png.width, png.height)
+        vision_started = self._clock()
         try:
             result = await self._vision.extract(
                 build_vision_extraction_prompt(), image, user_id=user_id
+            )
+            vision_request_seconds.labels(provider=result.provider).observe(
+                self._clock() - vision_started
             )
         except AppError:
             raise

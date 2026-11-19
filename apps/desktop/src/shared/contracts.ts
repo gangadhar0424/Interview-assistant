@@ -1,4 +1,8 @@
+import type { AcknowledgementState } from "./acknowledgement";
 import type { AnswerSource } from "./answer-source";
+import type { DisplayList } from "./placement";
+import type { CopyDiagnosticsResult, RecoveryInfo } from "./recovery";
+import type { ShortcutConfig, ShortcutEvent, ShortcutState } from "./shortcuts";
 import type { SessionDraft, SessionOptions } from "./session-form";
 
 export type DesktopSettings = {
@@ -44,7 +48,15 @@ export type SessionSummary = {
   updated_at: string;
   resume: { id: string | null; filename: string };
   document_count: number;
+  /** M-9, derived by the server. Optional so an older server still works. */
+  last_activity_at?: string;
+  question_count?: number;
+  activity_state?: "active" | "completed" | "interrupted";
 };
+
+/** User-triggered session export (M-9). The content is saved by the main process; never returned. */
+export type SessionExportFormat = "markdown" | "json";
+export type SessionExportResult = { saved: boolean; fileName: string | null };
 
 /** A resume or document the user may select (Phase 11.5). Names and status only: never content. */
 export type FileOption = {
@@ -248,6 +260,28 @@ export type DesktopBridge = {
     minimize(): Promise<DesktopResult<void>>;
     closeToTray(): Promise<DesktopResult<void>>;
     copyText(text: string): Promise<DesktopResult<void>>;
+    /** Whether the signed-in user accepted the current acceptable-use notice (M-1, D-68). */
+    getAcknowledgement(): Promise<DesktopResult<AcknowledgementState>>;
+    /**
+     * Asks the main process to record acceptance of `version`. Main shows its own native
+     * confirmation first; the renderer cannot record acceptance by any other route.
+     */
+    acceptAcknowledgement(version: number): Promise<DesktopResult<AcknowledgementState>>;
+    /** Saved keyboard-shortcut preferences and whether each one is registered (M-4, D-69). */
+    getShortcuts(): Promise<DesktopResult<ShortcutState>>;
+    /** Validates in main, saves, re-registers, and returns the new state. */
+    setShortcuts(config: ShortcutConfig): Promise<DesktopResult<ShortcutState>>;
+    /** Whether the window was just reloaded after its renderer stopped (read once; M-5, D-70). */
+    getRecovery(): Promise<DesktopResult<RecoveryInfo>>;
+    /**
+     * Copies a bounded, redacted diagnostics report to the clipboard (written by the main process;
+     * the text never reaches the renderer). Returns only how many characters were copied.
+     */
+    copyDiagnostics(): Promise<DesktopResult<CopyDiagnosticsResult>>;
+    /** The connected displays and which one the assistant is on (M-6, D-71). */
+    getDisplays(): Promise<DesktopResult<DisplayList>>;
+    /** Moves the assistant to the middle of that display and remembers it. Validated in main. */
+    moveToDisplay(displayId: number): Promise<DesktopResult<DisplayList>>;
   };
   auth: {
     getState(): Promise<DesktopResult<AuthState>>;
@@ -273,6 +307,22 @@ export type DesktopBridge = {
     setVoice(sessionId: string, provider: string): Promise<DesktopResult<void>>;
     /** Saves a different answer (reasoning) provider for a session whose provider failed (D-63). */
     setReasoning(sessionId: string, provider: string): Promise<DesktopResult<void>>;
+    /** M-9: renames a session (title only). Returns the updated summary. */
+    rename(sessionId: string, title: string): Promise<DesktopResult<SessionSummary>>;
+    /** M-9: completes a session. Stops no capture by itself; the app stops audio first. */
+    end(sessionId: string): Promise<DesktopResult<SessionSummary>>;
+    /** M-9: reopens a completed session. Starts no audio or capture. */
+    reopen(sessionId: string): Promise<DesktopResult<SessionSummary>>;
+    /** M-9: deletes a session after a native confirmation shown by the main process. */
+    remove(sessionId: string): Promise<DesktopResult<{ deleted: boolean }>>;
+    /**
+     * M-9: exports one session to a file the user chooses. Main shows what is exported and where
+     * it is written, asks for a path, and writes the file; the content never reaches the renderer.
+     */
+    exportToFile(
+      sessionId: string,
+      format: SessionExportFormat,
+    ): Promise<DesktopResult<SessionExportResult>>;
   };
   handoff: {
     /** The current handoff state (the link can arrive before the renderer is listening). */
@@ -297,6 +347,8 @@ export type DesktopBridge = {
     sendChunk(chunk: ArrayBuffer): void;
   };
   onAudioEvent(listener: (event: AudioEvent) => void): () => void;
+  /** A shortcut asked to move to a panel. It never starts audio or capture. */
+  onShortcutEvent(listener: (event: ShortcutEvent) => void): () => void;
   onCaptureEvent(listener: (event: CaptureEvent) => void): () => void;
   onStreamMessage(listener: (message: StreamMessage) => void): () => void;
   onSessionExpired(listener: () => void): () => void;

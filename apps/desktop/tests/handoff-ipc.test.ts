@@ -1,3 +1,4 @@
+import { acknowledgedSettings } from "./ack-fixture";
 /**
  * Web -> desktop handoff (D-55/D-56): the real IPC layer driven with a fake ipcMain/window/backend.
  * Proves the desktop is signed in by the handoff itself (no desktop login), cold-start and
@@ -113,7 +114,7 @@ function setup(redeem: (call: FetchCall) => Response | Promise<Response> = () =>
         removeListener: vi.fn(),
       } as never,
       window: win as never,
-      settings: new SettingsStore(join(dir, "settings.json")),
+      settings: acknowledgedSettings(dir, USER_A.id),
       safeStorage: { isEncryptionAvailable: () => true, encryptString: (v: string) => Buffer.from(v), decryptString: (v: Buffer) => v.toString() },
       secureTokenPath: join(dir, "refresh-token.bin"),
       rendererHtmlPath: RENDERER,
@@ -123,6 +124,7 @@ function setup(redeem: (call: FetchCall) => Response | Promise<Response> = () =>
       audioHost: { setIndicator: indicator },
       audioGate: gate,
       confirmAudioConsent: async () => true,
+      confirmAcceptableUse: async () => true,
       deepLinks: inbox,
       confirmHandoffSwitch: confirmSwitch,
       confirmHandoffAccountSwitch: confirmAccountSwitch,

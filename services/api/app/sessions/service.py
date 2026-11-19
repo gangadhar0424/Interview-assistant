@@ -5,7 +5,8 @@ import binascii
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 from urllib.parse import urlsplit
 
 from sqlalchemy import func
@@ -23,6 +24,7 @@ from app.preferences.compiler import PreferenceCompiler, PreferencesInput, parse
 from app.preferences.errors import InvalidPreference
 from app.preferences.prompt_builder import PROMPT_VERSION
 from app.preferences.sanitize import clean_text
+from app.qa.repository import STALE_ERROR_CODE
 from app.sessions import repository
 from app.sessions.materials import material_not_found, resolve_materials
 from app.sessions.schemas import (
@@ -165,7 +167,30 @@ def _resume_ref(row: CallSession) -> ResumeRef:
     return ResumeRef(id=row.resume_id, filename=str(row.resume_snapshot.get("filename", "")))
 
 
-def _summary(row: CallSession, document_count: int) -> SessionSummary:
+def activity_state(
+    row: CallSession, activity: repository.Activity, stale_after_seconds: float
+) -> Literal["active", "completed", "interrupted"]:
+    """What the UI shows, derived (no stored column): `completed` once ended/archived;
+    `interrupted` when the newest answer was cut off (marked interrupted, or still `streaming`
+    longer than any generation can run); otherwise `active`."""
+    if row.status in _LOCKED_STATUSES:
+        return "completed"
+    if activity.latest_answer_error == STALE_ERROR_CODE:
+        return "interrupted"
+    if activity.latest_answer_status == "streaming" and activity.latest_answer_at is not None:
+        age = datetime.now(UTC) - activity.latest_answer_at
+        if age > timedelta(seconds=stale_after_seconds):
+            return "interrupted"
+    return "active"
+
+
+def _summary(
+    row: CallSession,
+    document_count: int,
+    activity: repository.Activity,
+    stale_after_seconds: float,
+) -> SessionSummary:
+    last = max(t for t in (row.updated_at, activity.last_question_at) if t is not None)
     return SessionSummary(
         id=row.id,
         type=row.type,
@@ -176,10 +201,15 @@ def _summary(row: CallSession, document_count: int) -> SessionSummary:
         updated_at=row.updated_at,
         resume=_resume_ref(row),
         document_count=document_count,
+        last_activity_at=last,
+        question_count=activity.question_count,
+        activity_state=activity_state(row, activity, stale_after_seconds),
     )
 
 
-async def _detail(session: AsyncSession, user_id: uuid.UUID, row: CallSession) -> SessionDetail:
+async def _detail(
+    session: AsyncSession, user_id: uuid.UUID, row: CallSession, stale_after_seconds: float
+) -> SessionDetail:
     prefs = await repository.preferences_for_user(session, user_id, row.id)
     if prefs is None:  # cannot happen through the API (created together); fail closed
         raise session_not_found()
@@ -192,7 +222,10 @@ async def _detail(session: AsyncSession, user_id: uuid.UUID, row: CallSession) -
         )
         for item in row.materials_snapshot
     ]
-    base = _summary(row, len(live))
+    activity = (await repository.activity_for_user(session, user_id, [row.id])).get(
+        row.id, repository.Activity()
+    )
+    base = _summary(row, len(live), activity, stale_after_seconds)
     return SessionDetail(
         **base.model_dump(),
         job_url=row.job_url,
@@ -308,7 +341,7 @@ async def create_session(
     )
     await _commit(session)
     logger.info("session created", extra={"user_id": str(user_id), "session_id": str(row.id)})
-    return await _detail(session, user_id, row)
+    return await _detail(session, user_id, row, settings.qa_request_timeout_seconds)
 
 
 def _encode_cursor(row: CallSession) -> str:
@@ -333,6 +366,7 @@ async def list_sessions(
     status: str | None,
     q: str | None,
     cursor: str | None,
+    stale_after_seconds: float = 120.0,
 ) -> SessionList:
     if status is not None and status not in SESSION_STATUSES:
         raise _invalid("status is invalid.")
@@ -341,20 +375,33 @@ async def list_sessions(
         session, user_id, limit=limit + 1, status=status, q=(q or "").strip() or None, after=after
     )
     page, more = rows[:limit], len(rows) > limit
-    counts = await repository.document_counts(session, user_id, [r.id for r in page])
+    ids = [r.id for r in page]
+    counts = await repository.document_counts(session, user_id, ids)
+    activity = await repository.activity_for_user(session, user_id, ids)
     return SessionList(
-        items=[_summary(r, counts.get(r.id, 0)) for r in page],
+        items=[
+            _summary(
+                r,
+                counts.get(r.id, 0),
+                activity.get(r.id, repository.Activity()),
+                stale_after_seconds,
+            )
+            for r in page
+        ],
         next_cursor=_encode_cursor(page[-1]) if more and page else None,
     )
 
 
 async def get_session(
-    session: AsyncSession, user_id: uuid.UUID, session_id: uuid.UUID
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    stale_after_seconds: float = 120.0,
 ) -> SessionDetail:
     row = await repository.get_for_user(session, user_id, session_id)
     if row is None:
         raise session_not_found()  # foreign and unknown ids look identical
-    return await _detail(session, user_id, row)
+    return await _detail(session, user_id, row, stale_after_seconds)
 
 
 async def update_session(
@@ -410,7 +457,7 @@ async def update_session(
     await _commit(session)
     if changed:
         await session.refresh(row)  # reload the server-side timestamp for the response
-    return await _detail(session, user_id, row)
+    return await _detail(session, user_id, row, settings.qa_request_timeout_seconds)
 
 
 async def _update_preferences(
@@ -484,3 +531,65 @@ async def delete_session(session: AsyncSession, user_id: uuid.UUID, session_id: 
         raise session_not_found()
     await session.commit()
     logger.info("session deleted", extra={"user_id": str(user_id), "session_id": str(session_id)})
+
+
+async def _transition(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    settings: Settings,
+    session_id: uuid.UUID,
+    *,
+    allowed_from: tuple[str, ...],
+    to: str,
+    refusal: str,
+) -> SessionDetail:
+    """Move one owned session between lifecycle states. Idempotent when already in `to`."""
+    row = await repository.get_for_user(session, user_id, session_id, lock=True)
+    if row is None:
+        raise session_not_found()
+    if row.status != to:
+        if row.status not in allowed_from:
+            raise AppError(409, "session_not_transitionable", refusal)
+        row.status = to
+        row.updated_at = func.now()
+        await session.commit()
+        await session.refresh(row)
+        logger.info(
+            "session status changed",
+            extra={"user_id": str(user_id), "session_id": str(session_id), "status": to},
+        )
+    else:
+        await session.rollback()  # release the row lock; nothing changed
+        await session.refresh(row)  # rollback expires the row; reload before rendering
+    return await _detail(session, user_id, row, settings.qa_request_timeout_seconds)
+
+
+async def end_session(
+    session: AsyncSession, user_id: uuid.UUID, settings: Settings, session_id: uuid.UUID
+) -> SessionDetail:
+    """Complete a session (`ready`/`active` -> `ended`). Stops new questions; edits are locked
+    except the title. Nothing is deleted and no capture is touched."""
+    return await _transition(
+        session,
+        user_id,
+        settings,
+        session_id,
+        allowed_from=("ready", "active"),
+        to="ended",
+        refusal="This session cannot be completed.",
+    )
+
+
+async def reopen_session(
+    session: AsyncSession, user_id: uuid.UUID, settings: Settings, session_id: uuid.UUID
+) -> SessionDetail:
+    """Resume a completed session (`ended` -> `ready`). Starts no audio or screenshot capture."""
+    return await _transition(
+        session,
+        user_id,
+        settings,
+        session_id,
+        allowed_from=("ended",),
+        to="ready",
+        refusal="This session cannot be reopened.",
+    )

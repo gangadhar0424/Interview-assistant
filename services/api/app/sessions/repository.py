@@ -6,12 +6,19 @@ rows (preferences, document links) are only reached through a user-scoped sessio
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import CallSession, SessionDocument, SessionPreferences
+from app.db.models import (
+    CallSession,
+    DetectedQuestion,
+    GeneratedAnswer,
+    SessionDocument,
+    SessionPreferences,
+)
 
 
 async def get_for_user(
@@ -115,3 +122,89 @@ async def replace_documents(
         SessionDocument(session_id=session_id, document_id=doc_id, user_id=user_id)
         for doc_id in document_ids
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Activity:
+    """Per-session activity derived from questions/answers (nothing stored separately)."""
+
+    question_count: int = 0
+    last_question_at: datetime | None = None
+    latest_answer_status: str | None = None
+    latest_answer_error: str | None = None
+    latest_answer_at: datetime | None = None
+
+
+async def activity_for_user(
+    session: AsyncSession, user_id: uuid.UUID, session_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, Activity]:
+    """Two grouped queries for a whole page (never one per session)."""
+    if not session_ids:
+        return {}
+    counts = (
+        await session.execute(
+            select(
+                DetectedQuestion.session_id,
+                func.count(),
+                func.max(DetectedQuestion.detected_at),
+            )
+            .where(
+                DetectedQuestion.user_id == user_id, DetectedQuestion.session_id.in_(session_ids)
+            )
+            .group_by(DetectedQuestion.session_id)
+        )
+    ).all()
+    latest = (
+        await session.execute(
+            select(
+                GeneratedAnswer.session_id,
+                GeneratedAnswer.status,
+                GeneratedAnswer.error_code,
+                GeneratedAnswer.created_at,
+            )
+            .where(GeneratedAnswer.user_id == user_id, GeneratedAnswer.session_id.in_(session_ids))
+            .distinct(GeneratedAnswer.session_id)
+            .order_by(GeneratedAnswer.session_id, GeneratedAnswer.created_at.desc())
+        )
+    ).all()
+    result: dict[uuid.UUID, Activity] = {
+        sid: Activity(question_count=n, last_question_at=last) for sid, n, last in counts
+    }
+    for sid, status, error, created in latest:
+        base = result.get(sid, Activity())
+        result[sid] = Activity(base.question_count, base.last_question_at, status, error, created)
+    return result
+
+
+async def questions_with_answers_for_user(
+    session: AsyncSession, user_id: uuid.UUID, session_id: uuid.UUID, *, limit: int
+) -> tuple[list[DetectedQuestion], dict[uuid.UUID, list[GeneratedAnswer]]]:
+    """Oldest-first questions of one owned session and their answers (export only)."""
+    questions = list(
+        (
+            await session.execute(
+                select(DetectedQuestion)
+                .where(
+                    DetectedQuestion.user_id == user_id, DetectedQuestion.session_id == session_id
+                )
+                .order_by(DetectedQuestion.detected_at, DetectedQuestion.id)
+                .limit(limit)
+            )
+        ).scalars()
+    )
+    answers: dict[uuid.UUID, list[GeneratedAnswer]] = {q.id: [] for q in questions}
+    if questions:
+        rows = (
+            await session.execute(
+                select(GeneratedAnswer)
+                .where(
+                    GeneratedAnswer.user_id == user_id,
+                    GeneratedAnswer.session_id == session_id,
+                    GeneratedAnswer.question_id.in_(list(answers)),
+                )
+                .order_by(GeneratedAnswer.created_at, GeneratedAnswer.id)
+            )
+        ).scalars()
+        for answer in rows:
+            answers[answer.question_id].append(answer)
+    return questions, answers

@@ -17,6 +17,11 @@
  * Nothing sensitive is logged: this module has no logging at all.
  */
 import { randomUUID } from "node:crypto";
+import {
+  ACKNOWLEDGEMENT_REQUIRED_CODE,
+  ACKNOWLEDGEMENT_REQUIRED_MESSAGE,
+} from "../shared/acknowledgement";
+import type { PerfSink } from "./perf-marks";
 import type {
   CaptureCancelReason,
   CaptureDisplay,
@@ -46,6 +51,8 @@ export type CaptureHost = Pick<
 export type CapturePorts = {
   isEnabled(): boolean;
   isSignedIn(): boolean;
+  /** True when the signed-in user accepted the current acceptable-use notice (M-1, D-68). */
+  isAcknowledged(): boolean;
   windowState(): WindowState;
   listDisplays(): CaptureDisplay[];
   /** Resolves the PNG of one display (already bounded in size), or null if it could not be read. */
@@ -54,10 +61,18 @@ export type CapturePorts = {
   makePreview(png: Buffer): { dataUrl: string; width: number; height: number };
   /** True if the session exists for this user and is ready (checked again by the backend). */
   sessionReady(sessionId: string): Promise<boolean>;
-  upload(png: Buffer, sessionId: string, signal: AbortSignal): Promise<ExtractedText>;
+  upload(
+    png: Buffer,
+    sessionId: string,
+    signal: AbortSignal,
+    /** Called with the server's own time for the request (a number), when it reports one. */
+    onServerMs?: (ms: number) => void,
+  ): Promise<ExtractedText>;
   emit(event: CaptureEvent): void;
   /** Visible, main-process-owned indication (taskbar flash, tray tooltip). */
   setIndicator(state: IndicatorState): void;
+  /** Optional timing sink (M-2). Never receives pixels or text. */
+  perf?: PerfSink;
   now(): number;
 };
 
@@ -209,19 +224,28 @@ export class CaptureService {
     this.capturing = true;
     const generation = this.generation;
     this.ports.setIndicator("capturing");
+    // The capture id doubles as the perf trace id. Acquisition time starts here, after the
+    // countdown the user can see, so the visible countdown is not counted as latency.
+    const captureId = randomUUID();
+    if (this.ports.perf?.begin("screenshot", captureId)) {
+      this.ports.perf.mark(captureId, "capture_requested");
+    }
     let png: Buffer | null = null;
     try {
       png = await this.ports.captureDisplay(countdown.displayId);
     } catch {
       png = null;
     }
+    this.ports.perf?.mark(captureId, "captured");
     if (generation !== this.generation) {
       // Cancelled (or the session ended) while the screen was being read: drop the image silently.
+      this.ports.perf?.end(captureId, "cancelled");
       if (png) wipe(png);
       return;
     }
     this.capturing = false;
     if (!png || png.length === 0 || png.length > MAX_PNG_BYTES) {
+      this.ports.perf?.end(captureId, "error");
       if (png) wipe(png);
       this.ports.setIndicator("idle");
       this.ports.emit({
@@ -234,6 +258,7 @@ export class CaptureService {
     // Capture finished while the user was already signed out, disabled or hidden the window: drop it.
     const after = this.checkAtCaptureTime();
     if (after) {
+      this.ports.perf?.end(captureId, "cancelled");
       wipe(png);
       this.ports.setIndicator("idle");
       this.ports.emit({ type: "cancelled", reason: after.reason, message: after.message });
@@ -243,6 +268,7 @@ export class CaptureService {
     try {
       preview = this.ports.makePreview(png);
     } catch {
+      this.ports.perf?.end(captureId, "error");
       wipe(png);
       this.ports.setIndicator("idle");
       this.ports.emit({
@@ -252,7 +278,6 @@ export class CaptureService {
       });
       return;
     }
-    const captureId = randomUUID();
     const expiry = setTimeout(() => this.discard("expired"), HELD_IMAGE_TTL_MS);
     this.held = {
       captureId,
@@ -304,18 +329,28 @@ export class CaptureService {
     const controller = new AbortController();
     held.extracting = controller;
     clearTimeout(held.expiry);
+    let outcome: "ok" | "error" | "cancelled" = "error";
     try {
-      const result = await this.ports.upload(held.png, held.sessionId, controller.signal);
+      this.ports.perf?.mark(held.captureId, "upload_start");
+      const result = await this.ports.upload(held.png, held.sessionId, controller.signal, (ms) =>
+        this.ports.perf?.value(held.captureId, "server_ms", ms),
+      );
+      this.ports.perf?.mark(held.captureId, "extracted");
       if (controller.signal.aborted) {
+        outcome = "cancelled";
         throw new CaptureRefusal("cancelled", "The screenshot was cancelled.");
       }
       const extractionId = randomUUID();
+      this.ports.perf?.alias(extractionId, held.captureId);
+      outcome = "ok";
       this.extractions.set(extractionId, {
         sessionId: held.sessionId,
         expiresAt: this.ports.now() + EXTRACTION_TTL_MS,
       });
       return { extractionId, text: result.text, truncated: result.truncated };
     } finally {
+      if (controller.signal.aborted && outcome === "error") outcome = "cancelled";
+      this.ports.perf?.end(held.captureId, outcome);
       if (this.held === held) this.release(held);
       else wipe(held.png);
       this.ports.setIndicator("idle");
@@ -366,6 +401,7 @@ export class CaptureService {
   }
 
   private release(held: Held): void {
+    this.ports.perf?.end(held.captureId, "cancelled"); // no-op if the trace already finished
     clearTimeout(held.expiry);
     wipe(held.png);
     if (this.held === held) this.held = null;
@@ -403,6 +439,9 @@ export class CaptureService {
     }
     if (!this.ports.isSignedIn()) {
       throw new CaptureRefusal("not_signed_in", "Sign in to use screenshot input.");
+    }
+    if (!this.ports.isAcknowledged()) {
+      throw new CaptureRefusal(ACKNOWLEDGEMENT_REQUIRED_CODE, ACKNOWLEDGEMENT_REQUIRED_MESSAGE);
     }
   }
 

@@ -24,6 +24,9 @@ _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$")
 _INDIC = frozenset({Language.HI, Language.TE})
 REASONING_HEADROOM_TOKENS = 200  # added by `with_word_budget` (D-66)
 _MAX_OUTPUT_TOKENS_CAP = 32768  # the Phase 6 GenerationConfig ceiling
+# A coding answer carries code, tests and complexity on top of the spoken word target, so the
+# word-derived token budget alone cuts it off mid-code (D-73). This is a floor, not a target.
+CODING_MIN_OUTPUT_TOKENS = 1800
 
 # Sampling temperature per question type: factual/technical answers are sampled more tightly.
 # Tunable starting values, unverified against any real model (no adapter exists yet, OQ-4).
@@ -133,6 +136,14 @@ class PreferenceCompiler:
             factor *= self._targets.indic_token_multiplier
         return min(_MAX_OUTPUT_TOKENS_CAP, max(1, math.ceil(max_words * factor)))
 
+    def _generation_budget(
+        self, question_type: QuestionType, language: Language, max_words: int, headroom: int = 0
+    ) -> int:
+        tokens = self._max_output_tokens(language, max_words) + headroom
+        if question_type is QuestionType.CODING:
+            tokens = max(tokens, CODING_MIN_OUTPUT_TOKENS + headroom)
+        return min(_MAX_OUTPUT_TOKENS_CAP, tokens)
+
     def with_word_budget(
         self,
         compiled: CompiledPreferences,
@@ -153,9 +164,8 @@ class PreferenceCompiler:
             temperature=compiled.generation.temperature,
             # Headroom for a reasoning model's hidden thinking tokens, which count against the
             # limit: without it a short answer is cut off mid-sentence.
-            max_output_tokens=min(
-                _MAX_OUTPUT_TOKENS_CAP,
-                self._max_output_tokens(answer.language, max_words) + REASONING_HEADROOM_TOKENS,
+            max_output_tokens=self._generation_budget(
+                answer.question_type, answer.language, max_words, REASONING_HEADROOM_TOKENS
             ),
         )
         return CompiledPreferences(answer=answer, generation=generation)
@@ -187,6 +197,6 @@ class PreferenceCompiler:
         )
         generation = GenerationConfig(
             temperature=_TEMPERATURE[question_type],
-            max_output_tokens=self._max_output_tokens(language, max_words),
+            max_output_tokens=self._generation_budget(question_type, language, max_words),
         )
         return CompiledPreferences(answer=answer, generation=generation)

@@ -155,3 +155,44 @@ Milestone 2 may be marked complete only when rows 1 to 6 and 8 to 10 are **Pass*
 
 - [ ] Ask a spoken question on a session whose answer provider has no credit: the page scrolls to the answer card, which says the provider has no credit or quota, and an **Answer provider** picker appears.
 - [ ] Pick a working provider and **Save**, then ask again: the answer streams and completes.
+
+
+## Multi-monitor and window placement (M-6)
+
+The full checklist (laptop only, two external displays, mixed scaling, disconnect and reconnect, restart, compact and expanded, moving between displays, sleep, docking and remote desktop) is in [MULTI_MONITOR_TESTING.md](./MULTI_MONITOR_TESTING.md). Results: **not yet recorded** (only a single-display laptop at 125% was exercised, by automation).
+
+## Coding answers (M-8, packaged installer)
+
+Use a session with a ready status. Ask each of these typed, then repeat at the compact and the expanded window size. A person must mark each row; none is marked yet.
+
+| # | Check | Pass |
+|---|---|---|
+| 1 | Ask "Write a Python function two_sum(nums, target) that returns the indices of two numbers that add up to target." The answer shows headings, then a code block labelled **Python** with a Copy button | |
+| 2 | **Copy** on the code block, paste into a text editor: only the code, indented correctly, no backticks and no label | |
+| 3 | A long solution (for example "implement an LRU cache in Python with tests"): the block scrolls inside itself, vertically and horizontally, and the page does not grow past the window | |
+| 4 | Tab to a code block: it can be scrolled with the keyboard | |
+| 5 | Ask a SQL question and a Java question: labels read **SQL** and **Java** | |
+| 6 | While the answer is streaming, an open code block shows "writing..." and the text so far; nothing flickers into raw backticks | |
+| 7 | **Copy answer** under the card copies the whole answer; History shows the same answer with the same code blocks | |
+| 8 | Ask "Write a function that finds the duplicates in a list." The answer states its assumptions instead of inventing requirements | |
+| 9 | Capture a screenshot of a coding problem with visible constraints and examples and answer it: the question text sent keeps the constraints and examples | |
+| 10 | Nothing in any answer says the code was run or tested | |
+
+## Session management (M-9, packaged installer)
+
+Use a signed-in account with at least two sessions, one with a few answered questions. A person must mark each row; none is marked yet.
+
+| # | Check | Pass |
+|---|---|---|
+| 1 | The Sessions page shows each session's name, company, state (Active, Completed or Interrupted), question count and last activity; the open session says **Current** | |
+| 2 | **Rename** a session, press Enter: the new name shows in the list, the Ask page selector and History; Escape cancels | |
+| 3 | Open session A, ask a question, switch to B: B shows only B's history and none of A's answer; switching back shows A's | |
+| 4 | Switch sessions while an answer is streaming: the old answer stops and does not appear under the new session | |
+| 5 | Press Listen, then switch session: listening stops and Listen has to be pressed again | |
+| 6 | **Complete** the open session: listening stops, the state becomes Completed, Ask is disabled; **Reopen** returns it to Active and starts nothing | |
+| 7 | **Delete** shows a native confirmation; Cancel changes nothing; Delete removes the session, and the next session opens without recording | |
+| 8 | **Export** shows the native warning, then a Save dialog; cancelling at either step writes nothing; saving writes a readable `.md` (and **JSON** a `.json`) containing the questions and answers and no resume text, tokens or e-mail | |
+| 9 | Disconnect the network and try Rename, Complete, Delete and Export: each says the session was not changed or the export failed, and nothing is written; reconnect and retry works | |
+| 10 | Delete a session in the web app, then Complete it here without refreshing: "This session is no longer available" and the list refreshes | |
+| 11 | Close and reopen the app: the most recently used ready session is selected and nothing is recording | |
+| 12 | Create a session, drop the network just as you press Create, retry: only one session exists | |

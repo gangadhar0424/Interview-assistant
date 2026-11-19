@@ -122,6 +122,13 @@ The API emits structured JSON logs with request IDs. Current Prometheus metrics 
 - `interview_database_errors_total`.
 - `interview_ingestion_tasks_total` and `interview_ingestion_task_duration_seconds`.
 - `interview_websocket_disconnects_total` (normalized close class).
+- **M-2 timing histograms (seconds; timing only, never content):** `interview_stt_request_seconds` and
+  `interview_vision_request_seconds` (`provider`), `interview_audio_validate_seconds`,
+  `interview_screenshot_validate_seconds`, `interview_question_detection_seconds`,
+  `interview_answer_first_token_seconds` (`provider`, `none` for exact-text answers) and
+  `interview_answer_total_seconds` (`result`: `complete`, `cancelled`, `error`). `provider` values come
+  from the server's own allow-list, never from request bodies. `tests/test_metrics_labels.py` enforces
+  the label allow-list and that no content or identifier reaches the metrics.
 
 Worker logs include job ID, outcome, and duration. They must not include passwords, tokens,
 provider keys, prompts, resume/document text, answers, or screenshots. Metrics are currently

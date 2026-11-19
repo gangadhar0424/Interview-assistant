@@ -10,7 +10,7 @@ from pydantic import BaseModel
 class TranscriptionOut(BaseModel):
     text: str  # cleaned, at most 2000 characters; empty when nothing intelligible was said
     truncated: bool  # True when the text was shortened to the question limit
-    is_question: bool  # advisory only (simple English heuristic)
+    is_question: bool  # advisory only (deterministic heuristic: English, Hindi, Telugu; see D-72)
     confidence: float  # 0..1
     provider: str
     model: str

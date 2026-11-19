@@ -173,6 +173,7 @@ describe("AudioService", () => {
     new AudioService({
       isEnabled: () => enabled,
       isSignedIn: () => signedIn,
+      isAcknowledged: () => true,
       windowState: () => windowState,
       sessionReady: async () => ready,
       voiceProviderChosen: async () => voiceChosen,

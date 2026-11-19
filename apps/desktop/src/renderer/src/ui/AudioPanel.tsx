@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDesktopStore } from "../store";
+import { AcceptableUseNotice, useAcknowledged } from "./AcceptableUseNotice";
 
 /**
  * Live audio input UI (Phase 12, D-53; simplified by D-59). Always shown on the Assistant page. The
@@ -31,6 +32,18 @@ export function AudioPanel({ ready }: { ready: boolean }) {
     [],
   );
 
+  const acknowledged = useAcknowledged();
+  // A keyboard shortcut asked to move here (M-4): scroll to and focus this panel. It only moves
+  // focus; nothing is started, and every consent, acknowledgement and indicator is unchanged.
+  const panelFocus = useDesktopStore((state) => state.panelFocus);
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (panelFocus?.panel !== "audio") return;
+    sectionRef.current?.scrollIntoView?.({ block: "nearest" });
+    sectionRef.current?.focus();
+    useDesktopStore.setState({ panelFocus: null });
+  }, [panelFocus]);
+
   const active = audio.state !== "idle";
   const choices = audio.voiceChoices;
   const needsVoice = choices !== null;
@@ -38,7 +51,7 @@ export function AudioPanel({ ready }: { ready: boolean }) {
   const sourceLabel = audio.source === "system" ? "system audio" : "your microphone";
 
   return (
-    <section aria-label="Audio input" className="audio-panel">
+    <section aria-label="Audio input" className="audio-panel" ref={sectionRef} tabIndex={-1}>
       <div className="capture-heading">
         <span className="eyebrow">AUDIO INPUT</span>
         <span className="capture-hint">
@@ -97,6 +110,8 @@ export function AudioPanel({ ready }: { ready: boolean }) {
         </div>
       )}
 
+      {!active && acknowledged === false && <AcceptableUseNotice />}
+
       {active ? (
         <button
           className="button button-secondary full-button"
@@ -109,7 +124,7 @@ export function AudioPanel({ ready }: { ready: boolean }) {
         <div className="audio-start-row">
           <button
             className="button button-secondary full-button"
-            disabled={!ready || needsVoice}
+            disabled={!ready || needsVoice || acknowledged !== true}
             onClick={() => void startAudio("microphone")}
             type="button"
           >
@@ -117,7 +132,7 @@ export function AudioPanel({ ready }: { ready: boolean }) {
           </button>
           <button
             className="button button-secondary full-button"
-            disabled={!ready || needsVoice}
+            disabled={!ready || needsVoice || acknowledged !== true}
             onClick={() => void startAudio("system")}
             type="button"
           >

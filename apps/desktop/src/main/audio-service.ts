@@ -17,11 +17,16 @@
  * Nothing in this module logs: audio and transcripts must never reach a log.
  */
 import { randomUUID } from "node:crypto";
+import {
+  ACKNOWLEDGEMENT_REQUIRED_CODE,
+  ACKNOWLEDGEMENT_REQUIRED_MESSAGE,
+} from "../shared/acknowledgement";
 import type { AudioEvent, AudioStopReason } from "../shared/contracts";
 import { UtteranceSegmenter } from "./audio-vad";
 import type { AudioGateState, AudioSource } from "./media-permissions";
 import type { WindowState } from "./capture-service";
 import { buildWav } from "./wav";
+import type { PerfOutcome, PerfSink } from "./perf-marks";
 
 export const ARMING_TIMEOUT_MS = 10_000;
 export const MAX_LISTEN_MS = 2 * 60 * 60 * 1000;
@@ -44,11 +49,19 @@ export type AudioIndicator = "idle" | "arming" | "listening";
 export type AudioPorts = {
   isEnabled(): boolean;
   isSignedIn(): boolean;
+  /** True when the signed-in user accepted the current acceptable-use notice (M-1, D-68). */
+  isAcknowledged(): boolean;
   windowState(): WindowState;
   sessionReady(sessionId: string): Promise<boolean>;
   /** True when the session has a voice-listening provider chosen (D-57). Checked before arming. */
   voiceProviderChosen(sessionId: string): Promise<boolean>;
-  transcribe(wav: Buffer, sessionId: string, signal: AbortSignal): Promise<TranscribeResult>;
+  transcribe(
+    wav: Buffer,
+    sessionId: string,
+    signal: AbortSignal,
+    /** Called with the server's own time for the request (a number), when it reports one. */
+    onServerMs?: (ms: number) => void,
+  ): Promise<TranscribeResult>;
   /** A safe, user-facing message for a failed transcription (never content). */
   describeError(error: unknown): string;
   /** Why listening must stop when this failure means audio input cannot work at all, else null. */
@@ -57,6 +70,8 @@ export type AudioPorts = {
   /** Visible, main-process-owned indication (tray tooltip, taskbar flash). */
   setIndicator(state: AudioIndicator, source: AudioSource | null): void;
   now(): number;
+  /** Optional timing sink (M-2). Never receives content. */
+  perf?: PerfSink;
 };
 
 export class AudioRefusal extends Error {
@@ -104,6 +119,9 @@ export class AudioService {
   private floodNoticed = false;
   private lines = 0;
   private readonly utterances = new Map<string, Utterance>();
+  /** Perf trace per segment buffer (M-2): ids only, never audio. */
+  private readonly traceOf = new WeakMap<Buffer, string>();
+  private armTrace: string | null = null;
 
   constructor(private readonly ports: AudioPorts) {}
 
@@ -159,6 +177,10 @@ export class AudioService {
     this.limitTimer = setTimeout(() => this.stop("limit"), MAX_LISTEN_MS);
     this.ports.setIndicator("arming", source);
     this.ports.emit({ type: "state", state: "arming", source });
+    this.armTrace = randomUUID();
+    if (this.ports.perf?.begin("audio_arm", this.armTrace)) {
+      this.ports.perf.mark(this.armTrace, "arm_requested");
+    }
   }
 
   // ------------------------------------------------------------------- chunks
@@ -187,6 +209,7 @@ export class AudioService {
       this.armingTimer = null;
       this.ports.setIndicator("listening", this.activeSource);
       this.ports.emit({ type: "state", state: "listening", source: this.activeSource });
+      this.endArmTrace("ok", true);
     }
     const samples = new Int16Array(data.byteLength / 2);
     for (let i = 0; i < samples.length; i += 1) {
@@ -198,9 +221,29 @@ export class AudioService {
 
   // -------------------------------------------------------------- transcription
 
+  private endArmTrace(outcome: PerfOutcome, listening = false): void {
+    const id = this.armTrace;
+    if (!id) return;
+    this.armTrace = null;
+    if (listening) this.ports.perf?.mark(id, "listening");
+    this.ports.perf?.end(id, outcome);
+  }
+
+  private endSegmentTrace(pcm: Buffer, outcome: PerfOutcome): void {
+    const id = this.traceOf.get(pcm);
+    if (id) this.ports.perf?.end(id, outcome);
+  }
+
   private enqueue(pcm: Buffer): void {
+    const traceId = randomUUID();
+    if (this.ports.perf?.begin("audio", traceId)) {
+      this.traceOf.set(pcm, traceId);
+      this.ports.perf.mark(traceId, "segment_created");
+      this.ports.perf.value(traceId, "audio_ms", pcm.length / 32); // 16 kHz mono PCM16 = 32 bytes/ms
+    }
     if (this.inFlight.size >= MAX_IN_FLIGHT) {
       if (this.queue.length >= MAX_QUEUED) {
+        this.endSegmentTrace(pcm, "cancelled");
         wipe(pcm);
         this.ports.emit({ type: "notice", message: "Transcription is falling behind; a phrase was skipped." });
         return;
@@ -214,19 +257,30 @@ export class AudioService {
   private async transcribeSegment(pcm: Buffer): Promise<void> {
     const sessionId = this.sessionId;
     if (!sessionId) {
+      this.endSegmentTrace(pcm, "cancelled");
       wipe(pcm);
       return;
     }
+    const traceId = this.traceOf.get(pcm) ?? null;
+    let outcome: PerfOutcome = "cancelled";
     const controller = new AbortController();
     this.inFlight.add(controller);
     const wav = buildWav(pcm);
     wipe(pcm);
     try {
-      const result = await this.ports.transcribe(wav, sessionId, controller.signal);
-      if (controller.signal.aborted || !result.text) return;
+      if (traceId) this.ports.perf?.mark(traceId, "request_start");
+      const result = await this.ports.transcribe(wav, sessionId, controller.signal, (ms) => {
+        if (traceId) this.ports.perf?.value(traceId, "server_ms", ms);
+      });
+      if (traceId) this.ports.perf?.mark(traceId, "response");
+      if (controller.signal.aborted) return;
+      outcome = "ok";
+      if (!result.text) return;
       if (this.lines >= MAX_LINES_PER_SESSION) return;
       this.lines += 1;
-      const id = randomUUID();
+      // The segment's trace id doubles as the utterance id, so a later question can be chained to it.
+      const id = traceId ?? randomUUID();
+      if (traceId) this.ports.perf?.mark(traceId, "utterance_emitted");
       this.utterances.set(id, { sessionId, expiresAt: this.ports.now() + UTTERANCE_TTL_MS });
       this.ports.emit({
         type: "utterance",
@@ -238,6 +292,7 @@ export class AudioService {
       });
     } catch (error) {
       if (controller.signal.aborted) return;
+      outcome = "error";
       const fatal = this.ports.fatalReason(error);
       if (fatal) {
         this.stop(fatal);
@@ -245,6 +300,7 @@ export class AudioService {
       }
       this.ports.emit({ type: "notice", message: this.ports.describeError(error) });
     } finally {
+      if (traceId) this.ports.perf?.end(traceId, outcome);
       wipe(wav);
       this.inFlight.delete(controller);
       const next = this.queue.shift();
@@ -268,9 +324,13 @@ export class AudioService {
     if (reason !== "user") {
       this.segmenter.reset();
       for (const controller of this.inFlight) controller.abort();
-      for (const pending of this.queue) wipe(pending);
+      for (const pending of this.queue) {
+        this.endSegmentTrace(pending, "cancelled");
+        wipe(pending);
+      }
       this.queue = [];
     }
+    this.endArmTrace("cancelled");
     const wasListening = this.current === "listening";
     this.current = "idle";
     const source = this.activeSource;
@@ -291,8 +351,12 @@ export class AudioService {
     this.limitTimer = null;
     this.segmenter.reset();
     for (const controller of this.inFlight) controller.abort();
-    for (const pending of this.queue) wipe(pending);
+    for (const pending of this.queue) {
+      this.endSegmentTrace(pending, "cancelled");
+      wipe(pending);
+    }
     this.queue = [];
+    this.endArmTrace("cancelled");
     this.current = "idle";
     this.activeSource = null;
     this.sessionId = null;
@@ -325,6 +389,9 @@ export class AudioService {
       throw new AudioRefusal("audio_disabled", "Audio input is turned off. Enable it in Settings first.");
     }
     if (!this.ports.isSignedIn()) throw new AudioRefusal("not_signed_in", "Sign in to use audio input.");
+    if (!this.ports.isAcknowledged()) {
+      throw new AudioRefusal(ACKNOWLEDGEMENT_REQUIRED_CODE, ACKNOWLEDGEMENT_REQUIRED_MESSAGE);
+    }
   }
 
   private requireWindowReady(): void {

@@ -1,3 +1,4 @@
+import { acknowledgedSettings } from "./ack-fixture";
 /**
  * Phase 12: the real IPC layer driven with a fake ipcMain/window/backend. Proves the consent gate,
  * sender validation, the gated media permission, the audio -> transcript -> confirmed question
@@ -52,11 +53,13 @@ const tone = (windows: number, amplitude: number) => {
   return new Uint8Array(samples.buffer);
 };
 
-function setup() {
+function setup(opts: { acknowledged?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "audio-ipc-"));
   const handlers = new Map<string, Handler>();
   const listeners = new Map<string, (event: unknown, data: unknown) => void>();
   const windowListeners = new Map<string, Array<() => void>>();
+  const webListeners = new Map<string, Array<(...args: unknown[]) => void>>();
+  const questionSignals: AbortSignal[] = [];
   const sent: Array<{ channel: string; payload: unknown }> = [];
   const state = { visible: true, focused: true, minimized: false };
   const win = {
@@ -69,11 +72,20 @@ function setup() {
     on: (name: string, fn: () => void) => windowListeners.set(name, [...(windowListeners.get(name) ?? []), fn]),
     removeListener: vi.fn(),
     emit: (name: string) => (windowListeners.get(name) ?? []).forEach((fn) => fn()),
-    webContents: { id: 1, send: (channel: string, payload: unknown) => sent.push({ channel, payload }), on: vi.fn(), once: vi.fn(), removeListener: vi.fn() },
+    webContents: {
+      id: 1,
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+      on: (name: string, fn: (...args: unknown[]) => void) => webListeners.set(name, [...(webListeners.get(name) ?? []), fn]),
+      once: vi.fn(),
+      removeListener: vi.fn(),
+      emit: (name: string, ...args: unknown[]) => (webListeners.get(name) ?? []).forEach((fn) => fn(undefined, ...args)),
+    },
   };
   const calls: FetchCall[] = [];
   const backend = {
     voice: "fake" as string | null,
+    /** When true the answer stream never finishes, so a test can see it being aborted. */
+    hold: false,
     transcribe: (): Response =>
       json({ text: TRANSCRIPT, truncated: false, is_question: true, confidence: 0.9, provider: "fake", model: "m", latency_ms: 3 }),
   };
@@ -100,10 +112,19 @@ function setup() {
       return json({ ...sessionRow(SESSION, "ready"), preferences: { stt_provider: backend.voice } });
     }
     if (call.path.endsWith("/transcribe")) return backend.transcribe();
-    if (call.path.endsWith("/questions")) return sse(createdFrame + doneFrame);
+    if (call.path.endsWith("/questions")) {
+      if (backend.hold) {
+        if (init.signal) questionSignals.push(init.signal);
+        return new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      }
+      return sse(createdFrame + doneFrame);
+    }
     return json({ error: { code: "not_found", message: "no" } }, 404);
   }));
 
+  const store =
+    opts.acknowledged === false ? new SettingsStore(join(dir, "settings.json")) : acknowledgedSettings(dir, user.id);
+  const acceptUse = vi.fn(async () => true);
   const gate = { read: (): AudioGateState => ({ state: "idle", source: null }) };
   const indicator = vi.fn();
   const consent = vi.fn(async () => true);
@@ -116,7 +137,7 @@ function setup() {
       removeListener: (channel: string) => listeners.delete(channel),
     } as never,
     window: win as never,
-    settings: new SettingsStore(join(dir, "settings.json")),
+    settings: store,
     safeStorage: { isEncryptionAvailable: () => true, encryptString: (v: string) => Buffer.from(v), decryptString: (v: Buffer) => v.toString() },
     secureTokenPath: join(dir, "refresh-token.bin"),
     rendererHtmlPath: RENDERER,
@@ -126,6 +147,7 @@ function setup() {
     audioHost: { setIndicator: indicator },
     audioGate: gate,
     confirmAudioConsent: consent,
+    confirmAcceptableUse: acceptUse,
     deepLinks: inbox,
     confirmHandoffSwitch: async () => true,
     confirmHandoffAccountSwitch: async () => true,
@@ -148,7 +170,7 @@ function setup() {
     }
   };
   return {
-    dir, handlers, listeners, win, state, sent, calls, gate, indicator, consent, trusted, untrusted, call, chunk, audioEvents, frames,
+    dir, store, acceptUse, questionSignals, handlers, listeners, win, state, sent, calls, gate, indicator, consent, trusted, untrusted, call, chunk, audioEvents, frames,
     transcribeCalls: () => calls.filter((c) => c.path.endsWith("/transcribe")),
     questionCalls: () => calls.filter((c) => c.path.endsWith("/questions")),
     backend,
@@ -343,5 +365,176 @@ describe("audio IPC", () => {
     await s.speakOnePhrase();
     expect(s.gate.read().state).toBe("idle");
     expect(s.audioEvents().at(-1)).toMatchObject({ type: "stopped", reason: "unavailable" });
+  });
+});
+
+describe("acceptable-use acknowledgement (M-1, D-68): audio", () => {
+  let s: Setup;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    s = setup({ acknowledged: false });
+  });
+  afterEach(() => {
+    s.cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("first use: not accepted, and audio start is refused in main even when everything else is ready", async () => {
+    await s.login();
+    await s.enable();
+    expect((await s.call("app:get-acknowledgement")).data).toEqual({ accepted: false, version: 1, acceptedAt: null });
+    const result = await s.call("audio:start", "microphone", SESSION);
+    expect(result).toMatchObject({ ok: false, error: { code: "acknowledgement_required" } });
+    expect(s.gate.read()).toEqual({ state: "idle", source: null });
+    expect(s.indicator).not.toHaveBeenCalled();
+    // Audio pushed anyway is ignored: nothing was started, so nothing is uploaded.
+    await s.speakOnePhrase();
+    expect(s.transcribeCalls()).toEqual([]);
+  });
+
+  it("accepting goes through the native dialog; cancelling leaves it unaccepted and audio blocked", async () => {
+    await s.login();
+    await s.enable();
+    s.acceptUse.mockResolvedValueOnce(false);
+    expect((await s.call("app:accept-acknowledgement", 1)).ok).toBe(false);
+    expect((await s.call("app:get-acknowledgement")).data.accepted).toBe(false);
+    expect((await s.call("audio:start", "microphone", SESSION)).ok).toBe(false);
+
+    const accepted = await s.call("app:accept-acknowledgement", 1);
+    expect(accepted).toMatchObject({ ok: true, data: { accepted: true, version: 1 } });
+    expect(s.acceptUse).toHaveBeenCalledTimes(2);
+    // Allowed now, and the existing explicit start / indicator behaviour is unchanged.
+    expect((await s.call("audio:start", "microphone", SESSION)).ok).toBe(true);
+    expect(s.gate.read().state).toBe("arming");
+    expect(s.indicator).toHaveBeenCalledWith("arming", "microphone");
+  });
+
+  it("accepting again does not show the dialog again", async () => {
+    await s.login();
+    await s.call("app:accept-acknowledgement", 1);
+    await s.call("app:accept-acknowledgement", 1);
+    expect(s.acceptUse).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects invalid inputs without opening the dialog", async () => {
+    await s.login();
+    for (const bad of [0, 2, -1, 1.5, Number.NaN, "1", null, undefined, {}, [1], true]) {
+      expect((await s.call("app:accept-acknowledgement", bad)).ok, String(bad)).toBe(false);
+    }
+    expect((await s.call("app:accept-acknowledgement")).ok).toBe(false);
+    expect(s.acceptUse).not.toHaveBeenCalled();
+    expect((await s.call("app:get-acknowledgement")).data.accepted).toBe(false);
+  });
+
+  it("cannot be accepted while signed out, and an untrusted sender can neither read nor accept it", async () => {
+    expect((await s.call("app:accept-acknowledgement", 1)).ok).toBe(false);
+    expect(s.acceptUse).not.toHaveBeenCalled();
+    await s.login();
+    for (const channel of ["app:get-acknowledgement", "app:accept-acknowledgement"]) {
+      const handler = s.handlers.get(channel);
+      expect(await handler?.(s.untrusted, 1)).toMatchObject({ ok: false });
+    }
+    expect(s.acceptUse).not.toHaveBeenCalled();
+  });
+
+  it("the renderer cannot record acceptance through the settings channel", async () => {
+    await s.login();
+    const forged = { version: 1, userId: user.id, acceptedAt: "2026-11-18T00:00:00Z" };
+    expect((await s.call("app:update-settings", { acceptableUse: forged })).ok).toBe(false);
+    expect((await s.call("app:update-settings", { acknowledged: true })).ok).toBe(false);
+    expect((await s.call("app:get-acknowledgement")).data.accepted).toBe(false);
+  });
+
+  it("is stored locally, survives a restart and a settings change, and holds no content", async () => {
+    await s.login();
+    await s.enable();
+    await s.call("app:accept-acknowledgement", 1);
+    await s.call("app:update-settings", { alwaysOnTop: false }); // a later save must not erase it
+    const file = join(s.dir, "settings.json");
+    const restarted = new SettingsStore(file);
+    restarted.load();
+    expect(restarted.acknowledgement(user.id).accepted).toBe(true);
+    expect(restarted.acknowledgement("00000000-0000-4000-8000-0000000000ff").accepted).toBe(false);
+    expect(restarted.acknowledgement(null).accepted).toBe(false);
+    const body = readFileSync(file, "utf8");
+    expect(Object.keys(JSON.parse(body).acceptableUse).sort()).toEqual(["acceptedAt", "userId", "version"]);
+    for (const secret of ["access-1", "refresh-1", TRANSCRIPT, "p@example.com"]) expect(body).not.toContain(secret);
+  });
+});
+
+describe("renderer crash (M-5, D-70): the main process stops what the dead window owned", () => {
+  let s: Setup;
+  const crash = (reason = "crashed") => s.win.webContents.emit("render-process-gone", { reason, exitCode: 9 });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    s = setup();
+  });
+  afterEach(() => {
+    s.cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("stops listening, releases the media gate and ignores audio that still arrives", async () => {
+    await s.login();
+    await s.enable();
+    expect((await s.call("audio:start", "microphone", SESSION)).ok).toBe(true);
+    expect(s.gate.read).toBeDefined();
+    s.chunk(tone(5, 12_000)); // first audio: listening
+    await vi.advanceTimersByTimeAsync(100);
+    s.indicator.mockClear();
+    crash();
+    expect(s.indicator).toHaveBeenCalledWith("idle", null);
+    const before = s.transcribeCalls().length;
+    await s.speakOnePhrase();
+    expect(s.transcribeCalls().length).toBe(before); // nothing uploads after the crash
+  });
+
+  it("aborts an answer that was still streaming to the dead window", async () => {
+    await s.login();
+    s.backend.hold = true;
+    expect((await s.call("sessions:stream-start", "aaaaaaaa-1111-4222-8333-444444444444", SESSION, "What is a mutex?")).ok).toBe(true);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(s.questionSignals).toHaveLength(1);
+    expect(s.questionSignals[0]?.aborted).toBe(false);
+    crash();
+    expect(s.questionSignals[0]?.aborted).toBe(true);
+  });
+
+  it("is safe to repeat (the recovery module calls the same cleanup again)", async () => {
+    await s.login();
+    await s.enable();
+    await s.call("audio:start", "microphone", SESSION);
+    expect(() => {
+      crash();
+      crash("oom");
+    }).not.toThrow();
+  });
+
+  it("keeps the account signed in and starts nothing by itself; a deliberate start still works", async () => {
+    await s.login();
+    await s.enable();
+    crash();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.gate.read()).toEqual({ state: "idle", source: null });
+    expect(s.indicator).not.toHaveBeenCalledWith("arming", expect.anything());
+    expect(s.transcribeCalls()).toEqual([]);
+    expect(s.questionCalls()).toEqual([]);
+    expect((await s.call("sessions:list")).ok).toBe(true); // still signed in: main kept the account
+    expect((await s.call("audio:start", "microphone", SESSION)).ok).toBe(true); // explicit, as before
+  });
+
+  it("the acknowledgement and shortcut protections are unchanged after a crash", async () => {
+    const t = setup({ acknowledged: false });
+    try {
+      await t.login();
+      await t.enable();
+      t.win.webContents.emit("render-process-gone", { reason: "crashed" });
+      const refused = await t.call("audio:start", "microphone", SESSION);
+      expect(refused).toMatchObject({ ok: false, error: { code: "acknowledgement_required" } });
+    } finally {
+      t.cleanup();
+    }
   });
 });

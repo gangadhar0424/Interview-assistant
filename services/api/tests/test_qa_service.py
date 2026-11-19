@@ -302,7 +302,7 @@ def test_a_question_flows_through_every_stage_and_is_persisted(
         False,
     )
     assert answer["input_tokens"] > 0 and answer["output_tokens"] > 0
-    assert answer["error_code"] is None and answer["prompt_version"] == "v4"
+    assert answer["error_code"] is None and answer["prompt_version"] == "v5"
     assert str(answer["user_id"]) == str(scenario.alice_id)
     config = answer["generation_config"]
     assert (

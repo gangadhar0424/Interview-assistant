@@ -1,0 +1,72 @@
+{"id": "en-ch-declarative_mark-p01", "lang": "en", "category": "declarative_mark", "label": true, "split": "challenge", "text": "you have worked with kafka before?"}
+{"id": "en-ch-declarative_mark-p02", "lang": "en", "category": "declarative_mark", "label": true, "split": "challenge", "text": "so you are comfortable with on call rotations?"}
+{"id": "en-ch-noise-p03", "lang": "en", "category": "noise", "label": true, "split": "challenge", "text": "um so what uh what is your experience with with docker"}
+{"id": "en-ch-noise-p04", "lang": "en", "category": "noise", "label": true, "split": "challenge", "text": "so basically what is the the difference between a list and a tuple"}
+{"id": "en-ch-preamble-p05", "lang": "en", "category": "preamble", "label": true, "split": "challenge", "text": "thanks for that moving on to the next part i would like to ask what is your approach to testing"}
+{"id": "en-ch-preamble-p06", "lang": "en", "category": "preamble", "label": true, "split": "challenge", "text": "that was a good answer so how would you scale it to ten times the traffic"}
+{"id": "en-ch-tag-p07", "lang": "en", "category": "tag", "label": true, "split": "challenge", "text": "you have used redis right"}
+{"id": "en-ch-short_followup-p08", "lang": "en", "category": "short_followup", "label": true, "split": "challenge", "text": "and what about caching"}
+{"id": "en-ch-imperative-p09", "lang": "en", "category": "imperative", "label": true, "split": "challenge", "text": "name three differences between sql and nosql databases"}
+{"id": "en-ch-imperative-p10", "lang": "en", "category": "imperative", "label": true, "split": "challenge", "text": "compare quicksort and mergesort in terms of memory use"}
+{"id": "en-ch-imperative-p11", "lang": "en", "category": "imperative", "label": true, "split": "challenge", "text": "give me a quick overview of your architecture"}
+{"id": "en-ch-noise-p12", "lang": "en", "category": "noise", "label": true, "split": "challenge", "text": "what is the uh the time complexity of a binary search"}
+{"id": "en-ch-exclamation-n01", "lang": "en", "category": "exclamation", "label": false, "split": "challenge", "text": "what a wonderful opportunity this is"}
+{"id": "en-ch-mid_wh_statement-n02", "lang": "en", "category": "mid_wh_statement", "label": false, "split": "challenge", "text": "we discussed how the architecture evolved over the last three years and what we learned"}
+{"id": "en-ch-account-n03", "lang": "en", "category": "account", "label": false, "split": "challenge", "text": "i asked myself how the system would scale and decided to shard the database"}
+{"id": "en-ch-announcement-n04", "lang": "en", "category": "announcement", "label": false, "split": "challenge", "text": "now i will ask you a few behavioral questions"}
+{"id": "en-ch-reported-n05", "lang": "en", "category": "reported", "label": false, "split": "challenge", "text": "the question was what is the difference between a thread and a process and i answered it"}
+{"id": "en-ch-reported-n06", "lang": "en", "category": "reported", "label": false, "split": "challenge", "text": "i was thinking about why we picked that framework in the first place"}
+{"id": "en-ch-filler-n07", "lang": "en", "category": "filler", "label": false, "split": "challenge", "text": "so yeah that is basically what i did on that project"}
+{"id": "en-ch-filler-n08", "lang": "en", "category": "filler", "label": false, "split": "challenge", "text": "um so uh yeah i think that is about it for me"}
+{"id": "en-ch-closing-n09", "lang": "en", "category": "closing", "label": false, "split": "challenge", "text": "great thank you i will let the team know about the next steps"}
+{"id": "en-ch-smalltalk-n10", "lang": "en", "category": "smalltalk", "label": false, "split": "challenge", "text": "how nice to meet you i have heard a lot about your work"}
+{"id": "en-ch-closing-n11", "lang": "en", "category": "closing", "label": false, "split": "challenge", "text": "we will contact you within one week about the outcome"}
+{"id": "en-ch-rhetorical-n12", "lang": "en", "category": "rhetorical", "label": false, "split": "challenge", "text": "who would have thought that a small change could cause that outage"}
+{"id": "hi-ch-declarative_mark-p01", "lang": "hi", "category": "declarative_mark", "label": true, "split": "challenge", "text": "आपको python आती है?"}
+{"id": "hi-ch-declarative_mark-p02", "lang": "hi", "category": "declarative_mark", "label": true, "split": "challenge", "text": "आप रिमोट काम करने के लिए तैयार हैं?"}
+{"id": "hi-ch-noise-p03", "lang": "hi", "category": "noise", "label": true, "split": "challenge", "text": "उम तो आप आप अपना अनुभव बताइए"}
+{"id": "hi-ch-noise-p04", "lang": "hi", "category": "noise", "label": true, "split": "challenge", "text": "तो बेसिकली docker और kubernetes में क्या फर्क है"}
+{"id": "hi-ch-preamble-p05", "lang": "hi", "category": "preamble", "label": true, "split": "challenge", "text": "आगे बढ़ते हुए मैं पूछना चाहता हूँ कि आप टेस्टिंग कैसे करते हैं"}
+{"id": "hi-ch-preamble-p06", "lang": "hi", "category": "preamble", "label": true, "split": "challenge", "text": "यह अच्छा जवाब था तो इसे दस गुना ट्रैफ़िक के लिए कैसे स्केल करेंगे"}
+{"id": "hi-ch-tag-p07", "lang": "hi", "category": "tag", "label": true, "split": "challenge", "text": "आपने redis इस्तेमाल किया है ना"}
+{"id": "hi-ch-short_followup-p08", "lang": "hi", "category": "short_followup", "label": true, "split": "challenge", "text": "और caching का क्या"}
+{"id": "hi-ch-imperative-p09", "lang": "hi", "category": "imperative", "label": true, "split": "challenge", "text": "sql और nosql के बीच तीन अंतर बताइए"}
+{"id": "hi-ch-imperative-p10", "lang": "hi", "category": "imperative", "label": true, "split": "challenge", "text": "quicksort और mergesort की memory use के हिसाब से तुलना कीजिए"}
+{"id": "hi-ch-imperative-p11", "lang": "hi", "category": "imperative", "label": true, "split": "challenge", "text": "अपने architecture का एक छोटा सा overview दीजिए"}
+{"id": "hi-ch-noise-p12", "lang": "hi", "category": "noise", "label": true, "split": "challenge", "text": "binary search की time complexity क्या होती है"}
+{"id": "hi-ch-exclamation-n01", "lang": "hi", "category": "exclamation", "label": false, "split": "challenge", "text": "कितना शानदार मौका है यह"}
+{"id": "hi-ch-mid_wh_statement-n02", "lang": "hi", "category": "mid_wh_statement", "label": false, "split": "challenge", "text": "हमने चर्चा की कि क्या करना चाहिए और कैसे करना चाहिए"}
+{"id": "hi-ch-account-n03", "lang": "hi", "category": "account", "label": false, "split": "challenge", "text": "मैंने खुद से सोचा कि यह सिस्टम कैसे स्केल होगा और database को shard करने का फैसला किया"}
+{"id": "hi-ch-announcement-n04", "lang": "hi", "category": "announcement", "label": false, "split": "challenge", "text": "अब मैं आपसे कुछ behavioral सवाल पूछूँगा"}
+{"id": "hi-ch-reported-n05", "lang": "hi", "category": "reported", "label": false, "split": "challenge", "text": "सवाल यह था कि thread और process में क्या अंतर है और मैंने जवाब दे दिया"}
+{"id": "hi-ch-reported-n06", "lang": "hi", "category": "reported", "label": false, "split": "challenge", "text": "मैं सोच रहा था कि हमने शुरू में वह framework क्यों चुना था"}
+{"id": "hi-ch-filler-n07", "lang": "hi", "category": "filler", "label": false, "split": "challenge", "text": "तो हाँ मैंने उस प्रोजेक्ट में मूल रूप से यही किया"}
+{"id": "hi-ch-filler-n08", "lang": "hi", "category": "filler", "label": false, "split": "challenge", "text": "उम तो हाँ मुझे लगता है मेरी तरफ से बस इतना ही"}
+{"id": "hi-ch-closing-n09", "lang": "hi", "category": "closing", "label": false, "split": "challenge", "text": "बहुत बढ़िया धन्यवाद मैं टीम को अगले चरणों के बारे में बता दूँगा"}
+{"id": "hi-ch-smalltalk-n10", "lang": "hi", "category": "smalltalk", "label": false, "split": "challenge", "text": "आपसे मिलकर बहुत अच्छा लगा मैंने आपके काम के बारे में बहुत सुना है"}
+{"id": "hi-ch-closing-n11", "lang": "hi", "category": "closing", "label": false, "split": "challenge", "text": "हम एक हफ्ते के भीतर आपसे नतीजे के बारे में संपर्क करेंगे"}
+{"id": "hi-ch-rhetorical-n12", "lang": "hi", "category": "rhetorical", "label": false, "split": "challenge", "text": "कौन सोच सकता था कि इतना छोटा बदलाव इतना बड़ा आउटेज पैदा करेगा"}
+{"id": "te-ch-declarative_mark-p01", "lang": "te", "category": "declarative_mark", "label": true, "split": "challenge", "text": "మీకు python అనుభవం ఉంది?"}
+{"id": "te-ch-declarative_mark-p02", "lang": "te", "category": "declarative_mark", "label": true, "split": "challenge", "text": "మీరు రిమోట్‌గా పని చేయడానికి సిద్ధం?"}
+{"id": "te-ch-noise-p03", "lang": "te", "category": "noise", "label": true, "split": "challenge", "text": "ఉమ్ మరి మీరు మీరు మీ అనుభవం గురించి చెప్పండి"}
+{"id": "te-ch-noise-p04", "lang": "te", "category": "noise", "label": true, "split": "challenge", "text": "అంటే docker మరియు kubernetes మధ్య ఏమిటి తేడా"}
+{"id": "te-ch-preamble-p05", "lang": "te", "category": "preamble", "label": true, "split": "challenge", "text": "ముందుకు వెళ్తూ నేను అడగాలనుకుంటున్నాను మీరు టెస్టింగ్ ఎలా చేస్తారు"}
+{"id": "te-ch-preamble-p06", "lang": "te", "category": "preamble", "label": true, "split": "challenge", "text": "ఇది మంచి సమాధానం అయితే దీన్ని పది రెట్లు ట్రాఫిక్‌కి ఎలా స్కేల్ చేస్తారు"}
+{"id": "te-ch-tag-p07", "lang": "te", "category": "tag", "label": true, "split": "challenge", "text": "మీరు redis వాడారు కదా"}
+{"id": "te-ch-short_followup-p08", "lang": "te", "category": "short_followup", "label": true, "split": "challenge", "text": "మరి caching విషయంలో ఏమిటి"}
+{"id": "te-ch-imperative-p09", "lang": "te", "category": "imperative", "label": true, "split": "challenge", "text": "sql మరియు nosql మధ్య మూడు తేడాలు చెప్పండి"}
+{"id": "te-ch-imperative-p10", "lang": "te", "category": "imperative", "label": true, "split": "challenge", "text": "quicksort మరియు mergesort ని memory use పరంగా పోల్చండి"}
+{"id": "te-ch-imperative-p11", "lang": "te", "category": "imperative", "label": true, "split": "challenge", "text": "మీ architecture గురించి ఒక చిన్న overview ఇవ్వండి"}
+{"id": "te-ch-noise-p12", "lang": "te", "category": "noise", "label": true, "split": "challenge", "text": "binary search యొక్క time complexity ఎంత"}
+{"id": "te-ch-exclamation-n01", "lang": "te", "category": "exclamation", "label": false, "split": "challenge", "text": "ఎంత అద్భుతమైన అవకాశం ఇది"}
+{"id": "te-ch-mid_wh_statement-n02", "lang": "te", "category": "mid_wh_statement", "label": false, "split": "challenge", "text": "ఏమి చేయాలి ఎలా చేయాలి అని మేము చర్చించాము"}
+{"id": "te-ch-account-n03", "lang": "te", "category": "account", "label": false, "split": "challenge", "text": "ఈ సిస్టమ్ ఎలా స్కేల్ అవుతుందో అని నాకే అనిపించింది అందుకే database ని shard చేయాలని నిర్ణయించాను"}
+{"id": "te-ch-announcement-n04", "lang": "te", "category": "announcement", "label": false, "split": "challenge", "text": "ఇప్పుడు నేను మీకు కొన్ని behavioral ప్రశ్నలు అడుగుతాను"}
+{"id": "te-ch-reported-n05", "lang": "te", "category": "reported", "label": false, "split": "challenge", "text": "ప్రశ్న ఏమిటంటే thread మరియు process మధ్య తేడా ఏమిటి అని నేను సమాధానం చెప్పాను"}
+{"id": "te-ch-reported-n06", "lang": "te", "category": "reported", "label": false, "split": "challenge", "text": "మేము మొదట ఆ framework ని ఎందుకు ఎంచుకున్నామో నేను ఆలోచిస్తున్నాను"}
+{"id": "te-ch-filler-n07", "lang": "te", "category": "filler", "label": false, "split": "challenge", "text": "అవును నేను ఆ ప్రాజెక్ట్‌లో ప్రాథమికంగా అదే చేశాను"}
+{"id": "te-ch-filler-n08", "lang": "te", "category": "filler", "label": false, "split": "challenge", "text": "ఉమ్ అవును నా వైపు నుంచి అంతే అనుకుంటున్నాను"}
+{"id": "te-ch-closing-n09", "lang": "te", "category": "closing", "label": false, "split": "challenge", "text": "చాలా బాగుంది ధన్యవాదాలు తదుపరి దశల గురించి టీమ్‌కి తెలియజేస్తాను"}
+{"id": "te-ch-smalltalk-n10", "lang": "te", "category": "smalltalk", "label": false, "split": "challenge", "text": "మిమ్మల్ని కలవడం చాలా సంతోషం మీ పని గురించి చాలా విన్నాను"}
+{"id": "te-ch-closing-n11", "lang": "te", "category": "closing", "label": false, "split": "challenge", "text": "ఫలితం గురించి మేము ఒక వారంలో మిమ్మల్ని సంప్రదిస్తాము"}
+{"id": "te-ch-rhetorical-n12", "lang": "te", "category": "rhetorical", "label": false, "split": "challenge", "text": "ఇంత చిన్న మార్పు ఇంత పెద్ద అంతరాయం కలిగిస్తుందని ఎవరు ఊహించారు"}

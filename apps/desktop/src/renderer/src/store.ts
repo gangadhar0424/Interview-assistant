@@ -7,6 +7,7 @@ import {
   type ProviderChoice,
   type SessionDraft,
 } from "../../shared/session-form";
+import { pickResumeSession } from "../../shared/session-view";
 import { startAudioCapture, type ActiveCapture } from "./audio/capture";
 import type {
   AnswerMetrics,
@@ -23,11 +24,17 @@ import type {
   HandoffState,
   QaEvent,
   QuestionItem,
+  SessionExportFormat,
+  SessionExportResult,
   SessionSummary,
   StreamMessage,
 } from "../../shared/contracts";
 import type { AnswerSource } from "../../shared/answer-source";
 import { IDLE_HANDOFF } from "../../shared/contracts";
+import { ACCEPTABLE_USE_VERSION, type AcknowledgementState } from "../../shared/acknowledgement";
+import type { DisplayChoice, DisplayList } from "../../shared/placement";
+import type { CopyDiagnosticsResult, RecoveryInfo } from "../../shared/recovery";
+import type { ShortcutConfig, ShortcutPanel, ShortcutState } from "../../shared/shortcuts";
 
 type LiveAnswer = {
   requestId: string;
@@ -105,9 +112,31 @@ type AppState = {
   initialized: boolean;
   user: DesktopUser | null;
   settings: DesktopSettings | null;
+  /** Acceptable-use acknowledgement (M-1). `null` until main has answered; main enforces it. */
+  acknowledgement: AcknowledgementState | null;
+  acknowledgementBusy: boolean;
+  acknowledgementNotice: string | null;
+  /** Keyboard shortcuts (M-4): saved preferences and whether each is registered. */
+  shortcuts: ShortcutState | null;
+  shortcutsBusy: boolean;
+  shortcutsNotice: string | null;
+  /** A shortcut asked to move to a panel. Moving there never starts anything. */
+  panelFocus: { panel: ShortcutPanel; nonce: number } | null;
+  /** The window was reloaded after its renderer stopped (M-5). Shown once, then dismissed. */
+  recoveryNotice: boolean;
+  /** Connected displays and which one the assistant is on (M-6). */
+  displays: DisplayChoice[] | null;
+  displaysBusy: boolean;
+  displaysNotice: string | null;
+  diagnosticsBusy: boolean;
+  diagnosticsMessage: string | null;
   connection: BackendStatus;
   sessions: SessionSummary[];
   selectedSessionId: string | null;
+  /** The session a management action (rename, complete, delete, export) is running for. */
+  sessionBusyId: string | null;
+  /** Outcome of the last management action, shown on the Sessions page. */
+  sessionNotice: { text: string; tone: "ok" | "error" } | null;
   history: QuestionItem[];
   liveAnswer: LiveAnswer | null;
   errorKind: ErrorKind | null;
@@ -126,10 +155,29 @@ type AppState = {
   busy: boolean;
   error: string | null;
   initialize(): Promise<void>;
+  loadAcknowledgement(): Promise<void>;
+  loadDisplays(): Promise<void>;
+  moveToDisplay(displayId: number): Promise<void>;
+  loadRecovery(): Promise<void>;
+  dismissRecoveryNotice(): void;
+  /** Asks the main process to copy a redacted diagnostics report; the text never comes here. */
+  copyDiagnostics(): Promise<void>;
+  loadShortcuts(): Promise<void>;
+  saveShortcuts(config: ShortcutConfig): Promise<boolean>;
+  requestPanelFocus(panel: ShortcutPanel): void;
+  /** Opens the main process's native confirmation; acceptance is recorded only there. */
+  acceptAcknowledgement(): Promise<void>;
   logout(): Promise<void>;
   checkBackend(): Promise<void>;
   refreshSessions(): Promise<void>;
   selectSession(sessionId: string): Promise<void>;
+  /** M-9 session management. Each returns after the server answered; none starts any capture. */
+  renameSession(sessionId: string, title: string): Promise<boolean>;
+  endSession(sessionId: string): Promise<void>;
+  reopenSession(sessionId: string): Promise<void>;
+  deleteSession(sessionId: string): Promise<void>;
+  exportSession(sessionId: string, format: SessionExportFormat): Promise<void>;
+  clearSessionNotice(): void;
   loadHistory(): Promise<void>;
   ask(question: string, extractionId?: string): Promise<void>;
   /** Answer detail for the next questions (D-66): the full answer or a short spoken summary. */
@@ -349,6 +397,8 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   connection: "checking",
   sessions: [],
   selectedSessionId: null,
+  sessionBusyId: null,
+  sessionNotice: null,
   history: [],
   answerDetail: "full",
   setAnswerDetail: (detail) => set({ answerDetail: detail }),
@@ -364,17 +414,115 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   audio: IDLE_AUDIO,
   handoff: IDLE_HANDOFF,
   answerProvider: { choices: null, saving: false, notice: null },
+  acknowledgement: null,
+  acknowledgementBusy: false,
+  acknowledgementNotice: null,
+  shortcuts: null,
+  shortcutsBusy: false,
+  shortcutsNotice: null,
+  panelFocus: null,
+  recoveryNotice: false,
+  displays: null,
+  displaysBusy: false,
+  displaysNotice: null,
+  diagnosticsBusy: false,
+  diagnosticsMessage: null,
   busy: false,
   error: null,
+  loadDisplays: async () => {
+    try {
+      set({ displays: unwrap<DisplayList>(await window.desktop.app.getDisplays()).displays });
+    } catch (error) {
+      set({ displaysNotice: safeMessage(error) });
+    }
+  },
+  moveToDisplay: async (displayId) => {
+    if (get().displaysBusy) return;
+    set({ displaysBusy: true, displaysNotice: null });
+    try {
+      const list = unwrap<DisplayList>(await window.desktop.app.moveToDisplay(displayId));
+      set({ displays: list.displays, displaysBusy: false });
+    } catch (error) {
+      set({ displaysBusy: false, displaysNotice: safeMessage(error) });
+    }
+  },
+  loadRecovery: async () => {
+    try {
+      const info = unwrap<RecoveryInfo>(await window.desktop.app.getRecovery());
+      if (info.notice === "recovered") set({ recoveryNotice: true });
+    } catch {
+      // No notice is better than a broken start.
+    }
+  },
+  dismissRecoveryNotice: () => set({ recoveryNotice: false }),
+  copyDiagnostics: async () => {
+    if (get().diagnosticsBusy) return;
+    set({ diagnosticsBusy: true, diagnosticsMessage: null });
+    try {
+      const result = unwrap<CopyDiagnosticsResult>(await window.desktop.app.copyDiagnostics());
+      set({
+        diagnosticsBusy: false,
+        diagnosticsMessage: `Copied ${result.characters.toLocaleString("en-US")} characters${result.truncated ? " (shortened)" : ""}. Paste them into your message to support.`,
+      });
+    } catch (error) {
+      set({ diagnosticsBusy: false, diagnosticsMessage: safeMessage(error) });
+    }
+  },
+  loadShortcuts: async () => {
+    try {
+      set({ shortcuts: unwrap<ShortcutState>(await window.desktop.app.getShortcuts()) });
+    } catch (error) {
+      set({ shortcutsNotice: safeMessage(error) });
+    }
+  },
+  saveShortcuts: async (config) => {
+    if (get().shortcutsBusy) return false;
+    set({ shortcutsBusy: true, shortcutsNotice: null });
+    try {
+      const shortcuts = unwrap<ShortcutState>(await window.desktop.app.setShortcuts(config));
+      set({ shortcuts, shortcutsBusy: false });
+      return true;
+    } catch (error) {
+      set({ shortcutsBusy: false, shortcutsNotice: safeMessage(error) });
+      return false;
+    }
+  },
+  requestPanelFocus: (panel) =>
+    set((s) => ({ panelFocus: { panel, nonce: (s.panelFocus?.nonce ?? 0) + 1 } })),
+  loadAcknowledgement: async () => {
+    try {
+      const acknowledgement = unwrap<AcknowledgementState>(await window.desktop.app.getAcknowledgement());
+      set({ acknowledgement });
+    } catch {
+      // Unknown means "not accepted" in the UI; main enforces the real answer either way.
+      set({ acknowledgement: null });
+    }
+  },
+  acceptAcknowledgement: async () => {
+    if (get().acknowledgementBusy) return;
+    set({ acknowledgementBusy: true, acknowledgementNotice: null });
+    try {
+      const acknowledgement = unwrap<AcknowledgementState>(
+        await window.desktop.app.acceptAcknowledgement(ACCEPTABLE_USE_VERSION),
+      );
+      set({ acknowledgement, acknowledgementBusy: false });
+    } catch (error) {
+      set({ acknowledgementBusy: false, acknowledgementNotice: safeMessage(error) });
+    }
+  },
   initialize: async () => {
     set({ busy: true, error: null });
     try {
       const settings = unwrap<DesktopSettings>(await window.desktop.app.getSettings());
       set({ settings });
+      await get().loadRecovery();
       await get().checkBackend();
       const auth = unwrap<{ user: DesktopUser | null }>(await window.desktop.auth.getState());
       set({ user: auth.user });
-      if (auth.user) await get().refreshSessions();
+      if (auth.user) {
+        await get().refreshSessions();
+        await get().loadAcknowledgement();
+      }
       // A handoff link can arrive (cold start) before this window was listening.
       const handoff = await window.desktop.handoff.getState();
       if (handoff.ok) await get().handleHandoffEvent(handoff.data);
@@ -423,10 +571,12 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     try {
       const sessions = unwrap<SessionSummary[]>(await window.desktop.sessions.list());
       const selected = get().selectedSessionId;
+      // Keep the open session; otherwise resume the most recently used one that can take questions
+      // (selecting only: nothing starts listening, capturing or answering).
       const selectedSessionId =
         selected && sessions.some((session) => session.id === selected)
           ? selected
-          : (sessions[0]?.id ?? null);
+          : pickResumeSession(sessions);
       set({ sessions, selectedSessionId });
       // The backend answered: show it as connected now and drop a stale network error banner,
       // without waiting for the periodic health check.
@@ -438,11 +588,131 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     }
   },
   selectSession: async (sessionId) => {
-    // A screenshot belongs to the session it was captured for: changing session discards it.
-    if (get().capture.phase !== "idle") await get().cancelCapture();
-    if (get().audio.state !== "idle") await get().stopAudio();
-    set({ audio: IDLE_AUDIO, selectedSessionId: sessionId, history: [], liveAnswer: null });
+    if (get().selectedSessionId === sessionId) {
+      // Already open: keep a running answer, but reload so an interrupted one is reconciled.
+      await get().loadHistory();
+      return;
+    }
+    // A screenshot belongs to the session it was captured for, audio listens for one session and a
+    // running answer belongs to one: changing session stops all three (M-9).
+    await leaveSession(get);
+    // The previous session's questions and answer are cleared before anything else loads, so they
+    // can never show under the new one, even if loading its history fails.
+    set({
+      audio: IDLE_AUDIO,
+      selectedSessionId: sessionId,
+      history: [],
+      liveAnswer: null,
+      answerProvider: { choices: null, saving: false, notice: null },
+    });
     await get().loadHistory();
+  },
+  clearSessionNotice: () => set({ sessionNotice: null }),
+  renameSession: async (sessionId, title) => {
+    if (get().sessionBusyId) return false;
+    set({ sessionBusyId: sessionId, sessionNotice: null });
+    try {
+      replaceSession(set, unwrap<SessionSummary>(await window.desktop.sessions.rename(sessionId, title)));
+      set({ sessionNotice: { text: "Session renamed.", tone: "ok" } });
+      markReachable(set);
+      return true;
+    } catch (error) {
+      await sessionActionFailed(get, set, error, "rename");
+      return false;
+    } finally {
+      set({ sessionBusyId: null });
+    }
+  },
+  endSession: async (sessionId) => {
+    if (get().sessionBusyId) return;
+    set({ sessionBusyId: sessionId, sessionNotice: null });
+    try {
+      // Completing the open session ends its listening, capture and running answer first.
+      if (get().selectedSessionId === sessionId) await leaveSession(get);
+      replaceSession(set, unwrap<SessionSummary>(await window.desktop.sessions.end(sessionId)));
+      set({
+        sessionNotice: {
+          text: "Session completed. You can reopen it later; your history is kept.",
+          tone: "ok",
+        },
+      });
+      markReachable(set);
+    } catch (error) {
+      await sessionActionFailed(get, set, error, "complete");
+    } finally {
+      set({ sessionBusyId: null });
+    }
+  },
+  reopenSession: async (sessionId) => {
+    if (get().sessionBusyId) return;
+    set({ sessionBusyId: sessionId, sessionNotice: null });
+    try {
+      replaceSession(set, unwrap<SessionSummary>(await window.desktop.sessions.reopen(sessionId)));
+      set({
+        sessionNotice: {
+          text: "Session reopened. Nothing is recording: turn audio or screenshots on yourself.",
+          tone: "ok",
+        },
+      });
+      markReachable(set);
+    } catch (error) {
+      await sessionActionFailed(get, set, error, "reopen");
+    } finally {
+      set({ sessionBusyId: null });
+    }
+  },
+  deleteSession: async (sessionId) => {
+    if (get().sessionBusyId) return;
+    set({ sessionBusyId: sessionId, sessionNotice: null });
+    try {
+      // The native confirmation is shown by the main process; declining changes nothing.
+      const result = unwrap<{ deleted: boolean }>(await window.desktop.sessions.remove(sessionId));
+      if (!result.deleted) return;
+      const wasOpen = get().selectedSessionId === sessionId;
+      if (wasOpen) await leaveSession(get);
+      const remaining = get().sessions.filter((session) => session.id !== sessionId);
+      set({
+        sessions: remaining,
+        sessionNotice: { text: "Session deleted.", tone: "ok" },
+        ...(wasOpen
+          ? {
+              selectedSessionId: pickResumeSession(remaining),
+              history: [],
+              liveAnswer: null,
+              audio: IDLE_AUDIO,
+            }
+          : {}),
+      });
+      markReachable(set);
+      if (wasOpen) await get().loadHistory();
+    } catch (error) {
+      await sessionActionFailed(get, set, error, "delete");
+    } finally {
+      set({ sessionBusyId: null });
+    }
+  },
+  exportSession: async (sessionId, format) => {
+    if (get().sessionBusyId) return;
+    set({ sessionBusyId: sessionId, sessionNotice: null });
+    try {
+      // The file is chosen, fetched and written by the main process; no content comes here.
+      const result = unwrap<SessionExportResult>(
+        await window.desktop.sessions.exportToFile(sessionId, format),
+      );
+      if (result.saved) {
+        set({
+          sessionNotice: {
+            text: result.fileName ? `Saved ${result.fileName}.` : "Export saved.",
+            tone: "ok",
+          },
+        });
+      }
+      markReachable(set);
+    } catch (error) {
+      await sessionActionFailed(get, set, error, "export");
+    } finally {
+      set({ sessionBusyId: null });
+    }
   },
   loadHistory: async () => {
     const sessionId = get().selectedSessionId;
@@ -938,6 +1208,48 @@ function safeMessage(error: unknown): string {
 }
 
 type StoreSet = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
+
+/** Stops what belongs to the open session: screenshot countdown, listening and a running answer. */
+async function leaveSession(get: () => AppState): Promise<void> {
+  if (get().capture.phase !== "idle") await get().cancelCapture();
+  if (get().audio.state !== "idle") await get().stopAudio();
+  const live = get().liveAnswer;
+  if (live && !["done", "failed", "cancelled"].includes(live.phase)) await get().cancel();
+}
+
+function replaceSession(set: StoreSet, updated: SessionSummary): void {
+  set((state) => ({
+    sessions: state.sessions.map((session) => (session.id === updated.id ? updated : session)),
+  }));
+}
+
+/**
+ * A management action failed. A session the server no longer has (deleted elsewhere) refreshes the
+ * list; a network failure says nothing was changed; anything else shows the server's safe message.
+ */
+async function sessionActionFailed(
+  get: () => AppState,
+  set: StoreSet,
+  error: unknown,
+  action: string,
+): Promise<void> {
+  if (error instanceof StoreError && error.code === "session_not_found") {
+    set({ sessionNotice: { text: "This session is no longer available.", tone: "error" } });
+    await get().refreshSessions();
+    return;
+  }
+  if (isNetworkError(error)) {
+    set({
+      connection: "unavailable",
+      sessionNotice: {
+        text: `Could not reach the backend, so the session was not changed (${action}). Try again when you are connected.`,
+        tone: "error",
+      },
+    });
+    return;
+  }
+  set({ sessionNotice: { text: safeMessage(error), tone: "error" } });
+}
 
 /** The backend answered: mark it connected now and drop a stale network-error banner. */
 function markReachable(set: StoreSet): void {

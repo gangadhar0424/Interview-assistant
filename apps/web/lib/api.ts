@@ -34,13 +34,15 @@ export type RequestOptions = {
   formData?: FormData;
   /** Return the response as a Blob (file downloads) instead of parsing JSON. */
   asBlob?: boolean;
+  /** Extra request headers (for example `Idempotency-Key`). Never `Authorization`. */
+  headers?: Record<string, string>;
 };
 
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions & { token?: string | null } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...options.headers };
   let body: BodyInit | undefined;
   if (options.formData !== undefined) {
     body = options.formData;

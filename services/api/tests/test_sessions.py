@@ -142,7 +142,7 @@ def test_create_stores_session_preferences_and_document_links(kit: Kit) -> None:
     assert data["resume"] == {"id": kit.resume, "filename": "cv.pdf"}
     assert data["documents"] == [{"id": kit.doc, "filename": "notes.txt", "available": True}]
     assert data["document_count"] == 1
-    assert data["preferences"]["prompt_version"] == "v4"
+    assert data["preferences"]["prompt_version"] == "v5"
     assert data["preferences"]["provider"] == "fake" and data["preferences"]["model"] is None
     assert data["preferences"]["stt_provider"] == "fake"
     assert data["preferences"]["stt_model"] is None
@@ -153,7 +153,7 @@ def test_create_stores_session_preferences_and_document_links(kit: Kit) -> None:
     link = kit.run_sql("SELECT * FROM session_documents")[0]
     assert str(link["user_id"]) == str(owner) and str(link["document_id"]) == kit.doc
     prefs = kit.run_sql("SELECT * FROM session_preferences")[0]
-    assert prefs["prompt_version"] == "v4"
+    assert prefs["prompt_version"] == "v5"
     assert prefs["generation_config"]["answer"]["language"] == "en"
     assert prefs["generation_config"]["generation"]["max_output_tokens"] == 360  # 180 words x 2
 
@@ -161,7 +161,8 @@ def test_create_stores_session_preferences_and_document_links(kit: Kit) -> None:
 def test_compiled_snapshot_follows_the_7a_compiler(kit: Kit) -> None:
     kit.make(prefs={"language": "te", "answer_length": "long", "question_type": "coding"})
     cfg = kit.run_sql("SELECT generation_config FROM session_preferences")[0]["generation_config"]
-    assert cfg["generation"] == {"temperature": 0.2, "max_output_tokens": 1750}  # 350 x 2 x 2.5
+    # 350 words x 2 x 2.5 = 1750 tokens, raised to the coding floor of 1800 (D-73)
+    assert cfg["generation"] == {"temperature": 0.2, "max_output_tokens": 1800}
     assert cfg["answer"]["target_min_words"] == 250 and cfg["answer"]["answer_tone"] == "simple"
 
 
@@ -727,7 +728,8 @@ def test_deferred_endpoints_do_not_exist(kit: Kit) -> None:
     sid = kit.make()["id"]
     # `questions` exists since 8B (test_qa_api.py); it is no longer deferred.
     # `screenshots` exists since Phase 11A (tests/test_screenshot_api.py); it is no longer deferred.
-    for path in ("start", "end"):
+    # `end` exists since M-9 (tests/test_session_management.py); only `start` is still deferred.
+    for path in ("start",):
         r = kit.client.post(f"{SESSIONS}/{sid}/{path}", headers=kit.headers, json={})
         assert r.status_code in (404, 405), path
     # job-import was asserted absent here in 7B; it exists since 7C (test_job_import_api.py).

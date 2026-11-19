@@ -1,3 +1,4 @@
+import { acknowledgedSettings } from "./ack-fixture";
 /**
  * Phase 11.5: desktop session creation through the real IPC layer (`registerDesktopIpc`) with a
  * fake ipcMain, a fake window and a fake backend. No Electron runtime and no network.
@@ -112,7 +113,7 @@ function setup() {
   const dispose = registerDesktopIpc({
     ipcMain: { handle: (channel: string, fn: Handler) => handlers.set(channel, fn), removeHandler: (channel: string) => handlers.delete(channel), on: () => undefined, removeListener: () => undefined } as never,
     window: win as never,
-    settings: new SettingsStore(join(dir, "settings.json")),
+    settings: acknowledgedSettings(dir, user.id),
     safeStorage: { isEncryptionAvailable: () => true, encryptString: (v: string) => Buffer.from(v), decryptString: (v: Buffer) => v.toString() },
     secureTokenPath: join(dir, "refresh-token.bin"),
     rendererHtmlPath: RENDERER,
@@ -122,6 +123,7 @@ function setup() {
     audioHost: { setIndicator: vi.fn() },
     audioGate: { read: () => ({ state: "idle" as const, source: null }) },
     confirmAudioConsent: async () => true,
+    confirmAcceptableUse: async () => true,
     deepLinks: inbox,
     confirmHandoffSwitch: async () => true,
     confirmHandoffAccountSwitch: async () => true,

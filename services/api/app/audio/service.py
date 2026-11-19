@@ -23,7 +23,12 @@ from app.audio.schemas import TranscriptionOut
 from app.audio.validation import INVALID_AUDIO_MESSAGE, SAMPLE_RATE, InvalidAudio, validate_wav
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.metrics import audio_transcriptions
+from app.core.metrics import (
+    audio_transcriptions,
+    audio_validate_seconds,
+    question_detection_seconds,
+    stt_request_seconds,
+)
 from app.db.session import set_tenant_context
 from app.preferences.sanitize import clean_text
 from app.qa.detection import classify
@@ -115,8 +120,10 @@ class Transcriber:
         if len(data) > self.max_bytes:
             _count("too_large")
             raise audio_too_large()
+        validate_started = self._clock()
         try:
             wav = validate_wav(data, max_seconds=self._settings.audio_max_seconds)
+            audio_validate_seconds.observe(self._clock() - validate_started)
         except InvalidAudio:
             _count("invalid_audio")
             logger.info(
@@ -129,9 +136,13 @@ class Transcriber:
             )
             raise AppError(422, "invalid_audio", INVALID_AUDIO_MESSAGE) from None
         audio = AudioInput(wav.data, SAMPLE_RATE, wav.duration_ms)
+        stt_started = self._clock()
         try:
             result = await self._stt.transcribe(
                 audio, voice.language, provider=voice.provider, model=voice.model, user_id=user_id
+            )
+            stt_request_seconds.labels(provider=result.provider).observe(
+                self._clock() - stt_started
             )
         except AppError:
             raise
@@ -152,7 +163,9 @@ class Transcriber:
         truncated = len(text) > MAX_QUERY_CHARS
         if truncated:
             text = text[:MAX_QUERY_CHARS].rstrip()
+        detect_started = self._clock()
         detection = classify(text) if text else None
+        question_detection_seconds.observe(self._clock() - detect_started)
         latency_ms = int((self._clock() - started) * 1000)
         _count("ok" if text else "empty")
         logger.info(

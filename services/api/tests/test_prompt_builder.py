@@ -134,9 +134,9 @@ def test_no_orphan_snapshot_files() -> None:
 
 
 def test_prompt_version_is_stable_and_reported() -> None:
-    assert PROMPT_VERSION == "v4"
+    assert PROMPT_VERSION == "v5"
     built = BUILDER.build(answer(), inputs())
-    assert built.prompt_version == "v4" == BUILDER.version
+    assert built.prompt_version == "v5" == BUILDER.version
     assert render(BUILDER.build(answer(), inputs())) == render(built)  # deterministic
 
 
@@ -170,6 +170,7 @@ V1_FINGERPRINT = "63b4124ae23ff4895c92a85ec5709b7952f314f26bbb1ea712969afdacfdc1
 V2_FINGERPRINT = "d07bd57d78f4068d1b2cd8a1682e3b4034d1b63922755c6ad444218d038f0cbc"
 V3_FINGERPRINT = "63382d47783b64db5f6bb729f6a3e12bf7532ff510cedf9620d040dc89c82f76"
 V4_FINGERPRINT = "84b28f7e40658a96c193a67de70efe993efd00a1e1a423dd42b11da2ab10701d"
+V5_FINGERPRINT = "5587736a78483487d6be8475f45e573bb522d333ca0f1e80217703dc2e3b74e9"
 
 
 def test_released_template_set_is_immutable() -> None:
@@ -177,6 +178,7 @@ def test_released_template_set_is_immutable() -> None:
     assert template_fingerprint("v2") == V2_FINGERPRINT
     assert template_fingerprint("v3") == V3_FINGERPRINT
     assert template_fingerprint("v4") == V4_FINGERPRINT
+    assert template_fingerprint("v5") == V5_FINGERPRINT
 
 
 def test_v3_prompt_answers_general_questions_and_never_prints_evidence() -> None:
@@ -422,7 +424,7 @@ def test_v4_prompt_orders_sources_resume_documents_then_general_knowledge() -> N
     system, user = (message.content for message in built.messages)
     flat = " ".join(system.split())
     flat_user = " ".join(user.split())
-    assert built.prompt_version == "v4" == PROMPT_VERSION
+    assert built.prompt_version == "v4"
     assert "reuse its own sentences and phrases as written" in flat
     assert "chose these files for this session" in flat
     assert "follow the resume" in flat

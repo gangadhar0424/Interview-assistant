@@ -1,3 +1,4 @@
+import { acknowledgedSettings } from "./ack-fixture";
 /**
  * Phase 11B: the real IPC layer (`registerDesktopIpc`) driven with a fake ipcMain, a fake window,
  * a fake screen and a fake backend (`fetch`). No Electron runtime, no real capture, no network.
@@ -62,7 +63,7 @@ function sse(frames: string): Response {
   );
 }
 
-function setup() {
+function setup(opts: { acknowledged?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "capture-ipc-"));
   const handlers = new Map<string, Handler>();
   const listeners = new Map<string, Handler>();
@@ -146,6 +147,9 @@ function setup() {
     setIndicator: vi.fn(),
   };
   const consent = vi.fn(async () => true);
+  const store =
+    opts.acknowledged === false ? new SettingsStore(join(dir, "settings.json")) : acknowledgedSettings(dir, user.id);
+  const acceptUse = vi.fn(async () => true);
   const stored = new Map<string, Buffer>();
   const inbox = new DeepLinkInbox();
   const dispose = registerDesktopIpc({
@@ -156,7 +160,7 @@ function setup() {
       removeListener: (channel: string) => listeners.delete(channel),
     } as never,
     window: win as never,
-    settings: new SettingsStore(join(dir, "settings.json")),
+    settings: store,
     safeStorage: {
       isEncryptionAvailable: () => true,
       encryptString: (value: string) => Buffer.from(value),
@@ -170,6 +174,7 @@ function setup() {
     audioHost: { setIndicator: vi.fn() },
     audioGate: { read: () => ({ state: "idle" as const, source: null }) },
     confirmAudioConsent: async () => true,
+    confirmAcceptableUse: acceptUse,
     deepLinks: inbox,
     confirmHandoffSwitch: async () => true,
     confirmHandoffAccountSwitch: async () => true,
@@ -190,6 +195,8 @@ function setup() {
   const screenshotCalls = () => calls.filter((c) => c.path.endsWith("/screenshots"));
 
   return {
+    store,
+    acceptUse,
     handlers,
     win,
     state,
@@ -610,5 +617,54 @@ describe("discard on success, failure, cancellation, navigation and window clean
     s.cleanup();
     expect(buffer.every((byte) => byte === 0)).toBe(true);
     s = setup(); // keep the shared afterEach happy
+  });
+});
+
+describe("acceptable-use acknowledgement (M-1, D-68): screenshots", () => {
+  it("first use: the picker and capture start are refused in main until the notice is accepted", async () => {
+    const t = setup({ acknowledged: false });
+    try {
+      await t.login();
+      await t.enable();
+      for (const [channel, args] of [
+        ["capture:list-displays", []],
+        ["capture:start", [DISPLAY, SESSION]],
+      ] as const) {
+        expect(await t.call(channel, ...args)).toMatchObject({ ok: false, error: { code: "acknowledgement_required" } });
+      }
+      expect(t.captureHost.captureDisplay).not.toHaveBeenCalled();
+      expect(t.captureHost.setIndicator).not.toHaveBeenCalled();
+      expect((await t.call("app:get-acknowledgement")).data.accepted).toBe(false);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("after acceptance the existing countdown, preview and indicator flow runs unchanged", async () => {
+    const t = setup({ acknowledged: false });
+    try {
+      await t.login();
+      await t.enable();
+      expect((await t.call("app:accept-acknowledgement", 1)).data.accepted).toBe(true);
+      expect((await t.call("capture:list-displays")).ok).toBe(true);
+      expect((await t.call("capture:start", DISPLAY, SESSION)).ok).toBe(true);
+      expect(t.captureHost.captureDisplay).not.toHaveBeenCalled(); // not before the countdown ends
+      await t.countdown();
+      expect(t.captureHost.captureDisplay).toHaveBeenCalledTimes(1);
+      expect(t.captureEvents().some((event) => event.type === "captured")).toBe(true);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("acceptance by one account does not cover another account on the same device", async () => {
+    const t = setup({ acknowledged: false });
+    try {
+      await t.login();
+      t.store.acknowledge("00000000-0000-4000-8000-0000000000ff", "2026-11-18T00:00:00.000Z");
+      expect((await t.call("app:get-acknowledgement")).data.accepted).toBe(false);
+    } finally {
+      t.cleanup();
+    }
   });
 });

@@ -88,3 +88,49 @@ Not executed: migration upgrade/downgrade and the PostgreSQL-backed RLS/isolatio
 `DATABASE_URL` environment variable or Docker CLI was available, and the configured `.env` and
 unknown databases were intentionally not read or modified. A real PostgreSQL run remains a
 deployment gate; source inspection and the non-database tests do not establish RLS correctness.
+
+---
+
+# Addendum (2026-11-18): Desktop and product-upgrade review
+
+Status: **PROPOSED review notes. Source inspection only; nothing was executed and no code was changed.** Covers the Electron client and audio/screenshot paths added after the Phase 3 review above. It is not a penetration test.
+
+## Controls verified by reading the source
+| Control | Evidence |
+|---|---|
+| Context isolation and renderer sandbox on | `apps/desktop/src/main/index.ts:200-202` |
+| Navigation and new windows denied | `index.ts:209-218` |
+| Permissions denied by default; microphone only while armed; display video never; system audio only as loopback with no video source | `main/media-permissions.ts`, wiring in `index.ts:220-240` |
+| Audio only starts from an explicit user action, with window visible; auto-stop on hide, sign-out, session change, 2 h cap; buffers zero-filled | `main/audio-service.ts` header and constants |
+| Screenshots only after explicit start and a cancellable visible countdown; memory only; one module touches `desktopCapturer` | `main/capture-service.ts`, `main/capture-electron.ts` |
+| Refresh token encrypted with DPAPI via `safeStorage`; refuses to persist if unavailable | `main/secure-refresh-store.ts` |
+| Electron fuses (RunAsNode off, ASAR integrity, only-load-from-ASAR, etc.) | `apps/desktop/package.json` `electronFuses` |
+| Provider keys never on the desktop | `docs/DESKTOP_RELEASE.md` section 3 |
+
+## Findings and recommendations
+| # | Severity | Finding | Recommendation (milestone) |
+|---|---|---|---|
+| D-1 | Medium | No acceptable-use acknowledgement before audio/screenshot use (OQ-15 open) | M-1 |
+| D-2 | Medium | Installer is unsigned; no update integrity path | M-10, M-11 |
+| D-3 | Medium | Providers never validated with real accounts; data-handling terms unverified (OQ-4/5) | M-3 before sending real interview content |
+| D-4 | Low | No renderer crash recovery or local diagnostics | M-5 |
+| D-5 | Low | No audit-event writers; no account deletion/export (PRIVACY.md, PHASE_13_14_PLAN R5/R6) | M-12 |
+| D-6 | Low | Desktop CI runs on Linux only; Windows-specific controls (DPAPI, NSIS, loopback) are manual-only | M-10 |
+| D-7 | Info | `desktopCapturer.getSources` renders every display and drops unselected ones (documented in `capture-electron.ts`); not kept or sent | Accept; revisit if Electron adds per-display capture |
+| D-8 | Info | Earlier review items (deployment gates, `/metrics` exposure, single-process limits) still apply and are unchanged | PHASE_13_14_PLAN |
+
+## Capture protection and window privacy (Step 5 position)
+- **Current state:** `setContentProtection` is not used anywhere in `apps/desktop/src` (searched). The window is a normal visible window with a tray icon and visible listening/capture indicators. This is the correct baseline and must be preserved: indicators, countdown and consent are never suppressed.
+- **Legitimate privacy purposes** that are in scope: protecting the user's own resume/notes from accidental exposure during an allowed screen share; accessibility (high contrast, scalable text, reduced motion); a visible "recording" state that the user can always see; a one-click "pause everything" that stops audio and clears held screenshots.
+- **Recommendation:** do **not** build a feature whose effect is to hide the assistant from screen sharing, recording, proctoring or monitoring software by default. Excluding the window from capture is exactly the capability that would conceal use from other parties, and this product cannot know whether a given interview or assessment permits assistance.
+- **If the owner later approves a content-protection toggle (M-14)**, minimum conditions: off by default; explicit label stating what it does and that the user must follow the rules of the interview, meeting or assessment; visible indicator while on; never combined with hiding the taskbar/tray entry; no attempt to evade or detect monitoring software; included in the M-1 acknowledgement; documented in PRIVACY.md.
+- **Safe additions regardless:** a "Pause all" control (stops audio, discards held screenshot), a panic-visible indicator that stays on screen while listening, and accessibility options.
+
+## Verification record for this addendum
+Executed: file reads and text searches only. Not executed: tests, build, packaging, any provider call. Statements of "missing" mean no match in the searched directories.
+
+## M-8 addendum: rendering model output (2026-11-18)
+- The desktop answer view now interprets a small Markdown subset (`renderer/src/answer/markdown.ts`). It builds React elements and text nodes only: no `dangerouslySetInnerHTML`, no HTML pass-through, no links, no images, no remote resource. A hostile language label on a code fence is reduced to a known name or the word "Code" and is never used as markup or a class name. Tests: `answer-markdown.test.ts`, `answer-render.test.ts`.
+- Code the model writes is displayed and copied, never executed by the app. The evaluation runner (`scripts/coding_exec.py`) executes model-written Python for synthetic evaluation prompts only; it is **not a sandbox** (file and network access are not blocked) and must not be run on output from real interview content.
+- The general-answer validator now excludes fenced code from some checks. Evidence tags, prompt delimiters and e-mail addresses are still rejected inside code; test `test_evidence_tags_and_prompt_delimiters_still_count_as_leaks_even_inside_code`.
+- The v5 system prompt adds a rule that the model must not claim code was run. It is an instruction, not a guarantee; the evaluation counted zero such claims in 84 answers (three runs of 28).

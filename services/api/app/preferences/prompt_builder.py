@@ -22,14 +22,16 @@ from app.ai.types import Message
 from app.preferences.answer_config import AnswerConfig
 from app.preferences.sanitize import clean_text
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 # Versions that render evidence tags (v1 has none). v3 keeps the tags for the model's reference but
 # tells it never to print them and to answer general questions from its own knowledge (D-61).
 # v4 (D-64): source order is resume wording, relevant selected documents, then general knowledge.
-_TAGGED_VERSIONS = frozenset({"v2", "v3", "v4"})
+# v5 (D-73, M-8): structured coding answers in fenced code blocks; everything else is v4's wording.
+_TAGGED_VERSIONS = frozenset({"v2", "v3", "v4", "v5"})
 TEMPLATES_ROOT = Path(__file__).resolve().parent / "templates"
 _BASE_TEMPLATE_VERSION = "v1"
 
+VISION_PROMPT_VERSION = "v2"
 NONE_PROVIDED = "(none provided)"
 _PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
 
@@ -165,7 +167,8 @@ def build_vision_extraction_prompt() -> str:
     The text lives in a template file like every other prompt; the image itself is passed
     separately, never here."""
     # A separate template family, outside the immutable released answer-prompt versions v1/v2.
-    return _read("vision", "v1/extract_question.md")
+    # v2 (D-73) keeps the whole statement of a coding problem (constraints, examples, language).
+    return _read("vision", VISION_PROMPT_VERSION + "/extract_question.md")
 
 
 class PromptBuilder:

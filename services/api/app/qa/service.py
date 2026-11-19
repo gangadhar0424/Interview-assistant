@@ -33,7 +33,12 @@ from app.ai.router import LLMRouter, Selection
 from app.ai.types import StreamMeta, Token, Usage
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.metrics import answer_grounding_checks, answer_routes, answer_stage_seconds
+from app.core.metrics import (
+    answer_grounding_checks,
+    answer_routes,
+    answer_stage_seconds,
+    record_answer_timing,
+)
 from app.db.models import SessionPreferences
 from app.db.session import set_tenant_context
 from app.embeddings.base import EmbeddingProvider
@@ -379,6 +384,12 @@ class QuestionAnswerer:
     def _result(
         status: str, run: _Run, started_ms: int | None, **extra: Any
     ) -> repository.AnswerResult:
+        record_answer_timing(
+            status,
+            run.meta.provider if run.meta else None,
+            run.first_token_ms,
+            started_ms,
+        )
         return repository.AnswerResult(
             status=status,
             text="".join(run.parts),

@@ -41,6 +41,18 @@ class FakeRedis:
         self.data[name] = (value, self._clock() + ex)
         return True
 
+    async def get(self, name: str) -> str | None:
+        self.calls.append("get")
+        if self.fail:
+            raise ConnectionError("simulated redis outage")
+        return self._live(name)
+
+    async def delete(self, name: str) -> int:
+        self.calls.append("delete")
+        if self.fail:
+            raise ConnectionError("simulated redis outage")
+        return 1 if self.data.pop(name, None) is not None else 0
+
     async def getdel(self, name: str) -> str | None:
         self.calls.append("getdel")
         if self.fail:

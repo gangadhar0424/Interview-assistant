@@ -47,7 +47,9 @@ describe("capture can only start from the one explicit, gated path", () => {
   });
 
   it("there is no hotkey, periodic timer, display-media API or background capture anywhere", () => {
-    expect(where(/globalShortcut/)).toEqual([]);
+    // M-4 (D-69): the OS shortcut registrar is touched in exactly one place, the main entry point, and
+    // shortcut-guards.test.ts proves a shortcut can only show, hide or focus the window.
+    expect(where(/globalShortcut/)).toEqual(["main/index.ts"]);
     // Phase 12: media APIs exist in exactly one renderer module (audio-only, started by Start).
     expect(where(/navigator\.mediaDevices/)).toEqual(["renderer/src/audio/capture.ts"]);
     expect(where(/MediaRecorder/)).toEqual([]);
@@ -63,9 +65,15 @@ describe("capture can only start from the one explicit, gated path", () => {
     }
   });
 
-  it("nothing in the app writes a screenshot to disk (fs use is limited to settings and the token store)", () => {
+  it("nothing in the app writes a screenshot to disk (fs use is limited to settings, the token store and the user-chosen session export)", () => {
     const usesFs = where(/node:fs/).filter((rel) => rel.startsWith("main/"));
-    expect(usesFs).toEqual(["main/secure-refresh-store.ts", "main/settings-store.ts"]);
+    // M-9: session-files.ts writes only the text of a session export, to a path the user chose in a
+    // native save dialog (see session-management-guards.test.ts).
+    expect(usesFs).toEqual([
+      "main/secure-refresh-store.ts",
+      "main/session-files.ts",
+      "main/settings-store.ts",
+    ]);
   });
 
   it("the renderer never imports Electron or touches the screen", () => {
@@ -83,11 +91,19 @@ describe("the preload bridge stays narrow", () => {
     expect(channels).toEqual(
       [
         "app:check-backend",
+        "app:accept-acknowledgement",
         "app:close-to-tray",
+        "app:copy-diagnostics",
         "app:copy-text",
+        "app:get-acknowledgement",
+        "app:get-displays",
+        "app:get-recovery",
         "app:get-settings",
+        "app:get-shortcuts",
         "app:minimize",
+        "app:move-to-display",
         "app:set-expanded",
+        "app:set-shortcuts",
         "app:update-settings",
         "auth:get-state",
         "auth:logout",
@@ -101,8 +117,13 @@ describe("the preload bridge stays narrow", () => {
         "audio:stop",
         "sessions:create",
         "sessions:create-options",
+        "sessions:delete",
+        "sessions:end",
+        "sessions:export",
         "sessions:list",
         "sessions:questions",
+        "sessions:rename",
+        "sessions:reopen",
         "sessions:set-reasoning",
         "sessions:set-voice",
         "sessions:stream-cancel",

@@ -1,10 +1,25 @@
-import { app, BrowserWindow, dialog, Menu, nativeImage, Tray, ipcMain, safeStorage } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  globalShortcut,
+  Menu,
+  nativeImage,
+  screen,
+  Tray,
+  ipcMain,
+  safeStorage,
+} from "electron";
+import { randomUUID } from "node:crypto";
+import { cpus, release, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 import { DeepLinkInbox, extractLinkFromArgv, PROTOCOL_SCHEME } from "./deep-link";
 import type { AudioIndicator } from "./audio-service";
 import { captureElectronDisplay, listElectronDisplays, makeElectronPreview } from "./capture-electron";
 import type { IndicatorState } from "./capture-service";
 import { registerDesktopIpc } from "./ipc";
+import { createSessionFiles } from "./session-files";
 import { startPresenceServer } from "./presence-server";
 import type { Server } from "node:http";
 import { SettingsStore } from "./settings-store";
@@ -16,12 +31,63 @@ import {
   type AudioGateState,
   type AudioSource,
 } from "./media-permissions";
-import { applyWindowSettings, closeToTray, setExpanded } from "./window-controller";
+import { applyWindowSettings, closeToTray, WINDOW_SIZE } from "./window-controller";
+import { WindowPlacementManager } from "./window-placement";
+import {
+  ACCEPTABLE_USE_INTRO,
+  ACCEPTABLE_USE_NOTE,
+  ACCEPTABLE_USE_STATEMENTS,
+  ACCEPTABLE_USE_TITLE,
+} from "../shared/acknowledgement";
+import { buildReport, perf, ResourceSampler } from "./perf-marks";
+import { ShortcutManager } from "./shortcuts";
+import { diagnostics } from "./diagnostics";
+import { RendererRecovery } from "./recovery";
+
+// M-2 performance instrumentation. Marks are always recorded in memory (timing only); a report file
+// is printed to stdout, and resources sampled, ONLY when the app is started with INTERVIEW_PERF=1. Nothing
+// here is sent anywhere or exposed to the renderer.
+const PERF_ENABLED = process.env.INTERVIEW_PERF === "1";
+const STARTUP_TRACE = randomUUID();
+if (perf.begin("startup", STARTUP_TRACE)) perf.mark(STARTUP_TRACE, "module_loaded");
+const MODULE_LOAD_UPTIME_S = process.uptime();
+const resourceSampler = new ResourceSampler(() => app.getAppMetrics());
+
+function writePerfReport(): void {
+  if (!PERF_ENABLED) return;
+  try {
+    const cpu = cpus();
+    const body = buildReport(
+      perf,
+      resourceSampler,
+      {
+        appVersion: app.getVersion(),
+        electron: process.versions.electron ?? "unknown",
+        node: process.versions.node,
+        platform: process.platform,
+        arch: process.arch,
+        osRelease: release(),
+        cpuModel: cpu[0]?.model ?? "unknown",
+        cpuCount: cpu.length,
+        totalMemoryMb: Math.round(totalmem() / (1024 * 1024)),
+        processUptimeAtModuleLoadS: Math.round(MODULE_LOAD_UPTIME_S * 1000) / 1000,
+      },
+      new Date().toISOString(),
+    );
+    // Printed, not written: the main process has a standing rule that only the settings and token
+    // stores touch the disk. A benchmark run captures this block from stdout (scripts/bench).
+    process.stdout.write(`INTERVIEW_PERF_REPORT_BEGIN\n${body}\nINTERVIEW_PERF_REPORT_END\n`);
+  } catch {
+    // A report that cannot be printed must never affect the app.
+  }
+}
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let disposeIpc: (() => void) | null = null;
+// Stops everything the renderer owned (listening, held screenshots, running answers); see ipc.ts.
+let cleanupRenderer: (() => void) | null = null;
 let presenceServer: Server | null = null;
 // Read by the media-permission handlers below; the live audio service (ipc.ts) replaces `read`.
 const audioGate: { read: () => AudioGateState } = { read: () => IDLE_GATE };
@@ -56,6 +122,21 @@ function setAudioIndicator(state: AudioIndicator, source: AudioSource | null): v
     state === "idle" || !source ? TRAY_TOOLTIPS.idle : AUDIO_TOOLTIPS[source],
   );
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(state === "arming");
+}
+
+/** Native acceptable-use confirmation (M-1): the same wording the app shows, in a dialog the renderer cannot fake. */
+async function confirmAcceptableUse(window: BrowserWindow): Promise<boolean> {
+  const result = await dialog.showMessageBox(window, {
+    type: "question",
+    title: ACCEPTABLE_USE_TITLE,
+    message: ACCEPTABLE_USE_INTRO,
+    detail: `${ACCEPTABLE_USE_STATEMENTS.map((line, index) => `${index + 1}. ${line}`).join("\n\n")}\n\n${ACCEPTABLE_USE_NOTE}`,
+    buttons: ["I understand and agree", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
 }
 
 /** Native confirmation before audio input is turned on (a compromised renderer cannot fake it). */
@@ -129,6 +210,115 @@ async function confirmHandoffAccountSwitch(window: BrowserWindow): Promise<boole
   return result.response === 0;
 }
 
+/**
+ * Window placement across displays (M-6, D-71). The window opens where the user last left it, on a
+ * display that still exists, and is brought back to a valid place after a display change. It never
+ * moves during normal use, and nothing here touches always-on-top, capture or audio. Displays are
+ * read from Electron's `screen` only after the app is ready.
+ */
+const placement = new WindowPlacementManager({
+  displays: () =>
+    screen.getAllDisplays().map((d) => ({ id: d.id, bounds: d.bounds, workArea: d.workArea, scaleFactor: d.scaleFactor })),
+  primaryId: () => screen.getPrimaryDisplay().id,
+  window: {
+    getBounds: () => (mainWindow ? mainWindow.getBounds() : { x: 0, y: 0, width: 0, height: 0 }),
+    setBounds: (bounds) => mainWindow?.setBounds(bounds),
+    isMinimized: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isMinimized(),
+    isVisible: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible(),
+    isDestroyed: () => !mainWindow || mainWindow.isDestroyed(),
+  },
+  load: () => settingsStore.windowPlacements(),
+  save: (mode, saved) => settingsStore.setWindowPlacement(mode, saved),
+  defaultSize: (mode) => WINDOW_SIZE[mode],
+  schedule: (ms, fn) => {
+    const timer = setTimeout(fn, ms);
+    return () => clearTimeout(timer);
+  },
+});
+const onDisplaysChanged = () => placement.scheduleReconcile();
+
+/**
+ * Renderer crash recovery and local diagnostics (M-5, D-70). When the renderer process dies the
+ * window's work is stopped first, the page is reloaded once automatically, and if that does not
+ * work the user gets a native dialog (Try again / Copy diagnostics / Close). Nothing here can start
+ * audio, a screenshot or a session. Diagnostics stay in memory, are never sent anywhere, and reach
+ * the clipboard only when the user chooses.
+ */
+diagnostics.record("app_started");
+const recovery = new RendererRecovery({
+  reload: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+  },
+  cleanup: () => cleanupRenderer?.(),
+  isQuitting: () => quitting,
+  isWindowAlive: () => !!mainWindow && !mainWindow.isDestroyed(),
+  promptFailure: async () => {
+    const parent = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : undefined;
+    const options = {
+      type: "error" as const,
+      title: "Interview Assistant",
+      message: "The assistant window stopped working.",
+      detail:
+        "Listening and screenshots were stopped and nothing was restarted. You are still signed in. " +
+        "Choose Try again to reload the window, or Copy diagnostics to share with support (it contains no " +
+        "questions, answers, audio, screenshots or passwords).",
+      buttons: ["Try again", "Copy diagnostics", "Close"],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    };
+    const result = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+    return result.response === 0 ? "retry" : result.response === 1 ? "copy" : "dismiss";
+  },
+  copyDiagnostics: () => {
+    clipboard.writeText(diagnostics.report().text);
+    diagnostics.record("diagnostics_copied");
+  },
+  schedule: (ms, fn) => {
+    const timer = setTimeout(fn, ms);
+    return () => clearTimeout(timer);
+  },
+  now: () => Date.now(),
+});
+diagnostics.provide("app", () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron ?? "unknown",
+  chrome: process.versions.chrome ?? "unknown",
+  node: process.versions.node,
+  platform: process.platform,
+  arch: process.arch,
+  osRelease: release(),
+  uptimeSeconds: process.uptime(),
+}));
+diagnostics.provide("recovery", () => recovery.snapshot());
+diagnostics.provide("perf", () => perf.summary());
+
+/**
+ * Global keyboard shortcuts (M-4, D-69). They are registered only after the app is ready and removed
+ * when it quits. The window actions below are ALL a shortcut can do: show, hide, focus, and ask the
+ * renderer to move to a panel. There is deliberately no path from here to audio or screenshot
+ * capture (tests/shortcut-guards.test.ts checks this).
+ */
+const shortcutManager = new ShortcutManager({
+  registrar: {
+    register: (accelerator, callback) => globalShortcut.register(accelerator, callback),
+    unregister: (accelerator) => globalShortcut.unregister(accelerator),
+  },
+  window: {
+    isVisible: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible(),
+    isFocused: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused(),
+    isMinimized: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isMinimized(),
+    restore: () => mainWindow?.restore(),
+    show: () => mainWindow?.show(),
+    focus: () => mainWindow?.focus(),
+    hide: () => mainWindow?.hide(),
+    showPanel: (panel) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("shortcut:event", { panel });
+    },
+  },
+  now: () => Date.now(),
+});
+
 function showMainWindow(): void {
   const window = mainWindow;
   if (!window || window.isDestroyed()) return;
@@ -176,15 +366,12 @@ function reportStartupFailure(): void {
 
 function createWindow(): BrowserWindow {
   const settings = settingsStore.current();
-  const size = settings.expanded
-    ? { width: 760, height: 740 }
-    : { width: 390, height: 520 };
+  // Where the user last left the window (or a sensible default) on a display that exists now.
+  const initial = placement.initialBounds(settings.expanded ? "expanded" : "compact");
   const window = new BrowserWindow({
-    ...size,
+    ...initial,
     minWidth: 360,
     minHeight: 460,
-    width: size.width,
-    height: size.height,
     show: false,
     frame: false,
     transparent: true,
@@ -245,12 +432,29 @@ function createWindow(): BrowserWindow {
   window.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
     callback(decideDisplayMedia(audioGate.read(), request.frame?.url ?? "", trusted));
   });
-  window.once("ready-to-show", () => window.show());
+  // The two events can arrive in either order; the startup trace ends when both have happened.
+  let shown = false;
+  let loaded = false;
+  const finishStartup = () => {
+    if (shown && loaded) perf.end(STARTUP_TRACE, "ok");
+  };
+  window.once("ready-to-show", () => {
+    perf.mark(STARTUP_TRACE, "ready_to_show");
+    diagnostics.record("window_ready");
+    window.show();
+    shown = true;
+    finishStartup();
+  });
+  window.webContents.once("did-finish-load", () => {
+    perf.mark(STARTUP_TRACE, "did_finish_load");
+    loaded = true;
+    finishStartup();
+  });
   window.on("close", (event) => {
     closeToTray(event, window, quitting);
   });
   const rendererHtmlPath = join(__dirname, "../renderer/index.html");
-  disposeIpc = registerDesktopIpc({
+  const ipcHandle = registerDesktopIpc({
     ipcMain,
     window,
     settings: settingsStore,
@@ -265,6 +469,10 @@ function createWindow(): BrowserWindow {
       setIndicator: setCaptureIndicator,
     },
     confirmScreenshotConsent: () => confirmScreenshotConsent(window),
+    confirmAcceptableUse: () => confirmAcceptableUse(window),
+    shortcuts: shortcutManager,
+    recovery,
+    placement,
     audioHost: { setIndicator: setAudioIndicator },
     audioGate,
     confirmAudioConsent: () => confirmAudioConsent(window),
@@ -272,6 +480,29 @@ function createWindow(): BrowserWindow {
     confirmHandoffSwitch: () => confirmHandoffSwitch(window),
     confirmHandoffAccountSwitch: () => confirmHandoffAccountSwitch(window),
     showWindow: showMainWindow,
+    sessionFiles: createSessionFiles(window),
+  });
+  disposeIpc = ipcHandle;
+  cleanupRenderer = ipcHandle.cleanupRenderer;
+  // Crash recovery events (M-5). Shutdown is never a crash: the module checks `quitting`.
+  diagnostics.record("window_created");
+  window.webContents.on("render-process-gone", (_event, details) => recovery.onRendererGone(details));
+  window.webContents.on("did-finish-load", () => recovery.onLoadFinished());
+  window.webContents.on("did-fail-load", (_event, errorCode, _description, _url, isMainFrame) => {
+    if (isMainFrame) recovery.onLoadFailed(errorCode);
+  });
+  // Placement (M-6): remember where the user puts the window; after a display change or when it is
+  // shown again, bring it back to a valid place only if it needs it.
+  window.on("move", () => placement.onBoundsEvent());
+  window.on("resize", () => placement.onBoundsEvent());
+  window.on("hide", () => placement.settle()); // catches a move that produced no move event
+  window.on("show", () => placement.scheduleReconcile());
+  window.on("restore", () => placement.scheduleReconcile());
+  window.webContents.on("unresponsive", () => diagnostics.record("renderer_unresponsive"));
+  window.webContents.on("responsive", () => diagnostics.record("renderer_responsive"));
+  // Windows logoff or shutdown closes the renderers: that is quitting, not a crash.
+  window.on("session-end", () => {
+    quitting = true;
   });
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL).catch(reportStartupFailure);
@@ -296,6 +527,10 @@ function createTray(window: BrowserWindow): Tray {
           window.show();
           window.focus();
         },
+      },
+      {
+        label: "Reload window",
+        click: () => recovery.reloadNow(),
       },
       { type: "separator" },
       {
@@ -338,14 +573,25 @@ if (!gotLock) {
 
 function startApp(): void {
   app.whenReady().then(() => {
+    perf.mark(STARTUP_TRACE, "app_ready");
+    if (PERF_ENABLED) {
+      perf.onTraceEnd = () => resourceSampler.sample();
+      resourceSampler.sample();
+      const exitAfter = Number(process.env.INTERVIEW_PERF_EXIT_MS);
+      if (Number.isFinite(exitAfter) && exitAfter > 0) setTimeout(() => app.quit(), exitAfter);
+    }
     const settings = settingsStore.load();
     void startPresenceServer().then((server) => {
       presenceServer = server;
     });
     mainWindow = createWindow();
+    perf.mark(STARTUP_TRACE, "window_created");
     applyWindowSettings(mainWindow, settings);
-    setExpanded(mainWindow, settings.expanded);
+    screen.on("display-added", onDisplaysChanged);
+    screen.on("display-removed", onDisplaysChanged);
+    screen.on("display-metrics-changed", onDisplaysChanged);
     tray = createTray(mainWindow);
+    shortcutManager.apply(settingsStore.shortcutConfig());
     app.on("activate", () => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
       else mainWindow = createWindow();
@@ -353,7 +599,16 @@ function startApp(): void {
   }).catch(reportStartupFailure);
 }
 
+app.on("child-process-gone", (_event, details) => {
+  diagnostics.record("child_process_gone", {
+    reason: details.type === "GPU" ? "gpu" : details.type === "Utility" ? "utility" : "other",
+    code: details.exitCode,
+  });
+});
+
 app.on("before-quit", () => {
+  resourceSampler.sample();
+  writePerfReport();
   quitting = true;
   disposeIpc?.();
   disposeIpc = null;
@@ -364,6 +619,12 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  screen.removeListener("display-added", onDisplaysChanged);
+  screen.removeListener("display-removed", onDisplaysChanged);
+  screen.removeListener("display-metrics-changed", onDisplaysChanged);
+  placement.dispose();
+  recovery.dispose();
+  shortcutManager.dispose();
   tray?.destroy();
   tray = null;
   presenceServer?.close();

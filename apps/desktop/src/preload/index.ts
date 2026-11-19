@@ -1,4 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { AcknowledgementState } from "../shared/acknowledgement";
+import type { DisplayList } from "../shared/placement";
+import type { CopyDiagnosticsResult, RecoveryInfo } from "../shared/recovery";
+import type { ShortcutEvent, ShortcutState } from "../shared/shortcuts";
 import type {
   AudioEvent,
   CaptureDisplay,
@@ -9,6 +13,7 @@ import type {
   DesktopSettings,
   ExtractionResult,
   HandoffState,
+  SessionExportResult,
   SessionSummary,
   StreamMessage,
 } from "../shared/contracts";
@@ -29,6 +34,21 @@ const bridge: DesktopBridge = {
     minimize: () => ipcRenderer.invoke("app:minimize") as Promise<DesktopResult<void>>,
     closeToTray: () => ipcRenderer.invoke("app:close-to-tray") as Promise<DesktopResult<void>>,
     copyText: (text) => ipcRenderer.invoke("app:copy-text", text) as Promise<DesktopResult<void>>,
+    getAcknowledgement: () =>
+      ipcRenderer.invoke("app:get-acknowledgement") as Promise<DesktopResult<AcknowledgementState>>,
+    acceptAcknowledgement: (version) =>
+      ipcRenderer.invoke("app:accept-acknowledgement", version) as Promise<
+        DesktopResult<AcknowledgementState>
+      >,
+    getShortcuts: () => ipcRenderer.invoke("app:get-shortcuts") as Promise<DesktopResult<ShortcutState>>,
+    setShortcuts: (config) =>
+      ipcRenderer.invoke("app:set-shortcuts", config) as Promise<DesktopResult<ShortcutState>>,
+    getRecovery: () => ipcRenderer.invoke("app:get-recovery") as Promise<DesktopResult<RecoveryInfo>>,
+    copyDiagnostics: () =>
+      ipcRenderer.invoke("app:copy-diagnostics") as Promise<DesktopResult<CopyDiagnosticsResult>>,
+    getDisplays: () => ipcRenderer.invoke("app:get-displays") as Promise<DesktopResult<DisplayList>>,
+    moveToDisplay: (displayId) =>
+      ipcRenderer.invoke("app:move-to-display", displayId) as Promise<DesktopResult<DisplayList>>,
   },
   auth: {
     getState: () => ipcRenderer.invoke("auth:get-state"),
@@ -53,6 +73,18 @@ const bridge: DesktopBridge = {
       ipcRenderer.invoke("sessions:set-voice", sessionId, provider) as Promise<DesktopResult<void>>,
     setReasoning: (sessionId, provider) =>
       ipcRenderer.invoke("sessions:set-reasoning", sessionId, provider) as Promise<DesktopResult<void>>,
+    rename: (sessionId, title) =>
+      ipcRenderer.invoke("sessions:rename", sessionId, title) as Promise<DesktopResult<SessionSummary>>,
+    end: (sessionId) =>
+      ipcRenderer.invoke("sessions:end", sessionId) as Promise<DesktopResult<SessionSummary>>,
+    reopen: (sessionId) =>
+      ipcRenderer.invoke("sessions:reopen", sessionId) as Promise<DesktopResult<SessionSummary>>,
+    remove: (sessionId) =>
+      ipcRenderer.invoke("sessions:delete", sessionId) as Promise<DesktopResult<{ deleted: boolean }>>,
+    exportToFile: (sessionId, format) =>
+      ipcRenderer.invoke("sessions:export", sessionId, format) as Promise<
+        DesktopResult<SessionExportResult>
+      >,
   },
   handoff: {
     getState: () => ipcRenderer.invoke("handoff:get-state") as Promise<DesktopResult<HandoffState>>,
@@ -77,6 +109,11 @@ const bridge: DesktopBridge = {
     const wrapped = (_event: Electron.IpcRendererEvent, event: AudioEvent) => listener(event);
     ipcRenderer.on("audio:event", wrapped);
     return () => ipcRenderer.removeListener("audio:event", wrapped);
+  },
+  onShortcutEvent: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: ShortcutEvent) => listener(event);
+    ipcRenderer.on("shortcut:event", wrapped);
+    return () => ipcRenderer.removeListener("shortcut:event", wrapped);
   },
   onCaptureEvent: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, event: CaptureEvent) => listener(event);

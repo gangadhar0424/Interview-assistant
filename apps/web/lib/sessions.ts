@@ -65,6 +65,10 @@ export type SessionSummary = {
   updated_at: string;
   resume: { id: string | null; filename: string };
   document_count: number;
+  // M-9, derived by the server (optional so an older server still renders).
+  last_activity_at?: string;
+  question_count?: number;
+  activity_state?: "active" | "completed" | "interrupted";
 };
 
 export type SessionList = { items: SessionSummary[]; next_cursor: string | null };

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDesktopStore } from "../store";
+import { AcceptableUseNotice, useAcknowledged } from "./AcceptableUseNotice";
 
 /**
  * Screenshot input UI (Phase 11B, D-51). Shown only when the user turned the feature on in Settings.
@@ -21,6 +22,17 @@ export function ScreenshotPanel({ ready }: { ready: boolean }) {
       ["sending", "retrieving", "generating", "streaming"].includes(state.liveAnswer.phase),
   );
   const [displayId, setDisplayId] = useState("");
+  const acknowledged = useAcknowledged();
+  // A keyboard shortcut asked to move here (M-4): scroll to and focus this panel. It only moves
+  // focus; nothing is started, and every consent, acknowledgement and indicator is unchanged.
+  const panelFocus = useDesktopStore((state) => state.panelFocus);
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (panelFocus?.panel !== "screenshot") return;
+    sectionRef.current?.scrollIntoView?.({ block: "nearest" });
+    sectionRef.current?.focus();
+    useDesktopStore.setState({ panelFocus: null });
+  }, [panelFocus]);
 
   // Leaving the Assistant page discards anything held in the main process.
   useEffect(() => () => void useDesktopStore.getState().cancelCapture(), []);
@@ -37,7 +49,7 @@ export function ScreenshotPanel({ ready }: { ready: boolean }) {
   }, [capture]);
 
   return (
-    <section aria-label="Screenshot input" className="capture-panel">
+    <section aria-label="Screenshot input" className="capture-panel" ref={sectionRef} tabIndex={-1}>
       <div className="capture-heading">
         <span className="eyebrow">SCREENSHOT INPUT</span>
         <span className="capture-hint">
@@ -50,10 +62,12 @@ export function ScreenshotPanel({ ready }: { ready: boolean }) {
         </p>
       )}
 
+      {capture.phase === "idle" && acknowledged === false && <AcceptableUseNotice />}
+
       {capture.phase === "idle" && (
         <button
           className="button button-secondary full-button"
-          disabled={!ready || streaming}
+          disabled={!ready || streaming || acknowledged !== true}
           onClick={() => void openCapture()}
           type="button"
         >

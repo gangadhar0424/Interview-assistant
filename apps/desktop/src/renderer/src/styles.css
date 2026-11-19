@@ -252,6 +252,8 @@ select.field-control { color-scheme: dark; }
   .empty-card { min-height: 350px; }
   .question-input { min-height: 105px; }
   .answer-text { font-size: 11px; }
+  .code-pre { max-height: 420px; font-size: 10px; }
+  .answer-heading { font-size: 11px; }
   .login-content { width: 540px; align-self: center; padding: 28px 42px; }
 }
 
@@ -288,3 +290,64 @@ select.field-control { color-scheme: dark; }
 .signed-out-title { margin: 0 0 10px; font-size: 12px; color: #e7f4ff; }
 .signed-out-steps { margin: 0 0 12px; padding-left: 16px; color: #a9b9cc; font-size: 9px; line-height: 1.7; }
 .signed-out-steps strong { color: #e7f4ff; }
+
+.ack-notice { margin: 10px 0; padding: 11px; border: 1px solid rgba(118,207,220,.35); border-radius: 12px; background: rgba(118,207,220,.06); }
+.ack-title { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: #e6f6f8; }
+.ack-list { margin: 8px 0; padding-left: 20px; display: grid; gap: 7px; font-size: 12px; line-height: 1.5; color: #d7e3ea; }
+.ack-notice .button:focus-visible { outline: 2px solid #8bb9ff; outline-offset: 2px; }
+
+.audio-panel:focus-visible, .capture-panel:focus-visible { outline: 2px solid #8bb9ff; outline-offset: 2px; }
+.shortcut-list { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 12px; }
+.shortcut-row { display: grid; gap: 6px; }
+.shortcut-controls { display: flex; align-items: center; gap: 8px; }
+.shortcut-input { max-width: 190px; font-variant-numeric: tabular-nums; cursor: text; }
+.shortcut-input:focus-visible { outline: 2px solid #8bb9ff; outline-offset: 2px; }
+.toggle-description { display: block; }
+
+.recovery-banner { margin: 0 0 12px; padding: 11px; border: 1px solid rgba(251,191,36,.4); border-radius: 12px; background: rgba(251,191,36,.08); }
+.recovery-text { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: #fde9b8; }
+
+.display-list { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 8px; }
+.display-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; }
+.display-row-current { border-color: rgba(118,207,220,.55); background: rgba(118,207,220,.07); }
+.display-label { font-size: 12px; line-height: 1.4; }
+
+/* Answer rendering (M-8): explanation text and fenced code blocks. Colours are on the dark theme. */
+.answer-rich { display: grid; gap: 8px; min-width: 0; }
+.answer-rich .answer-text { white-space: pre-wrap; }
+.answer-heading { margin: 6px 0 0; color: #8fe9f2; font-size: 9px; font-weight: 700; letter-spacing: .02em; }
+.answer-list { margin: 0; padding-left: 17px; color: #e1eaf5; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+.answer-inline-code { padding: 1px 4px; border-radius: 4px; background: rgba(255,255,255,.08); font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; font-size: .95em; }
+.code-block { margin: 0; min-width: 0; border: 1px solid rgba(255,255,255,.09); border-radius: 9px; background: rgba(2,8,14,.62); overflow: hidden; }
+.code-header { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 9px; border-bottom: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.035); font-size: 8px; }
+.code-lang { color: #8fe9f2; font-weight: 700; }
+.code-meta { flex: 1; color: #6f8096; }
+.code-copy { padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: rgba(255,255,255,.05); color: #cfe3f2; font-size: 8px; cursor: pointer; }
+.code-copy:hover { border-color: var(--border-bright); background: rgba(103,232,249,.1); }
+.code-pre { margin: 0; max-height: 260px; overflow: auto; padding: 9px 10px; color: #dbe7f5; font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; font-size: 9px; line-height: 1.55; white-space: pre; tab-size: 4; }
+.code-pre:focus-visible { outline: 1px solid var(--border-bright); outline-offset: -1px; }
+.tok-keyword { color: #c4a7ff; }
+.tok-string { color: #9be3a6; }
+.tok-comment { color: #7a8ba0; font-style: italic; }
+.tok-number { color: #ffc27a; }
+
+/* Session management (M-9) */
+.session-card { gap: 0; }
+.session-open { width: 100%; display: flex; flex-direction: column; align-items: flex-start; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.session-open:disabled { cursor: progress; opacity: .7; }
+.session-open > strong { color: #e7eef8; font-size: 12px; font-weight: 650; }
+.session-badges { display: inline-flex; align-items: center; gap: 5px; }
+.current-pill { padding: 3px 7px; border-radius: 20px; border: 1px solid rgba(103,232,249,.3); background: rgba(103,232,249,.1); color: #8ee9f6; font-size: 8px; white-space: nowrap; }
+.state-completed { color: #a0aec0; border-color: var(--border); background: rgba(255,255,255,.035); }
+.state-interrupted { color: #f3cf83; border-color: rgba(243,207,131,.14); background: rgba(243,207,131,.06); }
+.session-hint { margin-top: 6px; color: #f3cf83; font-size: 8px; }
+.session-actions-row { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.session-actions-row .link-button { color: #9fb2c8; }
+.session-actions-row .link-button:disabled { opacity: .45; cursor: not-allowed; }
+.session-actions-row .link-danger { color: #ff9cac; }
+.session-working { color: #8798ae; font-size: 8px; }
+.session-rename { width: 100%; display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.session-rename .field-control { flex: 1; min-width: 0; }
+.session-notice { margin: 0 0 10px; padding: 8px 10px; border-radius: 9px; font-size: 9px; border: 1px solid var(--border); }
+.session-notice-ok { color: #9be9cc; background: rgba(94,228,176,.07); border-color: rgba(94,228,176,.15); }
+.session-notice-error { color: #ff9cac; background: rgba(251,113,133,.08); border-color: rgba(251,113,133,.2); }

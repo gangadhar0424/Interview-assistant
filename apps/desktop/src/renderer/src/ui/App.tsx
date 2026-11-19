@@ -3,8 +3,18 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useDesktopStore } from "../store";
 import { CreateSessionPage } from "./CreateSessionPage";
+import { SessionCard } from "./SessionCard";
 import { AudioPanel } from "./AudioPanel";
+import { ShortcutSettings } from "./ShortcutSettings";
+import { DisplaySettings } from "./DisplaySettings";
+import { RecoveryBanner, SupportSettings } from "./SupportPanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
+import { AnswerBody } from "./AnswerBody";
+
+/** The clipboard bridge for code blocks: the main process writes it (the renderer has no clipboard). */
+async function copyToClipboard(text: string): Promise<boolean> {
+  return (await window.desktop.app.copyText(text)).ok;
+}
 
 type Page = "home" | "create" | "assistant" | "history" | "account" | "settings";
 
@@ -43,6 +53,11 @@ export default function App() {
     const unsubscribeStream = window.desktop.onStreamMessage(handleStreamMessage);
     const unsubscribeCapture = window.desktop.onCaptureEvent(handleCaptureEvent);
     const unsubscribeAudio = window.desktop.onAudioEvent(handleAudioEvent);
+    // A keyboard shortcut asked to move to a panel: show the Assistant page. It starts nothing.
+    const unsubscribeShortcut = window.desktop.onShortcutEvent((event) => {
+      setPage("assistant");
+      useDesktopStore.getState().requestPanelFocus(event.panel);
+    });
     const unsubscribeExpired = window.desktop.onSessionExpired(expireSession);
     const unsubscribeHandoff = window.desktop.onHandoffEvent((state) => void handleHandoffEvent(state));
     const interval = window.setInterval(() => void checkBackend(), 15_000);
@@ -50,6 +65,7 @@ export default function App() {
       unsubscribeStream();
       unsubscribeCapture();
       unsubscribeAudio();
+      unsubscribeShortcut();
       unsubscribeExpired();
       unsubscribeHandoff();
       window.clearInterval(interval);
@@ -114,6 +130,7 @@ export default function App() {
         </aside>
 
         <main className="main-panel">
+          <RecoveryBanner />
           <HandoffBanner />
           <AnimatePresence mode="wait">
             <motion.section
@@ -214,6 +231,8 @@ function HomePage({
   const refreshSessions = useDesktopStore((state) => state.refreshSessions);
   const busy = useDesktopStore((state) => state.busy);
   const error = useDesktopStore((state) => state.error);
+  const sessionNotice = useDesktopStore((state) => state.sessionNotice);
+  const clearSessionNotice = useDesktopStore((state) => state.clearSessionNotice);
 
   return (
     <div className="page-scroll">
@@ -233,6 +252,17 @@ function HomePage({
         title="Welcome back"
       />
       {error && <ErrorBanner message={error} />}
+      {sessionNotice && (
+        <p
+          className={`session-notice session-notice-${sessionNotice.tone}`}
+          role={sessionNotice.tone === "error" ? "alert" : "status"}
+        >
+          {sessionNotice.text}{" "}
+          <button className="link-button" onClick={clearSessionNotice} type="button">
+            Dismiss
+          </button>
+        </p>
+      )}
       {sessions.length === 0 ? (
         <div className="empty-card">
           <div className="empty-orbit">✦</div>
@@ -255,29 +285,15 @@ function HomePage({
             <span className="count-pill">{sessions.length}</span>
           </div>
           {sessions.map((session) => (
-            <button
-              className={`session-card ${selectedSessionId === session.id ? "session-card-selected" : ""}`}
+            <SessionCard
+              current={selectedSessionId === session.id}
               key={session.id}
-              onClick={() => {
+              onOpen={() => {
                 void selectSession(session.id);
                 openAssistant();
               }}
-            >
-              <div className="session-card-top">
-                <span className="session-monogram">
-                  {session.company_name.slice(0, 1).toUpperCase()}
-                </span>
-                <span className={`status-pill status-${session.status}`}>
-                  <span className="status-dot" />
-                  {humanize(session.status)}
-                </span>
-              </div>
-              <strong>{session.title || session.company_name}</strong>
-              <span className="session-company">{session.company_name}</span>
-              <span className="session-meta">
-                {session.resume.filename} · {session.document_count} supporting documents
-              </span>
-            </button>
+              session={session}
+            />
           ))}
         </div>
       )}
@@ -300,6 +316,17 @@ function AssistantPage() {
   const screenshotEnabled = useDesktopStore(
     (state) => state.settings?.screenshotInputEnabled === true,
   );
+  const panelFocus = useDesktopStore((state) => state.panelFocus);
+  const [shortcutNote, setShortcutNote] = useState<string | null>(null);
+  // A shortcut asked for the screenshot panel while screenshot input is off: say so; never turn it on.
+  useEffect(() => {
+    if (panelFocus?.panel === "screenshot" && !screenshotEnabled) {
+      setShortcutNote("Screenshot input is off. Turn it on in Settings to use it.");
+      useDesktopStore.setState({ panelFocus: null });
+    } else if (panelFocus) {
+      setShortcutNote(null);
+    }
+  }, [panelFocus, screenshotEnabled]);
   const answerProvider = useDesktopStore((state) => state.answerProvider);
   const saveAnswerProvider = useDesktopStore((state) => state.saveAnswerProvider);
   const answerRef = useRef<HTMLDivElement>(null);
@@ -429,6 +456,11 @@ function AssistantPage() {
             </div>
           </form>
 
+          {shortcutNote && (
+            <p className="settings-help" role="status">
+              {shortcutNote}
+            </p>
+          )}
           {screenshotEnabled && <ScreenshotPanel ready={selected?.status === "ready"} />}
           <AudioPanel ready={selected?.status === "ready"} />
 
@@ -535,7 +567,7 @@ function LiveAnswerCard({
       </div>
       <div className="answer-body">
         {answer.text ? (
-          <p className="answer-text">{answer.text}</p>
+          <AnswerBody copyText={copyToClipboard} text={answer.text} />
         ) : (
           <p className="answer-placeholder">
             {answer.errorMessage ?? "Your answer will appear here as it is generated."}
@@ -625,7 +657,11 @@ function HistoryPage() {
               ) : (
                 item.answers.map((answer) => (
                   <div className="history-answer" key={answer.id}>
-                    <p className="answer-text">{answer.text || answerErrorLabel(answer.error_code)}</p>
+                    {answer.text ? (
+                      <AnswerBody copyText={copyToClipboard} text={answer.text} />
+                    ) : (
+                      <p className="answer-text">{answerErrorLabel(answer.error_code)}</p>
+                    )}
                     <div className="history-answer-meta">
                       <span className={`mini-status mini-status-${answer.status}`}>
                         {humanize(answer.status)}
@@ -702,6 +738,12 @@ function SettingsPage() {
           </button>
         </div>
       </section>
+
+      <DisplaySettings />
+
+      <ShortcutSettings />
+
+      <SupportSettings />
 
       <section className="settings-section">
         <h2>Floating window</h2>
@@ -942,6 +984,7 @@ function SignedOutScreen() {
             <li>Open a session that shows Ready.</li>
             <li>Click <strong>Start Interview</strong>. This app opens already signed in to that account.</li>
           </ol>
+          <RecoveryBanner />
           <HandoffBanner onLogin />
           {error && <ErrorBanner message={error} />}
           {connection !== "connected" && (

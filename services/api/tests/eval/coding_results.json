@@ -1,0 +1,3129 @@
+{
+  "groq_before.json": {
+    "meta": {
+      "arm": "before",
+      "prompt_version": "v4",
+      "provider": "groq",
+      "model": "openai/gpt-oss-120b",
+      "max_output_tokens": 360
+    },
+    "problems": 28,
+    "answered": 28,
+    "structure_pass_mean": 0.903,
+    "complete_rate": 1.0,
+    "cut_off_rate": 0.0,
+    "hit_token_limit_rate": 0.357,
+    "functional_problems": 22,
+    "functional_all_cases_pass": 1.0,
+    "functional_cases_passed": "86/86",
+    "complexity_correct": 0.913,
+    "states_complexity": 0.958,
+    "tests_proxy": 0.0,
+    "code_block_has_language": 1.0,
+    "language_label_matches_code": 1.0,
+    "requested_language_used": 1.0,
+    "states_assumptions_on_incomplete": 0.0,
+    "no_execution_claim": 1.0,
+    "ttft_ms_p50": 624,
+    "total_ms_p50": 1320,
+    "total_ms_p95": 2448,
+    "input_tokens_mean": 1480,
+    "output_tokens_mean": 328,
+    "by_category": {
+      "arrays_strings": {
+        "n": 4,
+        "structure": 0.9,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "complexity": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "debugging": {
+        "n": 2,
+        "structure": 0.9,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "dynamic_programming": {
+        "n": 3,
+        "structure": 0.867,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "edge_cases": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "hash_maps": {
+        "n": 2,
+        "structure": 0.9,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "incomplete": {
+        "n": 2,
+        "structure": 0.8,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "language": {
+        "n": 2,
+        "structure": 0.894,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "recursion": {
+        "n": 2,
+        "structure": 0.9,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "screenshot_extracted": {
+        "n": 1,
+        "structure": 0.9,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "sorting_searching": {
+        "n": 3,
+        "structure": 0.9,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "sql": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "trees_graphs": {
+        "n": 3,
+        "structure": 0.9,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      }
+    },
+    "per_problem": [
+      {
+        "id": "arr-two-sum",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 205,
+        "code_lines": 7,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "str-palindrome",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 203,
+        "code_lines": 7,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "str-longest-unique",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 178,
+        "code_lines": 12,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "arr-max-subarray",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 194,
+        "code_lines": 8,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "map-group-anagrams",
+        "category": "hash_maps",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 168,
+        "code_lines": 6,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "map-first-unique",
+        "category": "hash_maps",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 141,
+        "code_lines": 11,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "sort-merge-intervals",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 184,
+        "code_lines": 13,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "search-rotated",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 6,
+          "total": 6
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 144,
+        "code_lines": 19,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "sort-kth-largest",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": false,
+        "tests_proxy": false,
+        "words": 161,
+        "code_lines": 13,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "rec-permutations",
+        "category": "recursion",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 185,
+        "code_lines": 16,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "rec-flatten",
+        "category": "recursion",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 156,
+        "code_lines": 8,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "tree-max-depth",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 158,
+        "code_lines": 7,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "graph-islands",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 109,
+        "code_lines": 25,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "graph-shortest-path",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 173,
+        "code_lines": 16,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-coin-change",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 155,
+        "code_lines": 11,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-lcs",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 104,
+        "code_lines": 14,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-house-robber",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": false,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.8,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": false,
+        "tests_proxy": false,
+        "words": 191,
+        "code_lines": 11,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "sql-second-highest",
+        "category": "sql",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 1,
+          "total": 1
+        },
+        "words": 199,
+        "code_lines": 16,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "sql-dept-headcount",
+        "category": "sql",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 1,
+          "total": 1
+        },
+        "words": 160,
+        "code_lines": 7,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "debug-find-max",
+        "category": "debugging",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 183,
+        "code_lines": 7,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "debug-mutable-default",
+        "category": "debugging",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 160,
+        "code_lines": 5,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "complexity-nested-loop",
+        "category": "complexity",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "no_code_dump": true,
+          "states_complexity": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "complexity_correct": true,
+        "mentions_ok": true,
+        "words": 167,
+        "code_lines": 0,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "edge-merge-lists",
+        "category": "edge_cases",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "no_code_dump": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "mentions_ok": true,
+        "words": 165,
+        "code_lines": 0,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "incomplete-duplicates",
+        "category": "incomplete",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "states_assumptions": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.8,
+        "complete": true,
+        "tests_proxy": false,
+        "words": 229,
+        "code_lines": 6,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "incomplete-cut-off",
+        "category": "incomplete",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "states_assumptions": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.8,
+        "complete": true,
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 214,
+        "code_lines": 7,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "screenshot-valid-parentheses",
+        "category": "screenshot_extracted",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 6,
+          "total": 6
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 192,
+        "code_lines": 10,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "lang-java-reverse-list",
+        "category": "language",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.9,
+        "complete": true,
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 138,
+        "code_lines": 11,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "lang-js-debounce",
+        "category": "language",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "has_tests": false,
+          "sections_in_order": true
+        },
+        "structure_pass": 0.8888888888888888,
+        "complete": true,
+        "tests_proxy": false,
+        "words": 202,
+        "code_lines": 9,
+        "sections": [],
+        "finish_cut": false
+      }
+    ]
+  },
+  "groq_after2.json": {
+    "meta": {
+      "arm": "after",
+      "prompt_version": "v5",
+      "provider": "groq",
+      "model": "openai/gpt-oss-120b",
+      "max_output_tokens": 1800
+    },
+    "problems": 28,
+    "answered": 28,
+    "structure_pass_mean": 1.0,
+    "complete_rate": 1.0,
+    "cut_off_rate": 0.0,
+    "hit_token_limit_rate": 0.0,
+    "functional_problems": 22,
+    "functional_all_cases_pass": 0.955,
+    "functional_cases_passed": "85/86",
+    "complexity_correct": 1.0,
+    "states_complexity": 1.0,
+    "tests_proxy": 0.917,
+    "code_block_has_language": 1.0,
+    "language_label_matches_code": 1.0,
+    "requested_language_used": 1.0,
+    "states_assumptions_on_incomplete": 1.0,
+    "no_execution_claim": 1.0,
+    "ttft_ms_p50": 758,
+    "total_ms_p50": 2012,
+    "total_ms_p95": 3166,
+    "input_tokens_mean": 2171,
+    "output_tokens_mean": 477,
+    "by_category": {
+      "arrays_strings": {
+        "n": 4,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "complexity": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "debugging": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "dynamic_programming": {
+        "n": 3,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "edge_cases": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "hash_maps": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "incomplete": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "language": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "recursion": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 0.5,
+        "cut_off": 0.0
+      },
+      "screenshot_extracted": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "sorting_searching": {
+        "n": 3,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "sql": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "trees_graphs": {
+        "n": 3,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      }
+    },
+    "per_problem": [
+      {
+        "id": "arr-two-sum",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 190,
+        "code_lines": 26,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "str-palindrome",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 194,
+        "code_lines": 21,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "str-longest-unique",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 159,
+        "code_lines": 26,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "arr-max-subarray",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 141,
+        "code_lines": 13,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "map-group-anagrams",
+        "category": "hash_maps",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 214,
+        "code_lines": 21,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "map-first-unique",
+        "category": "hash_maps",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 141,
+        "code_lines": 22,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sort-merge-intervals",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 245,
+        "code_lines": 32,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "search-rotated",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 6,
+          "total": 6
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 190,
+        "code_lines": 34,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sort-kth-largest",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 162,
+        "code_lines": 18,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "rec-permutations",
+        "category": "recursion",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "wrong",
+          "passed": 3,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 168,
+        "code_lines": 31,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "rec-flatten",
+        "category": "recursion",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 185,
+        "code_lines": 13,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "tree-max-depth",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 177,
+        "code_lines": 16,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "graph-islands",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 189,
+        "code_lines": 35,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "graph-shortest-path",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 221,
+        "code_lines": 35,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-coin-change",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 194,
+        "code_lines": 16,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-lcs",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 163,
+        "code_lines": 26,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-house-robber",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 154,
+        "code_lines": 15,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sql-second-highest",
+        "category": "sql",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 1,
+          "total": 1
+        },
+        "words": 162,
+        "code_lines": 16,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sql-dept-headcount",
+        "category": "sql",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 1,
+          "total": 1
+        },
+        "words": 167,
+        "code_lines": 20,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "debug-find-max",
+        "category": "debugging",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 153,
+        "code_lines": 11,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "debug-mutable-default",
+        "category": "debugging",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 157,
+        "code_lines": 9,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "complexity-nested-loop",
+        "category": "complexity",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "no_code_dump": true,
+          "states_complexity": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "complexity_correct": true,
+        "mentions_ok": true,
+        "words": 125,
+        "code_lines": 0,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "edge-merge-lists",
+        "category": "edge_cases",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "no_code_dump": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "mentions_ok": true,
+        "words": 162,
+        "code_lines": 0,
+        "sections": [],
+        "finish_cut": false
+      },
+      {
+        "id": "incomplete-duplicates",
+        "category": "incomplete",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "states_assumptions": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "tests_proxy": true,
+        "words": 120,
+        "code_lines": 17,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "incomplete-cut-off",
+        "category": "incomplete",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "states_assumptions": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 168,
+        "code_lines": 21,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "screenshot-valid-parentheses",
+        "category": "screenshot_extracted",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 6,
+          "total": 6
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 201,
+        "code_lines": 15,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "lang-java-reverse-list",
+        "category": "language",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 160,
+        "code_lines": 27,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "lang-js-debounce",
+        "category": "language",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "tests_proxy": true,
+        "words": 197,
+        "code_lines": 30,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      }
+    ]
+  },
+  "gemini_after.json": {
+    "meta": {
+      "arm": "after",
+      "prompt_version": "v5",
+      "provider": "gemini",
+      "model": "gemini-3.1-flash-lite",
+      "max_output_tokens": 1800
+    },
+    "problems": 28,
+    "answered": 28,
+    "structure_pass_mean": 1.0,
+    "complete_rate": 1.0,
+    "cut_off_rate": 0.0,
+    "hit_token_limit_rate": 0.0,
+    "functional_problems": 22,
+    "functional_all_cases_pass": 0.955,
+    "functional_cases_passed": "84/86",
+    "complexity_correct": 1.0,
+    "states_complexity": 1.0,
+    "tests_proxy": 0.792,
+    "code_block_has_language": 1.0,
+    "language_label_matches_code": 1.0,
+    "requested_language_used": 1.0,
+    "states_assumptions_on_incomplete": 1.0,
+    "no_execution_claim": 1.0,
+    "ttft_ms_p50": 2087,
+    "total_ms_p50": 3261,
+    "total_ms_p95": 7520,
+    "input_tokens_mean": 2147,
+    "output_tokens_mean": 524,
+    "by_category": {
+      "arrays_strings": {
+        "n": 4,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "complexity": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "debugging": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "dynamic_programming": {
+        "n": 3,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "edge_cases": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "hash_maps": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "incomplete": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "language": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": null,
+        "cut_off": 0.0
+      },
+      "recursion": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "screenshot_extracted": {
+        "n": 1,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "sorting_searching": {
+        "n": 3,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "sql": {
+        "n": 2,
+        "structure": 1.0,
+        "functional_ok": 1.0,
+        "cut_off": 0.0
+      },
+      "trees_graphs": {
+        "n": 3,
+        "structure": 1.0,
+        "functional_ok": 0.667,
+        "cut_off": 0.0
+      }
+    },
+    "per_problem": [
+      {
+        "id": "arr-two-sum",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 338,
+        "code_lines": 7,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "str-palindrome",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 244,
+        "code_lines": 6,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "str-longest-unique",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 260,
+        "code_lines": 13,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "arr-max-subarray",
+        "category": "arrays_strings",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 270,
+        "code_lines": 11,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "map-group-anagrams",
+        "category": "hash_maps",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 322,
+        "code_lines": 16,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "map-first-unique",
+        "category": "hash_maps",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 275,
+        "code_lines": 12,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sort-merge-intervals",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 327,
+        "code_lines": 19,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "search-rotated",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 6,
+          "total": 6
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 300,
+        "code_lines": 26,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sort-kth-largest",
+        "category": "sorting_searching",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 295,
+        "code_lines": 5,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "rec-permutations",
+        "category": "recursion",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 296,
+        "code_lines": 17,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "rec-flatten",
+        "category": "recursion",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 278,
+        "code_lines": 8,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "tree-max-depth",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 4,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 312,
+        "code_lines": 12,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "graph-islands",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "wrong",
+          "passed": 2,
+          "total": 4
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 268,
+        "code_lines": 27,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "graph-shortest-path",
+        "category": "trees_graphs",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 392,
+        "code_lines": 21,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-coin-change",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 349,
+        "code_lines": 12,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-lcs",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 285,
+        "code_lines": 13,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "dp-house-robber",
+        "category": "dynamic_programming",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 5,
+          "total": 5
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 285,
+        "code_lines": 16,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sql-second-highest",
+        "category": "sql",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 1,
+          "total": 1
+        },
+        "words": 326,
+        "code_lines": 8,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "sql-dept-headcount",
+        "category": "sql",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 1,
+          "total": 1
+        },
+        "words": 278,
+        "code_lines": 5,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "debug-find-max",
+        "category": "debugging",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 244,
+        "code_lines": 7,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "debug-mutable-default",
+        "category": "debugging",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 3,
+          "total": 3
+        },
+        "complexity_correct": true,
+        "tests_proxy": false,
+        "words": 269,
+        "code_lines": 5,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "complexity-nested-loop",
+        "category": "complexity",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "no_code_dump": true,
+          "states_complexity": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "complexity_correct": true,
+        "mentions_ok": true,
+        "words": 277,
+        "code_lines": 0,
+        "sections": [
+          "problem",
+          "approach",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "edge-merge-lists",
+        "category": "edge_cases",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "no_code_dump": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "mentions_ok": true,
+        "words": 220,
+        "code_lines": 0,
+        "sections": [
+          "problem",
+          "approach",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "incomplete-duplicates",
+        "category": "incomplete",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "states_assumptions": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "tests_proxy": true,
+        "words": 279,
+        "code_lines": 11,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "incomplete-cut-off",
+        "category": "incomplete",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "states_assumptions": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 272,
+        "code_lines": 8,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "screenshot-valid-parentheses",
+        "category": "screenshot_extracted",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "functional": {
+          "status": "ok",
+          "passed": 6,
+          "total": 6
+        },
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 286,
+        "code_lines": 13,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "lang-java-reverse-list",
+        "category": "language",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "states_complexity": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "complexity_correct": true,
+        "tests_proxy": true,
+        "words": 265,
+        "code_lines": 19,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      },
+      {
+        "id": "lang-js-debounce",
+        "category": "language",
+        "answered": true,
+        "structure": {
+          "balanced_fences": true,
+          "no_execution_claim": true,
+          "has_code_block": true,
+          "code_block_has_language": true,
+          "no_placeholder_code": true,
+          "language_label_matches_code": true,
+          "requested_language_used": true,
+          "has_tests": true,
+          "sections_in_order": true
+        },
+        "structure_pass": 1.0,
+        "complete": true,
+        "tests_proxy": false,
+        "words": 296,
+        "code_lines": 13,
+        "sections": [
+          "problem",
+          "assumptions",
+          "approach",
+          "code",
+          "complexity",
+          "tests",
+          "edge cases"
+        ],
+        "finish_cut": false
+      }
+    ]
+  }
+}

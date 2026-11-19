@@ -262,6 +262,7 @@ def test_session_list_and_import_shapes_match_the_frontend_types(
     assert set(listing["items"][0]) == {
         "id", "type", "title", "company_name", "status", "created_at", "updated_at",
         "resume", "document_count",
+        "last_activity_at", "question_count", "activity_state",  # M-9, additive
     }  # fmt: skip
     assert set(listing["items"][0]["resume"]) == {"id", "filename"}
 

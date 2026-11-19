@@ -55,6 +55,11 @@ _CLAIM = re.compile(
     re.IGNORECASE,
 )
 _MAX_WORD_FACTOR = 2.5
+# Fenced code (D-73): code is not spoken prose, so it is held out of the word-count, phone, leak
+# (`<<<` / `>>>` are real operators), candidate-claim and script checks, and bounded on its own.
+_FENCE = re.compile(r"```[^\n`]*\n.*?(?:```|\Z)", re.DOTALL)
+_MAX_CODE_CHARS = 20_000
+_TAG_PROSE = re.compile(r"\[\s*E\s*\d+|UNTRUSTED", re.IGNORECASE)
 
 _DEVANAGARI = (0x0900, 0x097F)
 _TELUGU = (0x0C00, 0x0C7F)
@@ -86,20 +91,29 @@ def language_matches(text: str, language: Language) -> bool:
     return non_latin <= 0.3
 
 
+def split_code(text: str) -> tuple[str, str]:
+    """(prose, code): the answer without its fenced code blocks, and the code alone."""
+    code = "\n".join(match.group(0) for match in _FENCE.finditer(text))
+    return _FENCE.sub("\n", text), code
+
+
 def check_deterministic(text: str, *, language: Language, max_words: int) -> Verdict:
     """The fast, rule-based checks. No model is called."""
     body = text.strip()
     if not body:
         return Verdict(False, REASON_EMPTY)
-    if max_words > 0 and len(body.split()) > max_words * _MAX_WORD_FACTOR:
+    prose, code = split_code(body)
+    if len(code) > _MAX_CODE_CHARS:
         return Verdict(False, REASON_TOO_LONG)
-    if _TAG.search(body):
+    if max_words > 0 and len(prose.split()) > max_words * _MAX_WORD_FACTOR:
+        return Verdict(False, REASON_TOO_LONG)
+    if _TAG_PROSE.search(body) or _TAG.search(prose):
         return Verdict(False, REASON_LEAK)
-    if _EMAIL.search(body) or _PHONE.search(body):
+    if _EMAIL.search(body) or _PHONE.search(prose):
         return Verdict(False, REASON_PII)
-    if not language_matches(body, language):
+    if any(c.isalpha() for c in prose) and not language_matches(prose, language):
         return Verdict(False, REASON_LANGUAGE)
-    if language is Language.EN and _CLAIM.search(body):
+    if language is Language.EN and _CLAIM.search(prose):
         return Verdict(False, REASON_CANDIDATE_CLAIM)
     return Verdict(True)
 

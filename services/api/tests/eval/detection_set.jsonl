@@ -1,0 +1,260 @@
+{"id": "en-direct-p01", "lang": "en", "category": "direct", "label": true, "split": "dev", "text": "what is your expected salary range"}
+{"id": "en-direct-p02", "lang": "en", "category": "direct", "label": true, "split": "heldout", "text": "when can you start if we make you an offer"}
+{"id": "en-direct-p03", "lang": "en", "category": "direct", "label": true, "split": "dev", "text": "why should we hire you for this position"}
+{"id": "en-direct-p04", "lang": "en", "category": "direct", "label": true, "split": "heldout", "text": "how many years of experience do you have with java"}
+{"id": "en-direct-p05", "lang": "en", "category": "direct", "label": true, "split": "dev", "text": "what is your notice period"}
+{"id": "en-direct-p06", "lang": "en", "category": "direct", "label": true, "split": "heldout", "text": "are you comfortable relocating to another city"}
+{"id": "en-direct-p07", "lang": "en", "category": "direct", "label": true, "split": "dev", "text": "do you have any questions for me"}
+{"id": "en-direct-p08", "lang": "en", "category": "direct", "label": true, "split": "heldout", "text": "how did you hear about this role"}
+{"id": "en-technical-p01", "lang": "en", "category": "technical", "label": true, "split": "dev", "text": "what is the difference between a mutex and a semaphore"}
+{"id": "en-technical-p02", "lang": "en", "category": "technical", "label": true, "split": "heldout", "text": "how does a hash map handle collisions"}
+{"id": "en-technical-p03", "lang": "en", "category": "technical", "label": true, "split": "dev", "text": "explain how tcp differs from udp"}
+{"id": "en-technical-p04", "lang": "en", "category": "technical", "label": true, "split": "heldout", "text": "what happens when you type a url into a browser"}
+{"id": "en-technical-p05", "lang": "en", "category": "technical", "label": true, "split": "dev", "text": "can you explain how database indexing works"}
+{"id": "en-technical-p06", "lang": "en", "category": "technical", "label": true, "split": "heldout", "text": "which sorting algorithm would you use for nearly sorted data and why"}
+{"id": "en-technical-p07", "lang": "en", "category": "technical", "label": true, "split": "dev", "text": "how would you detect a deadlock in a running service"}
+{"id": "en-technical-p08", "lang": "en", "category": "technical", "label": true, "split": "heldout", "text": "what is the time complexity of inserting into a binary search tree"}
+{"id": "en-behavioral-p01", "lang": "en", "category": "behavioral", "label": true, "split": "dev", "text": "tell me about a time you had a conflict with a coworker"}
+{"id": "en-behavioral-p02", "lang": "en", "category": "behavioral", "label": true, "split": "heldout", "text": "describe a situation where you missed a deadline"}
+{"id": "en-behavioral-p03", "lang": "en", "category": "behavioral", "label": true, "split": "dev", "text": "give me an example of when you showed leadership"}
+{"id": "en-behavioral-p04", "lang": "en", "category": "behavioral", "label": true, "split": "heldout", "text": "how do you handle criticism from your manager"}
+{"id": "en-behavioral-p05", "lang": "en", "category": "behavioral", "label": true, "split": "dev", "text": "tell me about the most challenging project you have worked on"}
+{"id": "en-behavioral-p06", "lang": "en", "category": "behavioral", "label": true, "split": "heldout", "text": "walk me through a time you had to learn something quickly"}
+{"id": "en-behavioral-p07", "lang": "en", "category": "behavioral", "label": true, "split": "dev", "text": "what did you do when a teammate was not pulling their weight"}
+{"id": "en-behavioral-p08", "lang": "en", "category": "behavioral", "label": true, "split": "heldout", "text": "have you ever disagreed with a technical decision and what did you do"}
+{"id": "en-followup-p01", "lang": "en", "category": "followup", "label": true, "split": "dev", "text": "and what was the result of that"}
+{"id": "en-followup-p02", "lang": "en", "category": "followup", "label": true, "split": "heldout", "text": "why did you choose that approach over the alternatives"}
+{"id": "en-followup-p03", "lang": "en", "category": "followup", "label": true, "split": "dev", "text": "how did the team react to that decision"}
+{"id": "en-followup-p04", "lang": "en", "category": "followup", "label": true, "split": "heldout", "text": "what would you do differently next time"}
+{"id": "en-followup-p05", "lang": "en", "category": "followup", "label": true, "split": "dev", "text": "can you give me a more specific example"}
+{"id": "en-followup-p06", "lang": "en", "category": "followup", "label": true, "split": "heldout", "text": "so how long did that migration take"}
+{"id": "en-indirect-p01", "lang": "en", "category": "indirect", "label": true, "split": "dev", "text": "i was wondering how you would approach scaling this service"}
+{"id": "en-indirect-p02", "lang": "en", "category": "indirect", "label": true, "split": "heldout", "text": "i'd be curious to hear why you moved from backend to data engineering"}
+{"id": "en-indirect-p03", "lang": "en", "category": "indirect", "label": true, "split": "dev", "text": "i'd like to understand how you prioritize your work"}
+{"id": "en-indirect-p04", "lang": "en", "category": "indirect", "label": true, "split": "heldout", "text": "let's talk about your experience with distributed systems"}
+{"id": "en-indirect-p05", "lang": "en", "category": "indirect", "label": true, "split": "dev", "text": "i am interested in knowing how you mentor junior engineers"}
+{"id": "en-indirect-p06", "lang": "en", "category": "indirect", "label": true, "split": "heldout", "text": "maybe you could tell me a bit about your last project"}
+{"id": "en-multiple-p01", "lang": "en", "category": "multiple", "label": true, "split": "dev", "text": "where did you study and what was your major there"}
+{"id": "en-multiple-p02", "lang": "en", "category": "multiple", "label": true, "split": "heldout", "text": "what is your biggest strength and what is your biggest weakness"}
+{"id": "en-multiple-p03", "lang": "en", "category": "multiple", "label": true, "split": "dev", "text": "how do you test your code and how do you handle flaky tests"}
+{"id": "en-multiple-p04", "lang": "en", "category": "multiple", "label": true, "split": "heldout", "text": "why python and how does it compare with go for this kind of work"}
+{"id": "en-task-p01", "lang": "en", "category": "task", "label": true, "split": "dev", "text": "write a function that reverses a linked list"}
+{"id": "en-task-p02", "lang": "en", "category": "task", "label": true, "split": "heldout", "text": "design a url shortener like bit ly"}
+{"id": "en-task-p03", "lang": "en", "category": "task", "label": true, "split": "dev", "text": "implement an lru cache with constant time operations"}
+{"id": "en-task-p04", "lang": "en", "category": "task", "label": true, "split": "heldout", "text": "given an array of integers find two numbers that add up to a target"}
+{"id": "en-statement-n01", "lang": "en", "category": "statement", "label": false, "split": "dev", "text": "my name is priya and i manage the data platform team"}
+{"id": "en-statement-n02", "lang": "en", "category": "statement", "label": false, "split": "heldout", "text": "we are a series b startup with about three hundred employees"}
+{"id": "en-statement-n03", "lang": "en", "category": "statement", "label": false, "split": "dev", "text": "i have been working as a backend engineer for six years"}
+{"id": "en-statement-n04", "lang": "en", "category": "statement", "label": false, "split": "heldout", "text": "the team uses python and postgres for most services"}
+{"id": "en-statement-n05", "lang": "en", "category": "statement", "label": false, "split": "dev", "text": "i led the migration of our billing system to kubernetes"}
+{"id": "en-statement-n06", "lang": "en", "category": "statement", "label": false, "split": "heldout", "text": "our interview process has three rounds including this one"}
+{"id": "en-statement-n07", "lang": "en", "category": "statement", "label": false, "split": "dev", "text": "i really enjoyed working on the search ranking project"}
+{"id": "en-statement-n08", "lang": "en", "category": "statement", "label": false, "split": "heldout", "text": "the office is located in the central business district"}
+{"id": "en-keyword-n01", "lang": "en", "category": "keyword", "label": false, "split": "dev", "text": "i know what you mean about the deadline"}
+{"id": "en-keyword-n02", "lang": "en", "category": "keyword", "label": false, "split": "heldout", "text": "that is why i decided to move into management"}
+{"id": "en-keyword-n03", "lang": "en", "category": "keyword", "label": false, "split": "dev", "text": "what i did was rewrite the entire caching layer"}
+{"id": "en-keyword-n04", "lang": "en", "category": "keyword", "label": false, "split": "heldout", "text": "how i handled it was by talking to the team first"}
+{"id": "en-keyword-n05", "lang": "en", "category": "keyword", "label": false, "split": "dev", "text": "who i am today is a result of those years"}
+{"id": "en-keyword-n06", "lang": "en", "category": "keyword", "label": false, "split": "heldout", "text": "when i joined the company we had no tests at all"}
+{"id": "en-keyword-n07", "lang": "en", "category": "keyword", "label": false, "split": "dev", "text": "which is exactly what we needed at the time"}
+{"id": "en-keyword-n08", "lang": "en", "category": "keyword", "label": false, "split": "heldout", "text": "she asked me why i left and i said it was the commute"}
+{"id": "en-instruction-n01", "lang": "en", "category": "instruction", "label": false, "split": "dev", "text": "please share your screen so we can see the code"}
+{"id": "en-instruction-n02", "lang": "en", "category": "instruction", "label": false, "split": "heldout", "text": "go ahead and open the shared document"}
+{"id": "en-instruction-n03", "lang": "en", "category": "instruction", "label": false, "split": "dev", "text": "can you turn on your camera please"}
+{"id": "en-instruction-n04", "lang": "en", "category": "instruction", "label": false, "split": "heldout", "text": "could you mute yourself while i set this up"}
+{"id": "en-instruction-n05", "lang": "en", "category": "instruction", "label": false, "split": "dev", "text": "let me send you the link in the chat"}
+{"id": "en-instruction-n06", "lang": "en", "category": "instruction", "label": false, "split": "heldout", "text": "hold on one second while i pull up the problem"}
+{"id": "en-incomplete-n01", "lang": "en", "category": "incomplete", "label": false, "split": "dev", "text": "so what is the difference between"}
+{"id": "en-incomplete-n02", "lang": "en", "category": "incomplete", "label": false, "split": "heldout", "text": "tell me about a time when you"}
+{"id": "en-incomplete-n03", "lang": "en", "category": "incomplete", "label": false, "split": "dev", "text": "how would you go about"}
+{"id": "en-incomplete-n04", "lang": "en", "category": "incomplete", "label": false, "split": "heldout", "text": "can you walk me through the"}
+{"id": "en-incomplete-n05", "lang": "en", "category": "incomplete", "label": false, "split": "dev", "text": "what do you think is the most important thing when"}
+{"id": "en-incomplete-n06", "lang": "en", "category": "incomplete", "label": false, "split": "heldout", "text": "why did you decide to leave your"}
+{"id": "en-chatter-n01", "lang": "en", "category": "chatter", "label": false, "split": "dev", "text": "thank you so much for joining us today"}
+{"id": "en-chatter-n02", "lang": "en", "category": "chatter", "label": false, "split": "heldout", "text": "it was great talking to you"}
+{"id": "en-chatter-n03", "lang": "en", "category": "chatter", "label": false, "split": "dev", "text": "okay that makes sense"}
+{"id": "en-chatter-n04", "lang": "en", "category": "chatter", "label": false, "split": "heldout", "text": "yeah i can hear you fine"}
+{"id": "en-chatter-n05", "lang": "en", "category": "chatter", "label": false, "split": "dev", "text": "sorry i did not catch that"}
+{"id": "en-chatter-n06", "lang": "en", "category": "chatter", "label": false, "split": "heldout", "text": "good morning how are you doing today"}
+{"id": "en-chatter-n07", "lang": "en", "category": "chatter", "label": false, "split": "dev", "text": "let me know when you are ready to start"}
+{"id": "en-chatter-n08", "lang": "en", "category": "chatter", "label": false, "split": "heldout", "text": "that was a really good answer"}
+{"id": "hi-direct-p01", "lang": "hi", "category": "direct", "label": true, "split": "dev", "text": "आपका वर्तमान वेतन कितना है"}
+{"id": "hi-direct-p02", "lang": "hi", "category": "direct", "label": true, "split": "heldout", "text": "आप हमारी कंपनी में क्यों काम करना चाहते हैं"}
+{"id": "hi-direct-p03", "lang": "hi", "category": "direct", "label": true, "split": "dev", "text": "आपके पास कितने साल का अनुभव है"}
+{"id": "hi-direct-p04", "lang": "hi", "category": "direct", "label": true, "split": "heldout", "text": "आप कब से नौकरी बदलने के बारे में सोच रहे हैं"}
+{"id": "hi-direct-p05", "lang": "hi", "category": "direct", "label": true, "split": "dev", "text": "आप कहाँ से पढ़ाई कर चुके हैं"}
+{"id": "hi-direct-p06", "lang": "hi", "category": "direct", "label": true, "split": "heldout", "text": "क्या आप दूसरे शहर में जाने के लिए तैयार हैं"}
+{"id": "hi-direct-p07", "lang": "hi", "category": "direct", "label": true, "split": "dev", "text": "आपकी नोटिस पीरियड कितनी है"}
+{"id": "hi-direct-p08", "lang": "hi", "category": "direct", "label": true, "split": "heldout", "text": "क्या आपके पास हमसे कोई सवाल है"}
+{"id": "hi-technical-p01", "lang": "hi", "category": "technical", "label": true, "split": "dev", "text": "mutex और semaphore में क्या अंतर है"}
+{"id": "hi-technical-p02", "lang": "hi", "category": "technical", "label": true, "split": "heldout", "text": "hash map में collision को कैसे संभाला जाता है"}
+{"id": "hi-technical-p03", "lang": "hi", "category": "technical", "label": true, "split": "dev", "text": "आप database indexing कैसे काम करता है यह समझा सकते हैं"}
+{"id": "hi-technical-p04", "lang": "hi", "category": "technical", "label": true, "split": "heldout", "text": "browser में url डालने पर क्या होता है"}
+{"id": "hi-technical-p05", "lang": "hi", "category": "technical", "label": true, "split": "dev", "text": "एक binary search tree में insert करने की time complexity क्या है"}
+{"id": "hi-technical-p06", "lang": "hi", "category": "technical", "label": true, "split": "heldout", "text": "आप deadlock को कैसे detect करेंगे"}
+{"id": "hi-technical-p07", "lang": "hi", "category": "technical", "label": true, "split": "dev", "text": "tcp और udp में क्या फर्क है"}
+{"id": "hi-technical-p08", "lang": "hi", "category": "technical", "label": true, "split": "heldout", "text": "python में decorators कैसे काम करते हैं"}
+{"id": "hi-behavioral-p01", "lang": "hi", "category": "behavioral", "label": true, "split": "dev", "text": "अपने किसी सहकर्मी के साथ हुए विवाद के बारे में बताइए"}
+{"id": "hi-behavioral-p02", "lang": "hi", "category": "behavioral", "label": true, "split": "heldout", "text": "ऐसी स्थिति का वर्णन कीजिए जब आप समय सीमा पूरी नहीं कर पाए"}
+{"id": "hi-behavioral-p03", "lang": "hi", "category": "behavioral", "label": true, "split": "dev", "text": "नेतृत्व का कोई उदाहरण दीजिए"}
+{"id": "hi-behavioral-p04", "lang": "hi", "category": "behavioral", "label": true, "split": "heldout", "text": "आप अपने मैनेजर की आलोचना को कैसे संभालते हैं"}
+{"id": "hi-behavioral-p05", "lang": "hi", "category": "behavioral", "label": true, "split": "dev", "text": "आपका अब तक का सबसे चुनौतीपूर्ण प्रोजेक्ट कौन सा रहा"}
+{"id": "hi-behavioral-p06", "lang": "hi", "category": "behavioral", "label": true, "split": "heldout", "text": "कोई ऐसा समय बताइए जब आपको कुछ जल्दी सीखना पड़ा"}
+{"id": "hi-behavioral-p07", "lang": "hi", "category": "behavioral", "label": true, "split": "dev", "text": "जब आपकी टीम का कोई सदस्य काम नहीं कर रहा था तब आपने क्या किया"}
+{"id": "hi-behavioral-p08", "lang": "hi", "category": "behavioral", "label": true, "split": "heldout", "text": "क्या आपने कभी किसी तकनीकी फैसले से असहमति जताई और तब आपने क्या किया"}
+{"id": "hi-followup-p01", "lang": "hi", "category": "followup", "label": true, "split": "dev", "text": "और उसका नतीजा क्या रहा"}
+{"id": "hi-followup-p02", "lang": "hi", "category": "followup", "label": true, "split": "heldout", "text": "आपने दूसरे तरीकों की जगह यही तरीका क्यों चुना"}
+{"id": "hi-followup-p03", "lang": "hi", "category": "followup", "label": true, "split": "dev", "text": "टीम ने इस फैसले पर कैसे प्रतिक्रिया दी"}
+{"id": "hi-followup-p04", "lang": "hi", "category": "followup", "label": true, "split": "heldout", "text": "अगली बार आप क्या अलग करेंगे"}
+{"id": "hi-followup-p05", "lang": "hi", "category": "followup", "label": true, "split": "dev", "text": "क्या आप कोई और ठोस उदाहरण दे सकते हैं"}
+{"id": "hi-followup-p06", "lang": "hi", "category": "followup", "label": true, "split": "heldout", "text": "तो वह migration कितने समय में पूरा हुआ"}
+{"id": "hi-indirect-p01", "lang": "hi", "category": "indirect", "label": true, "split": "dev", "text": "मैं जानना चाहता हूँ कि आप इस सर्विस को स्केल कैसे करेंगे"}
+{"id": "hi-indirect-p02", "lang": "hi", "category": "indirect", "label": true, "split": "heldout", "text": "मुझे यह सुनने में दिलचस्पी है कि आपने backend से data engineering में बदलाव क्यों किया"}
+{"id": "hi-indirect-p03", "lang": "hi", "category": "indirect", "label": true, "split": "dev", "text": "आप अपने बारे में कुछ बताइए"}
+{"id": "hi-indirect-p04", "lang": "hi", "category": "indirect", "label": true, "split": "heldout", "text": "ज़रा अपने पिछले प्रोजेक्ट के बारे में बताएँ"}
+{"id": "hi-indirect-p05", "lang": "hi", "category": "indirect", "label": true, "split": "dev", "text": "चलिए distributed systems के आपके अनुभव पर बात करते हैं"}
+{"id": "hi-indirect-p06", "lang": "hi", "category": "indirect", "label": true, "split": "heldout", "text": "मैं समझना चाहती हूँ कि आप अपना काम कैसे प्राथमिकता देते हैं"}
+{"id": "hi-multiple-p01", "lang": "hi", "category": "multiple", "label": true, "split": "dev", "text": "आपने कहाँ पढ़ाई की और आपका मुख्य विषय क्या था"}
+{"id": "hi-multiple-p02", "lang": "hi", "category": "multiple", "label": true, "split": "heldout", "text": "आपकी सबसे बड़ी ताकत क्या है और सबसे बड़ी कमज़ोरी क्या है"}
+{"id": "hi-multiple-p03", "lang": "hi", "category": "multiple", "label": true, "split": "dev", "text": "आप अपना कोड कैसे टेस्ट करते हैं और flaky tests को कैसे संभालते हैं"}
+{"id": "hi-multiple-p04", "lang": "hi", "category": "multiple", "label": true, "split": "heldout", "text": "python क्यों और go के मुकाबले यह कैसा है"}
+{"id": "hi-task-p01", "lang": "hi", "category": "task", "label": true, "split": "dev", "text": "एक function लिखिए जो linked list को उलट दे"}
+{"id": "hi-task-p02", "lang": "hi", "category": "task", "label": true, "split": "heldout", "text": "bit ly जैसा url shortener डिज़ाइन कीजिए"}
+{"id": "hi-task-p03", "lang": "hi", "category": "task", "label": true, "split": "dev", "text": "constant time operations वाला lru cache implement कीजिए"}
+{"id": "hi-task-p04", "lang": "hi", "category": "task", "label": true, "split": "heldout", "text": "integers के array में दो ऐसी संख्याएँ खोजिए जिनका योग target के बराबर हो"}
+{"id": "hi-statement-n01", "lang": "hi", "category": "statement", "label": false, "split": "dev", "text": "मेरा नाम प्रिया है और मैं डेटा प्लेटफ़ॉर्म टीम संभालती हूँ"}
+{"id": "hi-statement-n02", "lang": "hi", "category": "statement", "label": false, "split": "heldout", "text": "हमारी कंपनी एक स्टार्टअप है जिसमें लगभग तीन सौ लोग काम करते हैं"}
+{"id": "hi-statement-n03", "lang": "hi", "category": "statement", "label": false, "split": "dev", "text": "मैं पिछले छह साल से बैकएंड इंजीनियर के रूप में काम कर रहा हूँ"}
+{"id": "hi-statement-n04", "lang": "hi", "category": "statement", "label": false, "split": "heldout", "text": "हमारी टीम ज़्यादातर सर्विसेज़ के लिए python और postgres इस्तेमाल करती है"}
+{"id": "hi-statement-n05", "lang": "hi", "category": "statement", "label": false, "split": "dev", "text": "मैंने अपने billing system को kubernetes पर migrate करने का नेतृत्व किया"}
+{"id": "hi-statement-n06", "lang": "hi", "category": "statement", "label": false, "split": "heldout", "text": "हमारी इंटरव्यू प्रक्रिया में यह मिलाकर तीन राउंड हैं"}
+{"id": "hi-statement-n07", "lang": "hi", "category": "statement", "label": false, "split": "dev", "text": "मुझे search ranking प्रोजेक्ट पर काम करना बहुत अच्छा लगा"}
+{"id": "hi-statement-n08", "lang": "hi", "category": "statement", "label": false, "split": "heldout", "text": "हमारा दफ़्तर शहर के बीच वाले इलाके में है"}
+{"id": "hi-keyword-n01", "lang": "hi", "category": "keyword", "label": false, "split": "dev", "text": "मुझे पता है कि आप डेडलाइन के बारे में क्या कह रहे हैं"}
+{"id": "hi-keyword-n02", "lang": "hi", "category": "keyword", "label": false, "split": "heldout", "text": "कैसे भी करके मैंने वह काम समय पर पूरा किया"}
+{"id": "hi-keyword-n03", "lang": "hi", "category": "keyword", "label": false, "split": "dev", "text": "मैंने जो किया वह पूरी caching layer को दोबारा लिखना था"}
+{"id": "hi-keyword-n04", "lang": "hi", "category": "keyword", "label": false, "split": "heldout", "text": "जब मैं कंपनी में आया तब कोई टेस्ट नहीं थे"}
+{"id": "hi-keyword-n05", "lang": "hi", "category": "keyword", "label": false, "split": "dev", "text": "मैं आपको बाद में बताऊँगा कि यह कैसे काम करता है"}
+{"id": "hi-keyword-n06", "lang": "hi", "category": "keyword", "label": false, "split": "heldout", "text": "क्या बात है आपने तो कमाल कर दिया"}
+{"id": "hi-keyword-n07", "lang": "hi", "category": "keyword", "label": false, "split": "dev", "text": "कौन क्या कर रहा था यह मुझे उस समय नहीं पता था"}
+{"id": "hi-keyword-n08", "lang": "hi", "category": "keyword", "label": false, "split": "heldout", "text": "उसने पूछा कि मैंने नौकरी क्यों छोड़ी और मैंने कहा कि सफ़र बहुत लंबा था"}
+{"id": "hi-instruction-n01", "lang": "hi", "category": "instruction", "label": false, "split": "dev", "text": "कृपया अपनी स्क्रीन शेयर कीजिए ताकि हम कोड देख सकें"}
+{"id": "hi-instruction-n02", "lang": "hi", "category": "instruction", "label": false, "split": "heldout", "text": "आगे बढ़िए और शेयर किया हुआ डॉक्यूमेंट खोलिए"}
+{"id": "hi-instruction-n03", "lang": "hi", "category": "instruction", "label": false, "split": "dev", "text": "क्या आप अपना कैमरा चालू कर सकते हैं"}
+{"id": "hi-instruction-n04", "lang": "hi", "category": "instruction", "label": false, "split": "heldout", "text": "क्या आप मेरी बात होने तक अपना माइक म्यूट कर सकते हैं"}
+{"id": "hi-instruction-n05", "lang": "hi", "category": "instruction", "label": false, "split": "dev", "text": "मैं चैट में आपको लिंक भेज देता हूँ"}
+{"id": "hi-instruction-n06", "lang": "hi", "category": "instruction", "label": false, "split": "heldout", "text": "एक सेकंड रुकिए मैं समस्या खोलता हूँ"}
+{"id": "hi-incomplete-n01", "lang": "hi", "category": "incomplete", "label": false, "split": "dev", "text": "तो इन दोनों के बीच का"}
+{"id": "hi-incomplete-n02", "lang": "hi", "category": "incomplete", "label": false, "split": "heldout", "text": "मुझे ऐसे समय के बारे में बताइए जब आप"}
+{"id": "hi-incomplete-n03", "lang": "hi", "category": "incomplete", "label": false, "split": "dev", "text": "आप इसे कैसे"}
+{"id": "hi-incomplete-n04", "lang": "hi", "category": "incomplete", "label": false, "split": "heldout", "text": "क्या आप मुझे समझा सकते हैं कि"}
+{"id": "hi-incomplete-n05", "lang": "hi", "category": "incomplete", "label": false, "split": "dev", "text": "आपके हिसाब से सबसे ज़रूरी बात क्या होती है जब"}
+{"id": "hi-incomplete-n06", "lang": "hi", "category": "incomplete", "label": false, "split": "heldout", "text": "आपने अपनी पिछली नौकरी क्यों छोड़ी क्योंकि"}
+{"id": "hi-chatter-n01", "lang": "hi", "category": "chatter", "label": false, "split": "dev", "text": "आज हमारे साथ जुड़ने के लिए बहुत धन्यवाद"}
+{"id": "hi-chatter-n02", "lang": "hi", "category": "chatter", "label": false, "split": "heldout", "text": "आपसे बात करके अच्छा लगा"}
+{"id": "hi-chatter-n03", "lang": "hi", "category": "chatter", "label": false, "split": "dev", "text": "ठीक है यह समझ में आ गया"}
+{"id": "hi-chatter-n04", "lang": "hi", "category": "chatter", "label": false, "split": "heldout", "text": "हाँ मुझे आपकी आवाज़ साफ़ सुनाई दे रही है"}
+{"id": "hi-chatter-n05", "lang": "hi", "category": "chatter", "label": false, "split": "dev", "text": "माफ़ कीजिए मैंने ठीक से सुना नहीं"}
+{"id": "hi-chatter-n06", "lang": "hi", "category": "chatter", "label": false, "split": "heldout", "text": "सुप्रभात आज आप कैसे हैं"}
+{"id": "hi-chatter-n07", "lang": "hi", "category": "chatter", "label": false, "split": "dev", "text": "जब आप तैयार हों तो मुझे बता दीजिए"}
+{"id": "hi-chatter-n08", "lang": "hi", "category": "chatter", "label": false, "split": "heldout", "text": "यह बहुत अच्छा जवाब था"}
+{"id": "hi-roman-p01", "lang": "hi", "category": "roman", "label": true, "split": "dev", "text": "aap apne baare mein bataiye"}
+{"id": "hi-roman-p02", "lang": "hi", "category": "roman", "label": true, "split": "heldout", "text": "kya aapko python mein kaam karne ka anubhav hai"}
+{"id": "hi-roman-p03", "lang": "hi", "category": "roman", "label": true, "split": "dev", "text": "aap is project mein sabse badi challenge kya thi"}
+{"id": "hi-roman-p04", "lang": "hi", "category": "roman", "label": true, "split": "heldout", "text": "microservices aur monolith mein kya difference hai"}
+{"id": "hi-roman-p05", "lang": "hi", "category": "roman", "label": true, "split": "dev", "text": "aap deadline ko kaise manage karte hain"}
+{"id": "hi-roman-n01", "lang": "hi", "category": "roman", "label": false, "split": "dev", "text": "mera naam rahul hai aur main backend team mein hoon"}
+{"id": "hi-roman-n02", "lang": "hi", "category": "roman", "label": false, "split": "heldout", "text": "dhanyavaad aaj aane ke liye"}
+{"id": "hi-roman-n03", "lang": "hi", "category": "roman", "label": false, "split": "dev", "text": "screen share kijiye please"}
+{"id": "hi-roman-n04", "lang": "hi", "category": "roman", "label": false, "split": "heldout", "text": "main aapko baad mein bataunga ki yeh kaise kaam karta hai"}
+{"id": "hi-roman-n05", "lang": "hi", "category": "roman", "label": false, "split": "dev", "text": "theek hai samajh gaya"}
+{"id": "te-direct-p01", "lang": "te", "category": "direct", "label": true, "split": "dev", "text": "మీ ప్రస్తుత జీతం ఎంత"}
+{"id": "te-direct-p02", "lang": "te", "category": "direct", "label": true, "split": "heldout", "text": "మీరు మా కంపెనీలో ఎందుకు పని చేయాలనుకుంటున్నారు"}
+{"id": "te-direct-p03", "lang": "te", "category": "direct", "label": true, "split": "dev", "text": "మీకు ఎన్ని సంవత్సరాల అనుభవం ఉంది"}
+{"id": "te-direct-p04", "lang": "te", "category": "direct", "label": true, "split": "heldout", "text": "మీరు ఉద్యోగం మారాలని ఎప్పటి నుంచి ఆలోచిస్తున్నారు"}
+{"id": "te-direct-p05", "lang": "te", "category": "direct", "label": true, "split": "dev", "text": "మీరు ఎక్కడ చదువుకున్నారు"}
+{"id": "te-direct-p06", "lang": "te", "category": "direct", "label": true, "split": "heldout", "text": "మీరు వేరే నగరానికి వెళ్లడానికి సిద్ధంగా ఉన్నారా"}
+{"id": "te-direct-p07", "lang": "te", "category": "direct", "label": true, "split": "dev", "text": "మీ నోటీసు పీరియడ్ ఎంత"}
+{"id": "te-direct-p08", "lang": "te", "category": "direct", "label": true, "split": "heldout", "text": "మీకు మమ్మల్ని అడగడానికి ఏమైనా ప్రశ్నలు ఉన్నాయా"}
+{"id": "te-technical-p01", "lang": "te", "category": "technical", "label": true, "split": "dev", "text": "mutex మరియు semaphore మధ్య తేడా ఏమిటి"}
+{"id": "te-technical-p02", "lang": "te", "category": "technical", "label": true, "split": "heldout", "text": "hash map లో collisions ని ఎలా హ్యాండిల్ చేస్తారు"}
+{"id": "te-technical-p03", "lang": "te", "category": "technical", "label": true, "split": "dev", "text": "database indexing ఎలా పని చేస్తుందో వివరించగలరా"}
+{"id": "te-technical-p04", "lang": "te", "category": "technical", "label": true, "split": "heldout", "text": "browser లో url టైప్ చేస్తే ఏమి జరుగుతుంది"}
+{"id": "te-technical-p05", "lang": "te", "category": "technical", "label": true, "split": "dev", "text": "binary search tree లో insert చేసే time complexity ఎంత"}
+{"id": "te-technical-p06", "lang": "te", "category": "technical", "label": true, "split": "heldout", "text": "deadlock ని మీరు ఎలా గుర్తిస్తారు"}
+{"id": "te-technical-p07", "lang": "te", "category": "technical", "label": true, "split": "dev", "text": "tcp మరియు udp మధ్య తేడా ఏమిటి"}
+{"id": "te-technical-p08", "lang": "te", "category": "technical", "label": true, "split": "heldout", "text": "python లో decorators ఎలా పని చేస్తాయి"}
+{"id": "te-behavioral-p01", "lang": "te", "category": "behavioral", "label": true, "split": "dev", "text": "మీ సహోద్యోగితో వచ్చిన విభేదం గురించి చెప్పండి"}
+{"id": "te-behavioral-p02", "lang": "te", "category": "behavioral", "label": true, "split": "heldout", "text": "మీరు గడువును అందుకోలేకపోయిన సందర్భాన్ని వివరించండి"}
+{"id": "te-behavioral-p03", "lang": "te", "category": "behavioral", "label": true, "split": "dev", "text": "మీరు నాయకత్వం చూపిన ఒక ఉదాహరణ చెప్పండి"}
+{"id": "te-behavioral-p04", "lang": "te", "category": "behavioral", "label": true, "split": "heldout", "text": "మీ మేనేజర్ చేసిన విమర్శను మీరు ఎలా తీసుకుంటారు"}
+{"id": "te-behavioral-p05", "lang": "te", "category": "behavioral", "label": true, "split": "dev", "text": "మీరు ఇప్పటివరకు చేసిన అత్యంత కష్టమైన ప్రాజెక్ట్ ఏది"}
+{"id": "te-behavioral-p06", "lang": "te", "category": "behavioral", "label": true, "split": "heldout", "text": "మీరు ఏదైనా త్వరగా నేర్చుకోవాల్సి వచ్చిన సందర్భం గురించి చెప్పండి"}
+{"id": "te-behavioral-p07", "lang": "te", "category": "behavioral", "label": true, "split": "dev", "text": "మీ టీమ్ సభ్యుడు పని చేయనప్పుడు మీరు ఏమి చేశారు"}
+{"id": "te-behavioral-p08", "lang": "te", "category": "behavioral", "label": true, "split": "heldout", "text": "మీరు ఎప్పుడైనా సాంకేతిక నిర్ణయంతో విభేదించారా అప్పుడు ఏమి చేశారు"}
+{"id": "te-followup-p01", "lang": "te", "category": "followup", "label": true, "split": "dev", "text": "మరి దాని ఫలితం ఏమిటి"}
+{"id": "te-followup-p02", "lang": "te", "category": "followup", "label": true, "split": "heldout", "text": "మీరు ఇతర మార్గాలకంటే ఇదే పద్ధతిని ఎందుకు ఎంచుకున్నారు"}
+{"id": "te-followup-p03", "lang": "te", "category": "followup", "label": true, "split": "dev", "text": "ఈ నిర్ణయంపై టీమ్ ఎలా స్పందించింది"}
+{"id": "te-followup-p04", "lang": "te", "category": "followup", "label": true, "split": "heldout", "text": "వచ్చేసారి మీరు ఏమి వేరేగా చేస్తారు"}
+{"id": "te-followup-p05", "lang": "te", "category": "followup", "label": true, "split": "dev", "text": "మీరు ఇంకొక స్పష్టమైన ఉదాహరణ ఇవ్వగలరా"}
+{"id": "te-followup-p06", "lang": "te", "category": "followup", "label": true, "split": "heldout", "text": "అయితే ఆ migration పూర్తవడానికి ఎంత సమయం పట్టింది"}
+{"id": "te-indirect-p01", "lang": "te", "category": "indirect", "label": true, "split": "dev", "text": "ఈ సర్వీస్‌ను మీరు ఎలా స్కేల్ చేస్తారో తెలుసుకోవాలని ఉంది"}
+{"id": "te-indirect-p02", "lang": "te", "category": "indirect", "label": true, "split": "heldout", "text": "మీరు backend నుంచి data engineering కి ఎందుకు మారారో వినాలని ఉంది"}
+{"id": "te-indirect-p03", "lang": "te", "category": "indirect", "label": true, "split": "dev", "text": "మీ గురించి కొంచెం చెప్పండి"}
+{"id": "te-indirect-p04", "lang": "te", "category": "indirect", "label": true, "split": "heldout", "text": "మీ గత ప్రాజెక్ట్ గురించి కాస్త చెప్పగలరా"}
+{"id": "te-indirect-p05", "lang": "te", "category": "indirect", "label": true, "split": "dev", "text": "ఇక distributed systems లో మీ అనుభవం గురించి మాట్లాడుకుందాం"}
+{"id": "te-indirect-p06", "lang": "te", "category": "indirect", "label": true, "split": "heldout", "text": "మీరు మీ పనులకు ఎలా ప్రాధాన్యత ఇస్తారో నాకు అర్థం చేసుకోవాలని ఉంది"}
+{"id": "te-multiple-p01", "lang": "te", "category": "multiple", "label": true, "split": "dev", "text": "మీరు ఎక్కడ చదువుకున్నారు మీ మెయిన్ సబ్జెక్ట్ ఏమిటి"}
+{"id": "te-multiple-p02", "lang": "te", "category": "multiple", "label": true, "split": "heldout", "text": "మీ బలం ఏమిటి మీ బలహీనత ఏమిటి"}
+{"id": "te-multiple-p03", "lang": "te", "category": "multiple", "label": true, "split": "dev", "text": "మీరు మీ కోడ్‌ను ఎలా టెస్ట్ చేస్తారు flaky tests ని ఎలా హ్యాండిల్ చేస్తారు"}
+{"id": "te-multiple-p04", "lang": "te", "category": "multiple", "label": true, "split": "heldout", "text": "python ఎందుకు దీన్ని go తో పోలిస్తే ఎలా ఉంటుంది"}
+{"id": "te-task-p01", "lang": "te", "category": "task", "label": true, "split": "dev", "text": "linked list ని రివర్స్ చేసే ఒక function రాయండి"}
+{"id": "te-task-p02", "lang": "te", "category": "task", "label": true, "split": "heldout", "text": "bit ly లాంటి url shortener ని డిజైన్ చేయండి"}
+{"id": "te-task-p03", "lang": "te", "category": "task", "label": true, "split": "dev", "text": "constant time operations ఉన్న lru cache ని implement చేయండి"}
+{"id": "te-task-p04", "lang": "te", "category": "task", "label": true, "split": "heldout", "text": "integers array లో కలిపితే target వచ్చే రెండు సంఖ్యలను కనుగొనండి"}
+{"id": "te-statement-n01", "lang": "te", "category": "statement", "label": false, "split": "dev", "text": "నా పేరు ప్రియ నేను డేటా ప్లాట్‌ఫామ్ టీమ్‌ను చూసుకుంటాను"}
+{"id": "te-statement-n02", "lang": "te", "category": "statement", "label": false, "split": "heldout", "text": "మాది సుమారు మూడు వందల మంది ఉన్న స్టార్టప్ కంపెనీ"}
+{"id": "te-statement-n03", "lang": "te", "category": "statement", "label": false, "split": "dev", "text": "నేను గత ఆరు సంవత్సరాలుగా బ్యాకెండ్ ఇంజనీర్‌గా పని చేస్తున్నాను"}
+{"id": "te-statement-n04", "lang": "te", "category": "statement", "label": false, "split": "heldout", "text": "మా టీమ్ ఎక్కువ సర్వీసులకు python మరియు postgres వాడుతుంది"}
+{"id": "te-statement-n05", "lang": "te", "category": "statement", "label": false, "split": "dev", "text": "నేను మా billing system ని kubernetes కి మార్చే పనికి నాయకత్వం వహించాను"}
+{"id": "te-statement-n06", "lang": "te", "category": "statement", "label": false, "split": "heldout", "text": "మా ఇంటర్వ్యూ ప్రక్రియలో ఇది కలిపి మూడు రౌండ్లు ఉన్నాయి"}
+{"id": "te-statement-n07", "lang": "te", "category": "statement", "label": false, "split": "dev", "text": "search ranking ప్రాజెక్ట్‌లో పని చేయడం నాకు చాలా నచ్చింది"}
+{"id": "te-statement-n08", "lang": "te", "category": "statement", "label": false, "split": "heldout", "text": "మా ఆఫీస్ నగరం మధ్యలో ఉంది"}
+{"id": "te-keyword-n01", "lang": "te", "category": "keyword", "label": false, "split": "dev", "text": "మీరు డెడ్‌లైన్ గురించి ఏమి చెబుతున్నారో నాకు తెలుసు"}
+{"id": "te-keyword-n02", "lang": "te", "category": "keyword", "label": false, "split": "heldout", "text": "ఎలాగైనా నేను ఆ పనిని సమయానికి పూర్తి చేశాను"}
+{"id": "te-keyword-n03", "lang": "te", "category": "keyword", "label": false, "split": "dev", "text": "నేను చేసింది మొత్తం caching layer ని మళ్లీ రాయడమే"}
+{"id": "te-keyword-n04", "lang": "te", "category": "keyword", "label": false, "split": "heldout", "text": "నేను కంపెనీలో చేరినప్పుడు అసలు టెస్టులే లేవు"}
+{"id": "te-keyword-n05", "lang": "te", "category": "keyword", "label": false, "split": "dev", "text": "ఇది ఎలా పని చేస్తుందో నేను మీకు తర్వాత చెబుతాను"}
+{"id": "te-keyword-n06", "lang": "te", "category": "keyword", "label": false, "split": "heldout", "text": "ఎవరు ఏమి చేస్తున్నారో నాకు అప్పట్లో తెలియదు"}
+{"id": "te-keyword-n07", "lang": "te", "category": "keyword", "label": false, "split": "dev", "text": "ఎందుకు వదిలేశావని అతను అడిగాడు నేను ప్రయాణం ఎక్కువని చెప్పాను"}
+{"id": "te-keyword-n08", "lang": "te", "category": "keyword", "label": false, "split": "heldout", "text": "ఏమిటో ఈ రోజు చాలా బిజీగా ఉంది"}
+{"id": "te-instruction-n01", "lang": "te", "category": "instruction", "label": false, "split": "dev", "text": "దయచేసి మీ స్క్రీన్ షేర్ చేయండి మేము కోడ్ చూస్తాం"}
+{"id": "te-instruction-n02", "lang": "te", "category": "instruction", "label": false, "split": "heldout", "text": "ముందుకు వెళ్లి షేర్ చేసిన డాక్యుమెంట్ ఓపెన్ చేయండి"}
+{"id": "te-instruction-n03", "lang": "te", "category": "instruction", "label": false, "split": "dev", "text": "మీరు మీ కెమెరా ఆన్ చేయగలరా"}
+{"id": "te-instruction-n04", "lang": "te", "category": "instruction", "label": false, "split": "heldout", "text": "నేను ఇది సెట్ చేసే వరకు మీరు మైక్ మ్యూట్ చేయగలరా"}
+{"id": "te-instruction-n05", "lang": "te", "category": "instruction", "label": false, "split": "dev", "text": "నేను చాట్‌లో మీకు లింక్ పంపిస్తాను"}
+{"id": "te-instruction-n06", "lang": "te", "category": "instruction", "label": false, "split": "heldout", "text": "ఒక్క నిమిషం ఆగండి నేను సమస్యను తెరుస్తాను"}
+{"id": "te-incomplete-n01", "lang": "te", "category": "incomplete", "label": false, "split": "dev", "text": "అయితే ఈ రెండింటి మధ్య"}
+{"id": "te-incomplete-n02", "lang": "te", "category": "incomplete", "label": false, "split": "heldout", "text": "మీరు ఎదుర్కొన్న ఒక సందర్భం గురించి చెప్పండి అప్పుడు మీరు"}
+{"id": "te-incomplete-n03", "lang": "te", "category": "incomplete", "label": false, "split": "dev", "text": "మీరు దీన్ని ఎలా"}
+{"id": "te-incomplete-n04", "lang": "te", "category": "incomplete", "label": false, "split": "heldout", "text": "మీరు నాకు వివరించగలరా ఏంటంటే"}
+{"id": "te-incomplete-n05", "lang": "te", "category": "incomplete", "label": false, "split": "dev", "text": "మీ దృష్టిలో అత్యంత ముఖ్యమైన విషయం ఏమిటంటే ఎప్పుడు"}
+{"id": "te-incomplete-n06", "lang": "te", "category": "incomplete", "label": false, "split": "heldout", "text": "మీరు మీ గత ఉద్యోగాన్ని ఎందుకు వదిలారు ఎందుకంటే"}
+{"id": "te-chatter-n01", "lang": "te", "category": "chatter", "label": false, "split": "dev", "text": "ఈ రోజు మాతో చేరినందుకు చాలా ధన్యవాదాలు"}
+{"id": "te-chatter-n02", "lang": "te", "category": "chatter", "label": false, "split": "heldout", "text": "మీతో మాట్లాడటం సంతోషంగా ఉంది"}
+{"id": "te-chatter-n03", "lang": "te", "category": "chatter", "label": false, "split": "dev", "text": "సరే అది అర్థమైంది"}
+{"id": "te-chatter-n04", "lang": "te", "category": "chatter", "label": false, "split": "heldout", "text": "అవును మీ గొంతు నాకు స్పష్టంగా వినిపిస్తోంది"}
+{"id": "te-chatter-n05", "lang": "te", "category": "chatter", "label": false, "split": "dev", "text": "క్షమించండి నాకు సరిగ్గా వినిపించలేదు"}
+{"id": "te-chatter-n06", "lang": "te", "category": "chatter", "label": false, "split": "heldout", "text": "శుభోదయం ఈ రోజు మీరు ఎలా ఉన్నారు"}
+{"id": "te-chatter-n07", "lang": "te", "category": "chatter", "label": false, "split": "dev", "text": "మీరు సిద్ధంగా ఉన్నప్పుడు నాకు చెప్పండి"}
+{"id": "te-chatter-n08", "lang": "te", "category": "chatter", "label": false, "split": "heldout", "text": "అది చాలా మంచి సమాధానం"}
+{"id": "te-roman-p01", "lang": "te", "category": "roman", "label": true, "split": "dev", "text": "mee gurinchi cheppandi"}
+{"id": "te-roman-p02", "lang": "te", "category": "roman", "label": true, "split": "heldout", "text": "meeru python lo pani chesara"}
+{"id": "te-roman-p03", "lang": "te", "category": "roman", "label": true, "split": "dev", "text": "ee project lo mee biggest challenge enti"}
+{"id": "te-roman-p04", "lang": "te", "category": "roman", "label": true, "split": "heldout", "text": "microservices ki monolith ki difference enti"}
+{"id": "te-roman-p05", "lang": "te", "category": "roman", "label": true, "split": "dev", "text": "meeru deadlines ela manage chestaru"}
+{"id": "te-roman-n01", "lang": "te", "category": "roman", "label": false, "split": "dev", "text": "naa peru rahul nenu backend team lo unnanu"}
+{"id": "te-roman-n02", "lang": "te", "category": "roman", "label": false, "split": "heldout", "text": "ee roju vachinanduku dhanyavadalu"}
+{"id": "te-roman-n03", "lang": "te", "category": "roman", "label": false, "split": "dev", "text": "dayachesi screen share cheyandi"}
+{"id": "te-roman-n04", "lang": "te", "category": "roman", "label": false, "split": "heldout", "text": "idi ela pani chestundo nenu tarvata chebutanu"}
+{"id": "te-roman-n05", "lang": "te", "category": "roman", "label": false, "split": "dev", "text": "sare ardhamaindi"}

@@ -21,6 +21,13 @@ include user/session IDs or request-provided text.
 - A session can be deleted by its owner; its session-owned questions and answers cascade. Selected
   resumes/documents are references and are not deleted with the session.
 - There is no automatic expiration policy for uploaded files, sessions, or Q&A at present.
+- **Session export (M-9, D-74):** a user can download one of their own sessions (details, the job
+  description they entered, preferences, questions and answers) as JSON or Markdown. It is
+  produced on request, never stored or sent anywhere by the service, and excludes resume and
+  document text, credentials and account data. The desktop app writes it only to a path the user
+  chooses in a native dialog after a warning; the web app saves it through the browser after a
+  warning. A saved file is outside the service's control and is not removed when the session is
+  deleted. No transcripts, audio or screenshots are stored, so none can be exported.
 - Refresh tokens are expired/revoked by application behavior; a scheduled cleanup policy for old
   token rows is not currently implemented.
 - Account-wide deletion, data export, and automated cleanup/reconciliation of orphaned files are
@@ -70,6 +77,45 @@ visible capture indicator, and clear consent from all people whose speech is cap
 with local law and interview-platform rules. Prefer ephemeral audio processing and do not retain raw
 audio by default. Any future transcript/screenshot feature must specify purpose, storage, access,
 retention, deletion, third-party processing, and user consent before implementation.
+
+## Acceptable-use acknowledgement (M-1, D-68)
+
+Before the desktop app will listen to audio or capture a screenshot, the signed-in user must accept an
+acceptable-use notice: they are responsible for following the rules of any interview, meeting or
+assessment where they use the app; they will capture or process audio and screenshots only with
+permission (including that of other people whose voice or screen may be captured) and as the law
+requires; and they will not use the app in ways those rules prohibit. The notice also states that the
+app always shows when it is listening or capturing, does not hide itself and must not be used to avoid
+monitoring. The wording is a policy statement for the owner to approve, not legal advice.
+
+- **Enforcement is in the Electron main process.** `AudioService` and `CaptureService` refuse to start
+  (and the screenshot display picker refuses) with the code `acknowledgement_required` until it exists,
+  whatever the renderer shows. Acceptance is recorded only after a native dialog opened by the main
+  process; the renderer has no channel that can record it (the settings channel rejects it).
+- **Stored locally only**, in the existing `settings.json` in the app's user-data folder, as
+  `acceptableUse: { version, userId, acceptedAt }`: the wording version, the local account id and the
+  time. It is never sent to the backend, to an AI provider or to any other service, and is not logged.
+- **Scope:** one record per device. It counts only for the account that accepted it and only for the
+  current wording version; a different account on the same device, or a new wording version, must
+  accept again. It survives restarts, sign-out and later settings changes. A damaged entry counts as
+  "not accepted".
+- It adds to, and does not replace, the existing consent: audio and screenshot input are still off by
+  default with their own native confirmation, start only on an explicit press, show visible indicators,
+  and screenshots keep their countdown and preview.
+- Not built: withdrawing the acknowledgement from the UI (delete the `acceptableUse` entry or raise the
+  wording version), a server-side record, per-session acknowledgement.
+
+## Crash recovery and local diagnostics (M-5, D-70)
+
+When the desktop window's renderer process crashes, the main process stops listening, wipes any held screenshot and cancels running answers, reloads the window once, and tells the user. Nothing is restarted for the user: audio, screenshots and sessions need the user's own explicit action again, with every consent, indicator and countdown.
+
+Diagnostics are **local and optional**:
+- **What is kept:** a bounded in-memory list of events from a fixed set of types and reasons (startup, window stopped with Electron's reason and exit code, reload attempts and outcomes, button choices, diagnostics copied), plus on-demand typed state: app, Electron and OS versions and architecture, uptime, on/off states of audio and screenshot features, whether signed in and whether the notice is accepted (yes/no), whether the backend is local or remote, shortcut statuses, recovery counters and the M-2 performance summaries.
+- **Never included:** transcripts, prompts, answers, audio, screenshots, resume or document text, API keys, passwords, tokens or authorization headers, email addresses, account or session ids, the backend's address, or file paths. Events cannot hold free text by construction, and the finished report is also scrubbed for secret-shaped strings, email addresses and Windows user folders.
+- **Storage:** memory only. It is lost when the app closes, and nothing is written to disk (the main process may write only the settings and sign-in files).
+- **Leaves the machine only if the user sends it.** The "Copy diagnostics" button places the text on the user's clipboard, written by the main process; the renderer receives only the number of characters. There is no automatic upload, no remote crash reporter and no telemetry.
+- **Bounds:** at most 200 events kept, the newest 40 reported, 16,000 characters per report.
+- **Limits:** only renderer crashes are recovered; a crash of the whole app is not. Pattern scrubbing cannot recognise plain prose, which is why prose can never enter the log. See `docs/DESKTOP_TROUBLESHOOTING.md`.
 
 ## Operational privacy controls
 

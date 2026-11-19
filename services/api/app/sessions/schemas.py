@@ -115,6 +115,11 @@ class SessionSummary(BaseModel):
     updated_at: datetime
     resume: ResumeRef
     document_count: int
+    # M-9 (derived from stored rows, no new column). `last_activity_at` is the later of the last
+    # edit and the last question; `activity_state` is what the UI shows.
+    last_activity_at: datetime
+    question_count: int
+    activity_state: Literal["active", "completed", "interrupted"]
 
 
 class SessionDetail(SessionSummary):
