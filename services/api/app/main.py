@@ -43,7 +43,7 @@ from app.realtime.tickets import TicketStore
 from app.screenshots.limits import ScreenshotLimits
 from app.screenshots.service import ScreenshotExtractor
 from app.sessions.idempotency import IdempotencyStore
-from app.storage.local import LocalFileStorage
+from app.storage.factory import build_storage
 
 logger = logging.getLogger("app.request")
 
@@ -61,7 +61,7 @@ def create_app() -> FastAPI:
         engine = create_engine(settings.database_url, settings)  # lazy: does not connect yet
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
-        app.state.storage = LocalFileStorage(settings.storage_root)  # no I/O until first use
+        app.state.storage = build_storage(settings)  # no I/O until first use
         provider_api_key = (
             settings.ollama_api_key
             if settings.openai_base_url.host == "ollama.com"

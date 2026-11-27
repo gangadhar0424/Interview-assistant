@@ -18,6 +18,12 @@ include user/session IDs or request-provided text.
 
 - Resume/document files and their extracted text, chunks, and embeddings remain until the user
   deletes the file. The delete path removes the stored file and related database records.
+- Where files are stored (D-88): on the server's local disk (`FILE_STORAGE_BACKEND=local`) or in
+  a **private** Supabase Storage bucket (`supabase`), reached only by the API and worker with a
+  server-side secret key; browsers never get a direct link. With Supabase (and the Supabase
+  database, D-87), uploaded files and their derived text are held by a third-party processor:
+  its region, retention and data-handling terms need owner review before real user data is
+  stored there (OQ-4 applies). Account deletion removes the user's whole folder in the bucket.
 - A session can be deleted by its owner; its session-owned questions and answers cascade. Selected
   resumes/documents are references and are not deleted with the session.
 - There is no automatic expiration policy for uploaded files, sessions, or Q&A at present.

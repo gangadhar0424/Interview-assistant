@@ -29,7 +29,7 @@ from app.db.session import create_engine, create_sessionmaker, set_tenant_contex
 from app.lifecycle.account import remove_account
 from app.lifecycle.recorder import DeletionRecorder, build_deletion_ledger
 from app.qa.cache import AnswerCache
-from app.storage.local import LocalFileStorage
+from app.storage.factory import build_storage
 
 
 async def main(argv: Sequence[str]) -> int:
@@ -58,9 +58,7 @@ async def main(argv: Sequence[str]) -> int:
         )
         async with sessions() as session:
             try:
-                removed = await remove_account(
-                    session, LocalFileStorage(settings.storage_root), recorder, user_id
-                )
+                removed = await remove_account(session, build_storage(settings), recorder, user_id)
             except AppError as exc:
                 if exc.status_code == 404:
                     print(f"user_id={user_id} not found; nothing deleted")  # noqa: T201

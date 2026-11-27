@@ -37,7 +37,7 @@ from app.files.kinds import document_kind, resume_kind
 from app.lifecycle.ledger import DeletionLedger, LedgerEntry
 from app.sessions import repository as sessions_repository
 from app.storage.base import FileStorage
-from app.storage.local import LocalFileStorage
+from app.storage.factory import build_storage
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ async def main(argv: Sequence[str]) -> int:
     try:
         report = await replay(
             create_sessionmaker(engine),
-            LocalFileStorage(settings.storage_root),
+            build_storage(settings),
             settings,
             read.entries,
             apply=args.apply,

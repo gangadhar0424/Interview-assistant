@@ -40,7 +40,7 @@ from app.core.metrics import orphan_sweep_findings
 from app.db.models import Document, Resume
 from app.db.session import create_engine, create_maintenance_sessionmaker
 from app.storage.base import FileStorage
-from app.storage.local import LocalFileStorage
+from app.storage.factory import build_storage
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +175,7 @@ async def main(argv: Sequence[str]) -> int:
     try:
         report = await sweep(
             create_maintenance_sessionmaker(engine),
-            LocalFileStorage(settings.storage_root),
+            build_storage(settings),
             min_age_seconds=settings.orphan_sweep_min_age_seconds,
             apply=args.apply,
         )

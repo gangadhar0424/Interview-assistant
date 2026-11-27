@@ -23,7 +23,7 @@ from app.embeddings.factory import build_embedding_provider
 from app.ingestion.chunking import ChunkConfig
 from app.ingestion.dispatch import DramatiqDispatcher
 from app.ingestion.service import process_job
-from app.storage.local import LocalFileStorage
+from app.storage.factory import build_storage
 from app.workers import broker as _broker  # noqa: F401  (configures the broker before actors)
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ async def _run(job_id: uuid.UUID, user_id: uuid.UUID) -> str:
     try:
         return await process_job(
             create_sessionmaker(engine),
-            LocalFileStorage(settings.storage_root),
+            build_storage(settings),
             job_id,
             user_id=user_id,
             embedder=build_embedding_provider(settings),

@@ -50,7 +50,7 @@ flowchart LR
 | Workers | Text extraction, chunking, embedding, indexing, cleanup, retry/failure handling. No user-facing HTTP. |
 | PostgreSQL | System of record; pgvector for embeddings; row-level security as defense-in-depth. |
 | Redis | Rate-limit counters, caches, queue broker, WS fan-out pub/sub, short-lived session state. Not a system of record. |
-| File storage (`FileStorage` → local persistent disk) | Original uploaded files and screenshots; private, outside any web-served path; PostgreSQL holds metadata and ownership only (D-26). |
+| File storage (`FileStorage` → local persistent disk, or a private Supabase Storage bucket via `FILE_STORAGE_BACKEND`) | Original uploaded files and screenshots; private, outside any web-served path; PostgreSQL holds metadata and ownership only (D-26, D-88). |
 | AI provider layer | Provider-neutral ports + adapters, routing, fallback, usage/latency metrics. |
 
 Monorepo layout: see `CLAUDE.md`. API and worker share one Python codebase (`services/api`) with separate entrypoints.

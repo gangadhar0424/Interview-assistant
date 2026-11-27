@@ -102,6 +102,17 @@ class Settings(BaseSettings):
     # Root of the persistent local file store. Defaults to <repo>/app-data in local development;
     # REQUIRED (explicit) in staging/production, where it must be a persistent volume.
     file_storage_root: Path | None = None
+    # D-88: where uploaded files live. "local" (default) = the directory above; "supabase" = a
+    # PRIVATE Supabase Storage bucket reached server-side with the project's secret key. Keys
+    # (`uploads/<user>/<namespace>/<hex>`) are identical in both, so rows stay valid when moving.
+    file_storage_backend: Literal["local", "supabase"] = "local"
+    # Project URL, e.g. https://<project-ref>.supabase.co (no path).
+    supabase_url: str | None = None
+    # Secret (service-role) key. Server-only: it bypasses Storage policies. Never NEXT_PUBLIC_*.
+    supabase_service_key: SecretStr | None = None
+    supabase_storage_bucket: str = Field(
+        default="uploads", min_length=3, max_length=63, pattern=r"^[a-z0-9][a-z0-9_-]*[a-z0-9]$"
+    )
     # Upload size limits in MiB.
     resume_max_upload_mb: int = Field(default=10, ge=1, le=100)
     document_max_upload_mb: int = Field(default=20, ge=1, le=200)
@@ -379,7 +390,12 @@ class Settings(BaseSettings):
         return None if isinstance(v, str) and not v.strip() else v
 
     @field_validator(
-        "file_storage_root", "deletion_ledger_path", "deletion_ledger_key", mode="before"
+        "file_storage_root",
+        "deletion_ledger_path",
+        "deletion_ledger_key",
+        "supabase_url",
+        "supabase_service_key",
+        mode="before",
     )
     @classmethod
     def _blank_storage_root_is_unset(cls, v: object) -> object:
@@ -506,18 +522,37 @@ class Settings(BaseSettings):
                 )
         if self.app_env != "local" and self.redis_url.startswith("redis://"):
             raise ValueError("REDIS_URL must use rediss:// outside APP_ENV=local")
-        if self.app_env != "local" and self.file_storage_root is None:
+        local_files = self.file_storage_backend == "local"
+        if self.app_env != "local" and local_files and self.file_storage_root is None:
             raise ValueError(
                 "FILE_STORAGE_ROOT must be set outside APP_ENV=local (use a persistent volume)"
             )
         if (
             self.app_env != "local"
+            and local_files
             and self.file_storage_root is not None
             and not self.file_storage_root.is_absolute()
         ):
             # A relative path would resolve against the process working directory, which in a
             # container is part of the replaceable (ephemeral) filesystem.
             raise ValueError("FILE_STORAGE_ROOT must be an absolute path outside APP_ENV=local")
+        return self
+
+    @model_validator(mode="after")
+    def _supabase_storage_settings(self) -> Self:
+        """D-88: the Supabase backend needs an https project URL (no path) and the secret key."""
+        if self.file_storage_backend != "supabase":
+            return self
+        parts = urlsplit(self.supabase_url or "")
+        if parts.scheme != "https" or not parts.hostname or parts.path not in ("", "/"):
+            raise ValueError(
+                "SUPABASE_URL must be the https project URL (https://<ref>.supabase.co) when "
+                "FILE_STORAGE_BACKEND=supabase"
+            )
+        if parts.query or parts.fragment or parts.username or parts.password:
+            raise ValueError("SUPABASE_URL must not contain credentials, a query or a fragment")
+        if not _has_secret(self.supabase_service_key):
+            raise ValueError("SUPABASE_SERVICE_KEY must be set when FILE_STORAGE_BACKEND=supabase")
         return self
 
     @model_validator(mode="after")
