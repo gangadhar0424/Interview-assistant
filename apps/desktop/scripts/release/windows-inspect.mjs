@@ -11,9 +11,20 @@ const run = promisify(execFile);
 const POWERSHELL = "powershell.exe";
 const PS_ARGS = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"];
 
+/**
+ * The child environment for Windows PowerShell 5.1. A PowerShell 7 PSModulePath (set on GitHub's
+ * Windows runners) makes 5.1 load the wrong Microsoft.PowerShell.Security module, so
+ * Get-AuthenticodeSignature and the Cert: drive are missing. Dropping it lets 5.1 use its own path.
+ */
+export function powershellEnv(base, extra = {}) {
+  const env = { ...base, ...extra };
+  for (const key of Object.keys(env)) if (key.toLowerCase() === "psmodulepath") delete env[key];
+  return env;
+}
+
 async function powershell(script, env = {}) {
   const { stdout } = await run(POWERSHELL, [...PS_ARGS, script], {
-    env: { ...process.env, ...env },
+    env: powershellEnv(process.env, env),
     maxBuffer: 4 * 1024 * 1024,
     windowsHide: true,
     timeout: 120_000,

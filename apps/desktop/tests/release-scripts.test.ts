@@ -6,6 +6,17 @@ import { join, resolve } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { checkSums, verifyBuild } from "../scripts/release/verify-build.mjs";
 import { formatSums } from "../scripts/release/release-lib.mjs";
+import { powershellEnv } from "../scripts/release/windows-inspect.mjs";
+
+describe("powershellEnv (Windows PowerShell 5.1 child environment)", () => {
+  it("drops a PowerShell 7 PSModulePath in any casing and keeps everything else", () => {
+    const env = powershellEnv(
+      { PSModulePath: "C:\\pwsh7\\Modules", Path: "C:\\bin", psmodulepath: "x" },
+      { IA_FILE: "a.exe" },
+    );
+    expect(env).toEqual({ Path: "C:\\bin", IA_FILE: "a.exe" });
+  });
+});
 
 const DESKTOP = resolve(__dirname, "..");
 const PACKAGE_RELEASE = join(DESKTOP, "scripts", "release", "package-release.mjs");

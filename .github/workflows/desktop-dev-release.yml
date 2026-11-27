@@ -53,9 +53,17 @@ jobs:
       - run: npm test
       # Same unsigned packaging and verification as ci.yml (version, x64, metadata, fuses, CSP,
       # unsigned status, SHA256SUMS.txt).
-      - run: node scripts/release/package-release.mjs
+      # On failure, the last log lines become annotations (readable on the run page without logs access).
+      - name: Package and verify (unsigned)
+        shell: pwsh
         env:
           REQUIRE_SIGNING: "false"
+        run: |
+          node scripts/release/package-release.mjs 2>&1 | Tee-Object -FilePath package.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content package.log -Tail 25 | ForEach-Object { "::error::$_" }
+            exit 1
+          }
       - run: node scripts/release/verify-build.mjs --check-sums
       - name: Give the installer a stable file name
         shell: pwsh
