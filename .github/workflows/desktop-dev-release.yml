@@ -1,0 +1,124 @@
+name: Desktop dev build (unsigned, auto-published)
+
+# D-86. On every push to main that changes the desktop app, build the UNSIGNED Windows installer and
+# replace the assets of the GitHub pre-release "dev-latest", so one fixed link always gives the newest
+# build:
+#   https://github.com/<owner>/<repo>/releases/download/dev-latest/InterviewAssistant-Setup.exe
+#
+# This is a development channel only. It never signs, never touches the signing secrets or the
+# protected "desktop-release" environment, and never publishes an update feed (the auto-updater only
+# accepts signed, manifest-verified releases, D-78). The signed manual release (desktop-release.yml,
+# D-77) is unchanged.
+#
+# Least privilege: the build job (which runs npm install and the tests) has a read-only token; only the
+# small publish job, which runs no project code, gets contents: write.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "packages/protocol/**"
+      - ".github/workflows/desktop-dev-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-dev-release
+  cancel-in-progress: true # a newer push supersedes an older dev build
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build unsigned installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # Same unsigned packaging and verification as ci.yml (version, x64, metadata, fuses, CSP,
+      # unsigned status, SHA256SUMS.txt).
+      - run: node scripts/release/package-release.mjs
+        env:
+          REQUIRE_SIGNING: "false"
+      - run: node scripts/release/verify-build.mjs --check-sums
+      - name: Give the installer a stable file name
+        shell: pwsh
+        run: |
+          $exes = @(Get-ChildItem release -Filter "*-Windows-x64.exe")
+          if ($exes.Count -ne 1) { Write-Error "Expected exactly one installer, found $($exes.Count)."; exit 1 }
+          New-Item -ItemType Directory -Force dev | Out-Null
+          Copy-Item $exes[0].FullName dev/InterviewAssistant-Setup.exe
+          $hash = (Get-FileHash dev/InterviewAssistant-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  InterviewAssistant-Setup.exe" | Out-File -Encoding ascii dev/InterviewAssistant-Setup.exe.sha256
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $version | Out-File -Encoding ascii dev/VERSION.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-dev-${{ github.sha }}
+          path: |
+            apps/desktop/dev/InterviewAssistant-Setup.exe
+            apps/desktop/dev/InterviewAssistant-Setup.exe.sha256
+            apps/desktop/dev/VERSION.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish to dev-latest pre-release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create/update the dev-latest release and move its tag; nothing else
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: dev-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: desktop-dev-${{ github.sha }}
+          path: dev
+      - name: Write release notes
+        run: |
+          VERSION="$(tr -d '\r\n' < dev/VERSION.txt)"
+          SHORT="${GITHUB_SHA:0:7}"
+          {
+            echo "**UNSIGNED development build. Not a production release.**"
+            echo
+            echo "- App version: ${VERSION}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Built: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            echo
+            echo "Windows SmartScreen will warn about an unknown publisher: choose **More info → Run anyway**."
+            echo "This build does not auto-update; download it again from the same link for a newer build."
+            echo
+            echo "SHA-256: \`$(cut -d' ' -f1 dev/InterviewAssistant-Setup.exe.sha256)\`"
+          } > notes.md
+          echo "TITLE=Dev build ${VERSION} (${SHORT}, unsigned)" >> "$GITHUB_ENV"
+      - name: Create or update the dev-latest pre-release
+        run: |
+          FILES="dev/InterviewAssistant-Setup.exe dev/InterviewAssistant-Setup.exe.sha256"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # Move the tag to this commit, then replace the assets in place (no window where the link 404s).
+            gh api -X PATCH "repos/${GH_REPO}/git/refs/tags/${TAG}" -f sha="${GITHUB_SHA}" -F force=true > /dev/null
+            gh release upload "$TAG" $FILES --clobber
+            gh release edit "$TAG" --prerelease --title "$TITLE" --notes-file notes.md
+          else
+            gh release create "$TAG" $FILES --prerelease --target "${GITHUB_SHA}" --title "$TITLE" --notes-file notes.md
+          fi

@@ -85,6 +85,46 @@ describe("desktop-release.yml", () => {
   });
 });
 
+describe("desktop-dev-release.yml (D-86: unsigned dev channel)", () => {
+  const dev = read("desktop-dev-release.yml");
+  const job = (name: string): string =>
+    new RegExp(`^  ${name}:[\\s\\S]*?(?=^  \\S|(?![\\s\\S]))`, "m").exec(dev)?.[0] ?? "";
+
+  it("runs only for pushes to main (and by hand), never for pull requests or forks", () => {
+    const on = /^on:\s*\n([\s\S]*?)^\S/m.exec(dev)?.[1] ?? "";
+    expect(on).toMatch(/push:\s*\n\s+branches:\s*\[main\]/);
+    expect(on).toMatch(/workflow_dispatch:/);
+    expect(on).not.toMatch(/pull_request|pull_request_target|schedule:|workflow_run/);
+  });
+
+  it("never signs and never touches signing secrets, the protected environment or the update feed", () => {
+    expect(dev).toMatch(/REQUIRE_SIGNING:\s*"false"/);
+    expect(dev).not.toMatch(/REQUIRE_SIGNING:\s*"true"/);
+    expect(dev).not.toMatch(/secrets\./);
+    expect(dev).not.toMatch(/environment:/);
+    expect(dev).not.toMatch(/CSC_|UPDATE_FEED_URL|UPDATE_MANIFEST/);
+  });
+
+  it("gives write access only to the publish job, which runs no project code", () => {
+    const build = job("build");
+    const publish = job("publish");
+    expect(build.length).toBeGreaterThan(0);
+    expect(publish.length).toBeGreaterThan(0);
+    expect(build).toMatch(/contents:\s*read/);
+    expect(build).not.toMatch(/contents:\s*write/);
+    expect(build).toMatch(/persist-credentials:\s*false/);
+    expect(publish).toMatch(/contents:\s*write/);
+    expect(publish).not.toMatch(/npm |checkout@|node scripts/);
+  });
+
+  it("publishes only the dev-latest pre-release with a stable installer name and checksum", () => {
+    expect(dev).toMatch(/TAG:\s*dev-latest/);
+    expect(dev).toMatch(/--prerelease/);
+    expect(dev).toMatch(/InterviewAssistant-Setup\.exe\.sha256/);
+    expect(dev).toMatch(/UNSIGNED development build/);
+  });
+});
+
 // ---- SEC-09: the release workflow supplies the manifest keys and cleans the private key up ----
 
 describe("manifest signing in the release workflow (SEC-09)", () => {

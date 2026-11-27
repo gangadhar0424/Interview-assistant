@@ -52,8 +52,32 @@ def upgrade() -> None:
         $$
         """
     )
+    # Re-assert the role's attributes. On PostgreSQL 16+ only a superuser may name SUPERUSER (or,
+    # without BYPASSRLS, BYPASSRLS) in ALTER ROLE, even to turn it off, and managed hosts such as
+    # Supabase never grant superuser. A non-superuser therefore sets the remaining attributes and
+    # then VERIFIES the two it may not touch, failing if the role is a superuser or bypasses RLS.
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper) THEN
+                ALTER ROLE {RUNTIME_ROLE}
+                    NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+            ELSE
+                ALTER ROLE {RUNTIME_ROLE} NOLOGIN NOCREATEDB NOCREATEROLE NOINHERIT;
+                IF EXISTS (
+                    SELECT 1 FROM pg_roles
+                    WHERE rolname = '{RUNTIME_ROLE}' AND (rolsuper OR rolbypassrls)
+                ) THEN
+                    RAISE EXCEPTION
+                        '{RUNTIME_ROLE} must not be a superuser or bypass RLS';
+                END IF;
+            END IF;
+        END
+        $$
+        """
+    )
     for statement in (
-        f"ALTER ROLE {RUNTIME_ROLE} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS",
         f"GRANT {RUNTIME_ROLE} TO CURRENT_USER",
         f"GRANT USAGE ON SCHEMA public TO {RUNTIME_ROLE}",
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {RUNTIME_ROLE}",
