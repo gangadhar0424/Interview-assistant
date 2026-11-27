@@ -1,3 +1,4 @@
+import { ACCEPTABLE_USE_VERSION } from "../src/shared/acknowledgement";
 import { acknowledgedSettings } from "./ack-fixture";
 /**
  * Phase 11B: the real IPC layer (`registerDesktopIpc`) driven with a fake ipcMain, a fake window,
@@ -645,7 +646,7 @@ describe("acceptable-use acknowledgement (M-1, D-68): screenshots", () => {
     try {
       await t.login();
       await t.enable();
-      expect((await t.call("app:accept-acknowledgement", 1)).data.accepted).toBe(true);
+      expect((await t.call("app:accept-acknowledgement", ACCEPTABLE_USE_VERSION)).data.accepted).toBe(true);
       expect((await t.call("capture:list-displays")).ok).toBe(true);
       expect((await t.call("capture:start", DISPLAY, SESSION)).ok).toBe(true);
       expect(t.captureHost.captureDisplay).not.toHaveBeenCalled(); // not before the countdown ends

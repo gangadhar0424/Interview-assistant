@@ -43,6 +43,27 @@ def tidy(text: str) -> str:
     return out.strip()
 
 
+# Notes the author of a prep document wrote TO the candidate ("Confirm before using."). They are
+# instructions, not words to say, so they never reach the spoken answer.
+_COACH_LINE = re.compile(
+    r"^\s*(?:confirm before using|keep the bracketed lines|do not invent|do not claim"
+    r"|if your .{0,80}(?:say so|say that|limited|only done|ewm-only)"
+    r"|check the actual\b|confirm exact\b|only go into more detail"
+    r"|know your answer|this is the question the interviewer)[^\n]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_CONFIRM_TAG = re.compile(r"\s*\[confirm[^\]]*\]", re.IGNORECASE)
+_SAY_HOW = re.compile(r"\s*\bSay (?:how|whether)\b[^\n]*", re.IGNORECASE)
+
+
+def strip_coaching(text: str) -> str:
+    """Remove authoring notes (whole instruction lines, `[confirm]` tags, "Say how: ...")."""
+    out = _COACH_LINE.sub("", text)
+    out = _CONFIRM_TAG.sub("", out)
+    out = _SAY_HOW.sub("", out)
+    return tidy(out)
+
+
 def word_count(text: str) -> int:
     return len(text.split())
 
@@ -145,7 +166,7 @@ async def section_source(
             source = await load_slice(db, user_id, hit.source_type, hit.source_id, *span)
     else:
         source = hit.text  # a fixed-size chunk is already an exact slice of the source
-    source = tidy(source)
+    source = strip_coaching(tidy(source))
     return source or None
 
 

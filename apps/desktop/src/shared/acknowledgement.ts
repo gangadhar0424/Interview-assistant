@@ -5,7 +5,7 @@
  *
  * The wording is a policy statement for the owner to approve, not legal advice (OQ-15).
  */
-export const ACCEPTABLE_USE_VERSION = 1;
+export const ACCEPTABLE_USE_VERSION = 2;
 
 export const ACCEPTABLE_USE_TITLE = "Acceptable use";
 
@@ -16,6 +16,7 @@ export const ACCEPTABLE_USE_STATEMENTS: readonly string[] = [
   "I am responsible for following the rules of any interview, meeting or assessment where I use this app. If those rules do not allow AI assistance, recording or screenshots, I will not use it there.",
   "I will capture or process audio and screenshots only when I have permission to do so, including the permission of other people whose voice or screen may be captured, and as the law requires.",
   "I will not use this app in any way that the relevant interview or assessment rules prohibit.",
+  "If I turn on the optional setting that asks Windows to leave this window out of screen capture, I understand it is not a guarantee, does not hide the app from the taskbar, tray or monitoring software, and I will not use it to avoid monitoring or break any rule that applies to me.",
 ];
 
 export const ACCEPTABLE_USE_NOTE =

@@ -1,0 +1,248 @@
+# Production-style deployment definition (M-12, D-79). NOT used for local development
+# (that is docker-compose.yml). Read docs/DEPLOYMENT.md before using it.
+#
+#   docker compose -f docker-compose.prod.yml --env-file infra/deploy/production.env up -d --wait
+#
+# What it gives you: one-shot migrations, an API and a worker running as an unprivileged user with a
+# read-only root file system and no Linux capabilities, resource limits, health checks, graceful
+# shutdown windows, TLS-protected Redis, and no database or Redis port published to the host.
+# The API listens on 127.0.0.1:8000 only: put a TLS-terminating reverse proxy in front of it
+# (infra/deploy/Caddyfile.example). This file does NOT provide TLS for browsers, backups, monitoring,
+# a secret manager or an off-host database; docs/DEPLOYMENT.md lists those owner decisions.
+#
+# Every secret comes from the environment file (or your orchestrator's secret store); this file has
+# defaults for sizing only and `:?` guards that stop the stack early when a secret is missing.
+
+name: interview-assistant-prod
+
+x-runtime-env: &runtime-env
+  APP_ENV: ${APP_ENV:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (the non-superuser runtime login)}
+  REDIS_URL: ${REDIS_URL:?set REDIS_URL (rediss://...)}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+  CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS (your web origin)}
+  FILE_STORAGE_ROOT: /data/uploads
+  SIGNUP_INVITE_CODE: ${SIGNUP_INVITE_CODE:-}
+  # SEC-08: both clients bind the handoff code to a desktop-held verifier, so unbound codes are refused.
+  HANDOFF_REQUIRE_CHALLENGE: ${HANDOFF_REQUIRE_CHALLENGE:-true}
+  TRUSTED_PROXY_ENABLED: ${TRUSTED_PROXY_ENABLED:-true}
+  TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:?set EMBEDDING_PROVIDER}
+  LLM_ENABLED_PROVIDERS: ${LLM_ENABLED_PROVIDERS:?set LLM_ENABLED_PROVIDERS}
+  STT_ENABLED_PROVIDERS: ${STT_ENABLED_PROVIDERS:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+
+x-hardened: &hardened
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  # One-shot: applies every migration in a single transaction, then exits. The API and worker wait
+  # for it to finish successfully, so a failed migration stops the rollout (nothing half-applied).
+  migrate:
+    <<: *hardened
+    networks: [data]
+    image: ${API_IMAGE:-interview-assistant-api:latest}
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      # Least privilege (SEC-12): only the migration identity (owner of the schema). No JWT secret,
+      # provider keys, runtime login or maintenance credential; alembic reads DATABASE_URL directly.
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?set MIGRATION_DATABASE_URL}
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ${REDIS_CA_FILE:?set REDIS_CA_FILE (public CA certificate that signed the Redis certificate)}:/run/tls/ca.crt:ro
+    mem_limit: 512m
+    cpus: 1.0
+
+  api:
+    <<: *hardened
+    networks: [data, edge]
+    image: ${API_IMAGE:-interview-assistant-api:latest}
+    environment: *runtime-env
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000" # loopback only: the TLS proxy is the public face
+    volumes:
+      - uploads:/data/uploads
+      - ${REDIS_CA_FILE:?set REDIS_CA_FILE (public CA certificate that signed the Redis certificate)}:/run/tls/ca.crt:ro
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    stop_grace_period: 40s # longer than uvicorn's 25 s graceful shutdown
+    mem_limit: ${API_MEM_LIMIT:-1g}
+    cpus: ${API_CPUS:-1.5}
+    pids_limit: 256
+
+  # The Next.js web app. Its image is built with API_INTERNAL_URL baked in (apps/web/Dockerfile), so
+  # rebuild it when the API address changes. Put the TLS proxy in front of 127.0.0.1:WEB_PORT.
+  web:
+    <<: *hardened
+    networks: [edge]
+    image: ${WEB_IMAGE:-interview-assistant-web:latest}
+    user: "1000:1000" # the unprivileged `node` user of the web image
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next/cache:size=128m,uid=1000,gid=1000 # Next.js writes its cache here
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api: { condition: service_healthy }
+    stop_grace_period: 20s
+    mem_limit: ${WEB_MEM_LIMIT:-512m}
+    cpus: ${WEB_CPUS:-1.0}
+    pids_limit: 256
+
+  worker:
+    <<: *hardened
+    networks: [data, edge]
+    image: ${API_IMAGE:-interview-assistant-api:latest}
+    command: ["dramatiq", "app.workers.tasks", "--processes", "1", "--threads", "2"]
+    environment: *runtime-env
+    volumes:
+      - uploads:/data/uploads
+      - ${REDIS_CA_FILE:?set REDIS_CA_FILE (public CA certificate that signed the Redis certificate)}:/run/tls/ca.crt:ro
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      # At least one worker heartbeat in Redis within the last 45 seconds.
+      test: ["CMD", "python", "-m", "app.workers.healthcheck"]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 60s # lets an in-flight ingestion finish; unfinished jobs are re-queued by recovery
+    mem_limit: ${WORKER_MEM_LIMIT:-2g}
+    cpus: ${WORKER_CPUS:-2.0}
+    pids_limit: 256
+
+  # Operations only (SEC-12). The privileged maintenance identity exists nowhere else: run it on demand,
+  #   docker compose --profile ops run --rm maintenance python -m app.workers.recovery --dry-run
+  #   docker compose --profile ops run --rm maintenance python -m app.workers.reindex
+  # It does not start with `docker compose up`.
+  maintenance:
+    <<: *hardened
+    networks: [data]
+    image: ${API_IMAGE:-interview-assistant-api:latest}
+    profiles: ["ops"]
+    restart: "no"
+    command: ["python", "-m", "app.workers.recovery", "--dry-run"]
+    environment:
+      <<: *runtime-env
+      MAINTENANCE_DATABASE_URL: ${MAINTENANCE_DATABASE_URL:-}
+    volumes:
+      - uploads:/data/uploads
+      - ${REDIS_CA_FILE:?set REDIS_CA_FILE (public CA certificate that signed the Redis certificate)}:/run/tls/ca.crt:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+
+  postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER (the migration/owner identity)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+    # No `ports:` on purpose: the database is reachable only on the compose network.
+    # SEC-16: unprivileged, read-only root, no capabilities, and on the internal-only `data` network
+    # (no route to the internet). Only the data volume and two tmpfs mounts are writable.
+    user: postgres
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=8m,mode=2777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    networks: [data]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 60s
+    shm_size: 256m
+    mem_limit: ${POSTGRES_MEM_LIMIT:-2g}
+    cpus: ${POSTGRES_CPUS:-2.0}
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  # Redis over TLS with a password and append-only persistence. `tls-ca` is a volume you populate
+  # (docs/DEPLOYMENT.md, "Redis TLS"); a managed Redis with rediss:// can replace this service.
+  # The API and worker get ONLY the public CA file (REDIS_CA_FILE), never the Redis private key; their
+  # REDIS_URL carries ?ssl_ca_certs=/run/tls/ca.crt so the server certificate is verified.
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - >
+        exec redis-server --port 0 --tls-port 6379
+        --tls-cert-file /tls/redis.crt --tls-key-file /tls/redis.key --tls-ca-cert-file /tls/ca.crt
+        --tls-auth-clients no --requirepass "$$REDIS_PASSWORD" --appendonly yes
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    # SEC-16: unprivileged (the `sh -c` command bypasses the image's own privilege drop, so the user
+    # is set here), read-only root, no capabilities, internal-only `data` network.
+    user: redis
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    networks: [data]
+    volumes:
+      - redis_data:/data
+      - ${REDIS_TLS_DIR:?set REDIS_TLS_DIR (folder with redis.crt, redis.key, ca.crt)}:/tls:ro
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --tls --cacert /tls/ca.crt -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+    stop_grace_period: 20s
+    mem_limit: ${REDIS_MEM_LIMIT:-512m}
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+# SEC-16: `data` has no route to the internet (internal). Postgres and Redis live only there. The API
+# and worker join `edge` as well, for the model providers and the published loopback ports; the web
+# app is on `edge` only; the one-shot migrate and ops maintenance jobs are on `data` only.
+networks:
+  data:
+    internal: true
+  edge: {}
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:

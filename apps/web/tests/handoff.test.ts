@@ -15,7 +15,13 @@ import {
   parseDownloadUrl,
   type LaunchDeps,
 } from "../lib/handoff.ts";
-import { PRESENCE_PORT, PRESENCE_TIMEOUT_MS, PRESENCE_URL } from "../lib/desktop-presence.ts";
+import {
+  CHALLENGE_URL,
+  PRESENCE_PORT,
+  PRESENCE_TIMEOUT_MS,
+  PRESENCE_URL,
+  parseChallengeResponse,
+} from "../lib/desktop-presence.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CODE = "A".repeat(43);
@@ -227,10 +233,119 @@ test("the presence beacon is a loopback URL on the documented port", () => {
   assert.ok(PRESENCE_TIMEOUT_MS >= 200 && PRESENCE_TIMEOUT_MS <= 3000);
 });
 
-test("the presence check is the only unauthenticated request: fixed loopback URL, no credentials", () => {
+test("the only unauthenticated requests are the two fixed loopback calls: presence and challenge, no credentials", () => {
   const presence = source("lib/desktop-presence.ts");
-  assert.equal((presence.match(/\bfetch\(/g) ?? []).length, 1);
-  assert.ok(presence.includes("PRESENCE_URL"));
-  assert.ok(presence.includes('mode: "no-cors"') && presence.includes('credentials: "omit"'));
-  assert.equal(/console\.|localStorage|sessionStorage/.test(presence), false);
+  // Exactly two fetches (the presence beacon and, since SEC-08, the challenge), each to a fixed constant.
+  assert.equal((presence.match(/fetch\(/g) ?? []).length, 2);
+  assert.ok(presence.includes("fetch(PRESENCE_URL") && presence.includes("fetch(CHALLENGE_URL"));
+  assert.equal((presence.match(/credentials: "omit"/g) ?? []).length, 2);
+  assert.ok(presence.includes('mode: "no-cors"') && presence.includes('mode: "cors"'));
+  assert.equal(PRESENCE_URL, `http://127.0.0.1:${PRESENCE_PORT}/ia-presence`);
+  assert.equal(CHALLENGE_URL, `http://127.0.0.1:${PRESENCE_PORT}/ia-presence/challenge`);
+  assert.equal(/console\.|localStorage|sessionStorage|document\.cookie/.test(presence), false);
+});
+
+// ------------------------------------------------------------ SEC-08: binding to the desktop's challenge
+const CHALLENGE = "Zy9_-".repeat(8) + "abc";
+
+test("a bound launch link adds the challenge and still carries no secret or session data", () => {
+  const link = buildLaunchUrl(CODE, CHALLENGE) as string;
+  assert.equal(link, `interviewassistant://start?h=${CODE}&c=${CHALLENGE}`);
+  const url = new URL(link);
+  assert.deepEqual([...url.searchParams.keys()], ["h", "c"]);
+  assert.equal(url.username + url.password + url.hash, "");
+  // The unbound link is unchanged.
+  assert.equal(buildLaunchUrl(CODE, null), `interviewassistant://start?h=${CODE}`);
+  assert.equal(buildLaunchUrl(CODE), `interviewassistant://start?h=${CODE}`);
+});
+
+test("a malformed challenge never produces a launch link", () => {
+  for (const bad of ["", "short", "A".repeat(42), "A".repeat(44), "A".repeat(42) + "!", "&x=1" + "A".repeat(39)]) {
+    assert.equal(buildLaunchUrl(CODE, bad), null, bad);
+  }
+});
+
+test("the flow is detect -> fetch the challenge -> request a BOUND code -> open the link", async () => {
+  const order: string[] = [];
+  const navigated: string[] = [];
+  let boundTo: string | null | undefined;
+  const outcome = await launchDesktop({
+    detect: async () => (order.push("detect"), true),
+    fetchChallenge: async () => (order.push("challenge"), CHALLENGE),
+    requestCode: async (challenge) => {
+      order.push("code");
+      boundTo = challenge;
+      return { code: CODE, expires_in: 60 };
+    },
+    navigate: (url) => (order.push("navigate"), navigated.push(url)),
+    watchForLeave: async () => (order.push("watch"), true),
+  });
+  assert.deepEqual(outcome, { kind: "opened" });
+  assert.deepEqual(order, ["detect", "challenge", "code", "watch", "navigate"]);
+  assert.equal(boundTo, CHALLENGE);
+  assert.deepEqual(navigated, [`interviewassistant://start?h=${CODE}&c=${CHALLENGE}`]);
+});
+
+test("without a challenge (older desktop, refused or slow answer, or a throw) the unbound flow is used", async () => {
+  for (const fetchChallenge of [
+    async () => null,
+    async (): Promise<string | null> => {
+      throw new Error("refused");
+    },
+    async () => "not-a-challenge",
+    undefined,
+  ]) {
+    const navigated: string[] = [];
+    let boundTo: string | null | undefined;
+    const outcome = await launchDesktop({
+      ...(fetchChallenge ? { fetchChallenge } : {}),
+      requestCode: async (challenge) => {
+        boundTo = challenge;
+        return { code: CODE, expires_in: 60 };
+      },
+      navigate: (url) => navigated.push(url),
+      watchForLeave: async () => true,
+    });
+    assert.deepEqual(outcome, { kind: "opened" });
+    assert.equal(boundTo, null);
+    assert.deepEqual(navigated, [`interviewassistant://start?h=${CODE}`]);
+  }
+});
+
+test("no challenge is requested when the desktop app is not running", async () => {
+  let asked = false;
+  const outcome = await launchDesktop({
+    detect: async () => false,
+    fetchChallenge: async () => ((asked = true), CHALLENGE),
+    requestCode: async () => ({ code: CODE, expires_in: 60 }),
+    navigate: () => assert.fail("must not navigate"),
+    watchForLeave: async () => true,
+  });
+  assert.deepEqual(outcome, { kind: "not-detected" });
+  assert.equal(asked, false);
+});
+
+test("a server that requires binding gives a fixed 'update the desktop app' message, never server text", () => {
+  const message = describeHandoffError(new ApiError(422, "challenge_required", "SECRET server text"));
+  assert.equal(message, "Please update the desktop app, then try again.");
+  assert.equal(message.includes("SECRET"), false);
+});
+
+test("the beacon's answer is accepted only when it is exactly a well-formed challenge", () => {
+  assert.equal(parseChallengeResponse({ challenge: CHALLENGE, expires_in: 120 }), CHALLENGE);
+  for (const bad of [null, undefined, 42, "x", [], {}, { challenge: 1 }, { challenge: "short" }, { challenge: CHALLENGE + "A" }, { challenge: "<script>" }]) {
+    assert.equal(parseChallengeResponse(bad), null);
+  }
+});
+
+test("the page never handles a verifier, and never stores or logs the challenge or the code", () => {
+  for (const file of ["lib/handoff.ts", "lib/desktop-presence.ts", "components/DesktopHandoff.tsx"]) {
+    const text = source(file);
+    assert.equal(/verifier/i.test(text), false, `${file} must not mention a verifier`);
+    assert.equal(/console\.|localStorage|sessionStorage|indexedDB|document\.cookie/.test(text), false, file);
+  }
+  // The challenge goes to the API in the request BODY (authedRequest `body`), not in a URL.
+  const component = source("components/DesktopHandoff.tsx");
+  assert.ok(component.includes("body: { code_challenge: challenge }"));
+  assert.equal(/handoff\?[^`'"]*challenge/.test(component), false);
 });

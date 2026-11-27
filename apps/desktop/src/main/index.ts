@@ -20,10 +20,20 @@ import { captureElectronDisplay, listElectronDisplays, makeElectronPreview } fro
 import type { IndicatorState } from "./capture-service";
 import { registerDesktopIpc } from "./ipc";
 import { createSessionFiles } from "./session-files";
-import { startPresenceServer } from "./presence-server";
+import { UpdateManager } from "./updater";
+import { createLazyUpdateEngine } from "./updater-engine";
+import {
+  fetchManifestText,
+  freeDiskBytesAt,
+  readBuiltManifestKey,
+  readBuiltUpdateConfig,
+  sha512Base64OfFile,
+} from "./updater-io";
+import { HandoffChallenges } from "./handoff-challenge";
+import { PRESENCE_PORT, startPresenceServer } from "./presence-server";
 import type { Server } from "node:http";
 import { SettingsStore } from "./settings-store";
-import { isTrustedRenderer } from "./ipc-security";
+import { isTrustedRenderer, rendererDevUrl } from "./ipc-security";
 import {
   decideDisplayMedia,
   decideMediaPermission,
@@ -32,6 +42,8 @@ import {
   type AudioSource,
 } from "./media-permissions";
 import { applyWindowSettings, closeToTray, WINDOW_SIZE } from "./window-controller";
+import { CapturePrivacyManager } from "./capture-privacy";
+import { CAPTURE_PRIVACY_EXPLANATION, CAPTURE_PRIVACY_TITLE } from "../shared/capture-privacy";
 import { WindowPlacementManager } from "./window-placement";
 import {
   ACCEPTABLE_USE_INTRO,
@@ -52,6 +64,9 @@ const STARTUP_TRACE = randomUUID();
 if (perf.begin("startup", STARTUP_TRACE)) perf.mark(STARTUP_TRACE, "module_loaded");
 const MODULE_LOAD_UPTIME_S = process.uptime();
 const resourceSampler = new ResourceSampler(() => app.getAppMetrics());
+
+/** Dev-server URL; always undefined in a packaged build (E-01). */
+const RENDERER_DEV_URL = rendererDevUrl(process.env, app.isPackaged);
 
 function writePerfReport(): void {
   if (!PERF_ENABLED) return;
@@ -82,6 +97,12 @@ function writePerfReport(): void {
   }
 }
 
+// Screen-capture privacy (M-15): Electron documents that content protection ALSO applies inside
+// Windows remote sessions, where it would hide this window from remote-access tools that capture the
+// desktop. This app must not conceal itself from anyone entitled to monitor the device, so that
+// behaviour is switched off: in a remote session the window is not excluded. Must run before ready.
+app.commandLine.appendSwitch("disable-features", "AllowWindowCaptureExclusionInRemoteSessions");
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
@@ -95,8 +116,38 @@ const audioGate: { read: () => AudioGateState } = { read: () => IDLE_GATE };
 // Web -> desktop handoff (D-55): links from the OS land here and are handed to the handoff
 // controller (ipc.ts) once it exists. Links are held in memory only and never logged.
 const deepLinks = new DeepLinkInbox();
+// SEC-08: verifiers for the handoff challenges the loopback beacon hands to the web page (memory only).
+const handoffChallenges = new HandoffChallenges();
 
 const settingsStore = new SettingsStore(join(app.getPath("userData"), "settings.json"));
+
+// Secure updates (M-11, D-78). Inert unless this is a packaged, signed build with an https feed and a
+// pinned publisher; downloads and installs only ever happen on an explicit user action.
+const updateManager = new UpdateManager({
+  engine: createLazyUpdateEngine(),
+  currentVersion: app.getVersion(),
+  isPackaged: app.isPackaged,
+  disabledByEnvironment: process.env.INTERVIEW_DISABLE_UPDATE_CHECK === "1",
+  readUpdateConfig: () => readBuiltUpdateConfig(process.resourcesPath),
+  fetchManifest: (url, timeoutMs) => fetchManifestText(url, timeoutMs, app.getVersion()),
+  fetchSignature: (url, timeoutMs) => fetchManifestText(url, timeoutMs, app.getVersion()),
+  readManifestKey: () => readBuiltManifestKey(process.resourcesPath),
+  hashFile: (path) => sha512Base64OfFile(path),
+  freeDiskBytes: async () => freeDiskBytesAt(app.getPath("userData")),
+  prepareForInstall: () => undefined, // the IPC handler stops capture first (ipc.ts)
+  now: () => Date.now(),
+  random: Math.random,
+  setTimer: (callback, ms) => {
+    const handle = setTimeout(callback, ms);
+    handle.unref();
+    return { cancel: () => clearTimeout(handle) };
+  },
+  emit: (state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("updates:event", state);
+  },
+  // The main process never logs (a guarded rule); the outcome is visible to the user as update state.
+  log: () => undefined,
+});
 
 const TRAY_TOOLTIPS: Record<IndicatorState, string> = {
   idle: "Interview Assistant — visible desktop assistant",
@@ -216,6 +267,33 @@ async function confirmHandoffAccountSwitch(window: BrowserWindow): Promise<boole
  * moves during normal use, and nothing here touches always-on-top, capture or audio. Displays are
  * read from Electron's `screen` only after the app is ready.
  */
+/**
+ * Screen-capture privacy (M-15). Off by default; turned on only by the user's explicit request
+ * (see capture-privacy.ts). Re-applied to the window after creation, load, show, layout and display
+ * changes so a saved choice survives recreation and recovery. It never hides the tray or taskbar.
+ */
+const capturePrivacy = new CapturePrivacyManager({
+  getWindow: () => mainWindow,
+  store: settingsStore,
+  platform: process.platform,
+  osRelease: release(),
+  confirm: async () => {
+    const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+    const options = {
+      type: "warning" as const,
+      title: CAPTURE_PRIVACY_TITLE,
+      message: `${CAPTURE_PRIVACY_TITLE}?`,
+      detail: CAPTURE_PRIVACY_EXPLANATION.join("\n\n"),
+      buttons: ["I understand, turn on", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    };
+    const result = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+    return result.response === 0;
+  },
+});
+
 const placement = new WindowPlacementManager({
   displays: () =>
     screen.getAllDisplays().map((d) => ({ id: d.id, bounds: d.bounds, workArea: d.workArea, scaleFactor: d.scaleFactor })),
@@ -235,7 +313,10 @@ const placement = new WindowPlacementManager({
     return () => clearTimeout(timer);
   },
 });
-const onDisplaysChanged = () => placement.scheduleReconcile();
+const onDisplaysChanged = () => {
+  placement.scheduleReconcile();
+  capturePrivacy.reapply();
+};
 
 /**
  * Renderer crash recovery and local diagnostics (M-5, D-70). When the renderer process dies the
@@ -392,10 +473,11 @@ function createWindow(): BrowserWindow {
       webviewTag: false,
     },
   });
+  mainWindow = window; // known now, so the capture-privacy re-apply below targets this window
   window.removeMenu();
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, target) => {
-    const allowed = process.env.ELECTRON_RENDERER_URL;
+    const allowed = RENDERER_DEV_URL;
     const rendererHtmlPath = join(__dirname, "../renderer/index.html");
     if (!isTrustedRenderer(target, allowed, rendererHtmlPath)) event.preventDefault();
   });
@@ -403,7 +485,7 @@ function createWindow(): BrowserWindow {
   // (Phase 12, D-53). Video, display capture and all other permissions stay denied. The rules are
   // the pure functions in media-permissions.ts, driven by the live audio state.
   const trusted = (url: string): boolean =>
-    isTrustedRenderer(url, process.env.ELECTRON_RENDERER_URL, join(__dirname, "../renderer/index.html"));
+    isTrustedRenderer(url, RENDERER_DEV_URL, join(__dirname, "../renderer/index.html"));
   window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
     const mediaTypes = "mediaTypes" in details && Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
     callback(
@@ -461,7 +543,7 @@ function createWindow(): BrowserWindow {
     safeStorage,
     secureTokenPath: join(app.getPath("userData"), "refresh-token.bin"),
     rendererHtmlPath,
-    devServerUrl: process.env.ELECTRON_RENDERER_URL,
+    devServerUrl: RENDERER_DEV_URL,
     captureHost: {
       listDisplays: listElectronDisplays,
       captureDisplay: captureElectronDisplay,
@@ -471,16 +553,19 @@ function createWindow(): BrowserWindow {
     confirmScreenshotConsent: () => confirmScreenshotConsent(window),
     confirmAcceptableUse: () => confirmAcceptableUse(window),
     shortcuts: shortcutManager,
+    capturePrivacy,
     recovery,
     placement,
     audioHost: { setIndicator: setAudioIndicator },
     audioGate,
     confirmAudioConsent: () => confirmAudioConsent(window),
     deepLinks,
+    handoffChallenges,
     confirmHandoffSwitch: () => confirmHandoffSwitch(window),
     confirmHandoffAccountSwitch: () => confirmHandoffAccountSwitch(window),
     showWindow: showMainWindow,
     sessionFiles: createSessionFiles(window),
+    updates: updateManager,
   });
   disposeIpc = ipcHandle;
   cleanupRenderer = ipcHandle.cleanupRenderer;
@@ -488,6 +573,11 @@ function createWindow(): BrowserWindow {
   diagnostics.record("window_created");
   window.webContents.on("render-process-gone", (_event, details) => recovery.onRendererGone(details));
   window.webContents.on("did-finish-load", () => recovery.onLoadFinished());
+  // Re-apply the user's saved screen-capture-privacy choice to this (possibly new or reloaded) window.
+  capturePrivacy.reapply();
+  window.webContents.on("did-finish-load", () => capturePrivacy.reapply());
+  window.on("show", () => capturePrivacy.reapply());
+  window.on("restore", () => capturePrivacy.reapply());
   window.webContents.on("did-fail-load", (_event, errorCode, _description, _url, isMainFrame) => {
     if (isMainFrame) recovery.onLoadFailed(errorCode);
   });
@@ -504,8 +594,8 @@ function createWindow(): BrowserWindow {
   window.on("session-end", () => {
     quitting = true;
   });
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL).catch(reportStartupFailure);
+  if (RENDERER_DEV_URL) {
+    void window.loadURL(RENDERER_DEV_URL).catch(reportStartupFailure);
   } else {
     void window.loadFile(rendererHtmlPath).catch(reportStartupFailure);
   }
@@ -581,10 +671,11 @@ function startApp(): void {
       if (Number.isFinite(exitAfter) && exitAfter > 0) setTimeout(() => app.quit(), exitAfter);
     }
     const settings = settingsStore.load();
-    void startPresenceServer().then((server) => {
+    void startPresenceServer(PRESENCE_PORT, handoffChallenges).then((server) => {
       presenceServer = server;
     });
     mainWindow = createWindow();
+    updateManager.start(); // quiet metadata check after a delay; a no-op in unsigned or development builds
     perf.mark(STARTUP_TRACE, "window_created");
     applyWindowSettings(mainWindow, settings);
     screen.on("display-added", onDisplaysChanged);
@@ -623,6 +714,7 @@ app.on("will-quit", () => {
   screen.removeListener("display-removed", onDisplaysChanged);
   screen.removeListener("display-metrics-changed", onDisplaysChanged);
   placement.dispose();
+  updateManager.dispose();
   recovery.dispose();
   shortcutManager.dispose();
   tray?.destroy();

@@ -8,3 +8,6 @@
 # was the model name on the next line.
 06a3add29d00aeed2d370d8ac282fbb2c32902bd:services/api/tests/test_provider_adapters.py:generic-api-key:33
 dcc4bc60ee4f99afdcb613ef669373b1074c4417:.env.example:generic-api-key:42
+# Fake JWT in the diagnostics redaction test: header {"alg":"HS256"}, payload {"sub":"1234"}, and the
+# signature segment decodes to the literal word "signature". Verified 2026-11-23 (SEC-25 follow-up).
+eec77c22f7e5c890fee48a62a9de3922284377d6:apps/desktop/tests/diagnostics.test.ts:jwt:25

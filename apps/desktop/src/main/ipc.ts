@@ -8,6 +8,7 @@ import type { AudioGateState, AudioSource } from "./media-permissions";
 import type { SafeStoragePort } from "./secure-refresh-store";
 import { SecureRefreshTokenStore } from "./secure-refresh-store";
 import { SettingsStore } from "./settings-store";
+import { HandoffChallenges } from "./handoff-challenge";
 import { isTrustedRenderer } from "./ipc-security";
 import type { DeepLinkInbox } from "./deep-link";
 import { HandoffController } from "./handoff";
@@ -17,6 +18,8 @@ import type { RendererRecovery } from "./recovery";
 import type { WindowPlacementManager } from "./window-placement";
 import type { DisplayList } from "../shared/placement";
 import type { ShortcutManager } from "./shortcuts";
+import type { CapturePrivacyManager } from "./capture-privacy";
+import type { CapturePrivacyState } from "../shared/capture-privacy";
 import type { CopyDiagnosticsResult, RecoveryInfo } from "../shared/recovery";
 import {
   DEFAULT_SHORTCUTS,
@@ -35,6 +38,8 @@ import {
 } from "./ipc-validation";
 import type { DesktopError, DesktopResult, StreamMessage } from "../shared/contracts";
 import { applyWindowSettings, setExpanded } from "./window-controller";
+import type { UpdateState } from "../shared/updates";
+import { canInstallNow, type UpdateManager } from "./updater";
 
 type IpcDependencies = {
   ipcMain: IpcMain;
@@ -60,10 +65,17 @@ type IpcDependencies = {
   recovery?: Pick<RendererRecovery, "takeNotice">;
   /** Global keyboard shortcuts (M-4). Optional: without it the shortcut settings report "off". */
   shortcuts?: Pick<ShortcutManager, "apply" | "status">;
+  /** Screen-capture privacy (M-15). Optional: without it the setting reports "not available". */
+  capturePrivacy?: Pick<CapturePrivacyManager, "state" | "enable" | "disable">;
   /** Native (main-process) acceptable-use confirmation (M-1); the renderer cannot fake or skip it. */
   confirmAcceptableUse: () => Promise<boolean>;
   /** Web -> desktop handoff (D-55): where links from the OS arrive, plus its two native pieces. */
   deepLinks: DeepLinkInbox;
+  /**
+   * SEC-08: the in-memory verifiers behind the handoff challenges the presence beacon hands out.
+   * Optional so a host without a beacon still works (links with a challenge then simply expire).
+   */
+  handoffChallenges?: HandoffChallenges;
   /** Native confirmation before a handoff switches away from a running capture. */
   confirmHandoffSwitch: () => Promise<boolean>;
   /** Native confirmation before a handoff signs another account in over the current one. */
@@ -75,6 +87,11 @@ type IpcDependencies = {
    * it delete and export are refused rather than done unconfirmed.
    */
   sessionFiles?: SessionFiles;
+  /**
+   * Secure updater (M-11). Optional so older hosts and tests keep working; without it the update
+   * channels report "disabled".
+   */
+  updates?: Pick<UpdateManager, "getState" | "check" | "download" | "installAndRestart">;
 };
 
 /** What the main process needs from the operating system to delete or export a session (M-9). */
@@ -85,9 +102,9 @@ export type SessionFiles = {
    * Shows what an export contains and that it writes the user's interview content to disk, then
    * asks where to save it. Returns the chosen path, or null when the user cancelled.
    */
-  chooseExportFile(defaultName: string, format: "markdown" | "json"): Promise<string | null>;
-  /** Writes the export where the user chose. */
-  writeFile(path: string, text: string): Promise<void>;
+  chooseExportFile(defaultName: string, format: "markdown" | "pdf"): Promise<string | null>;
+  /** Writes the export (text for Markdown, bytes for PDF) where the user chose. */
+  writeFile(path: string, content: string | Uint8Array): Promise<void>;
 };
 
 type ActiveStream = { controller: AbortController; senderId: number };
@@ -139,12 +156,14 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
     confirmScreenshotConsent,
     confirmAcceptableUse,
     shortcuts,
+    capturePrivacy,
     recovery,
     placement,
     audioHost,
     audioGate,
     confirmAudioConsent,
     deepLinks,
+    handoffChallenges = new HandoffChallenges(),
     confirmHandoffSwitch,
     confirmHandoffAccountSwitch,
     showWindow,
@@ -230,7 +249,8 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
   const handoff = new HandoffController({
     settled: () => (authInFlight ?? Promise.resolve()).then(noop, noop),
     currentUserId: () => api.getUser()?.id ?? null,
-    redeem: (code) => api.redeemHandoff(code),
+    redeem: (code, verifier) => api.redeemHandoff(code, verifier),
+    takeVerifier: (challenge) => handoffChallenges.take(challenge),
     isLive: () => capture.busy() || audio.state !== "idle",
     stopLive: () => {
       capture.discard("session");
@@ -367,6 +387,19 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
     if (!placement) throw new Error("Moving the window is not available in this build.");
     placement.moveToDisplay(displayId);
     return { displays: placement.listDisplays() };
+  });
+  // Screen-capture privacy (M-15). Turning it ON needs the acceptable-use acknowledgement and a
+  // native confirmation, both enforced by the manager; the renderer can only ask.
+  handle("app:get-capture-privacy", (): CapturePrivacyState => {
+    if (!capturePrivacy) throw new Error("Screen-capture privacy is not available in this build.");
+    return capturePrivacy.state();
+  });
+  handle("app:set-capture-privacy", async (_event, enabled): Promise<CapturePrivacyState> => {
+    if (typeof enabled !== "boolean") throw new Error("Choose on or off.");
+    if (!capturePrivacy) throw new Error("Screen-capture privacy is not available in this build.");
+    return enabled
+      ? await capturePrivacy.enable(settingsStore.isAcknowledged(api.getUser()?.id ?? null))
+      : capturePrivacy.disable();
   });
   handle("app:get-recovery", (): RecoveryInfo => ({ notice: recovery?.takeNotice() ? "recovered" : null }));
   handle("app:copy-diagnostics", (): CopyDiagnosticsResult => {
@@ -534,6 +567,26 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
     });
     return undefined;
   }, true);
+  // Updates (M-11, D-78). No argument is accepted from the renderer: every transition is decided by
+  // the main-process state machine. Installing first stops everything the renderer owned, and the
+  // updater never starts audio or capture.
+  const noUpdates: UpdateState = { status: "disabled", reason: "development" };
+  handle("updates:get-state", () => (deps.updates ? deps.updates.getState() : noUpdates));
+  handle("updates:check", () => (deps.updates ? deps.updates.check("manual") : noUpdates));
+  handle("updates:download", () => (deps.updates ? deps.updates.download() : noUpdates));
+  // While an install is in progress nothing may start capture or listening (M-11 / D-78): they were
+  // stopped above and the quit is imminent. Reads the live state, so a failed install releases it.
+  const refuseWhileInstalling = (): void => {
+    if (deps.updates?.getState().status === "installing") {
+      throw new Error("An update is being installed. Try again after the app restarts.");
+    }
+  };
+  handle("updates:install", async () => {
+    if (!deps.updates) return noUpdates;
+    if (!canInstallNow(deps.updates.getState())) return deps.updates.getState();
+    onRendererGone(); // stop listening, held screenshots and running answers before the app quits
+    return deps.updates.installAndRestart();
+  });
   handle("handoff:get-state", () => handoff.getState());
   handle("handoff:dismiss", () => handoff.dismiss());
   // ---- Desktop session creation (Phase 11.5). Narrow channels; the renderer never calls the API. ----
@@ -594,19 +647,19 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
     return { deleted: true };
   }, true);
   handle("sessions:export", async (_event, sessionId, format) => {
-    if (!isUuid(sessionId) || (format !== "markdown" && format !== "json")) {
+    if (!isUuid(sessionId) || (format !== "markdown" && format !== "pdf")) {
       throw new Error("Choose a session and an export format.");
     }
     if (!sessionFiles) throw new Error("Export is not available.");
-    const extension = format === "markdown" ? "md" : "json";
+    const extension = format === "markdown" ? "md" : "pdf";
     const target = await sessionFiles.chooseExportFile(
       `session-${sessionId.slice(0, 8)}.${extension}`,
       format,
     );
     if (!target) return { saved: false, fileName: null };
     // Fetched only after the user chose a path; nothing is written when the request fails.
-    const text = await api.exportSession(sessionId, format);
-    await sessionFiles.writeFile(target, text);
+    const content = await api.exportSession(sessionId, format);
+    await sessionFiles.writeFile(target, content);
     return { saved: true, fileName: target.split(/[\\/]/).pop() ?? null };
   }, true);
 
@@ -629,6 +682,7 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
   // ---- Screenshot input channels (Phase 11B). Named and validated; no generic capture API. ----
   handle("capture:list-displays", () => capture.listDisplays(), true);
   handle("capture:start", async (_event, displayId, sessionId) => {
+    refuseWhileInstalling();
     if (!isDisplayId(displayId) || !validateId(sessionId)) {
       throw new Error("Choose a display and a session.");
     }
@@ -642,6 +696,7 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
   // ---- Live audio channels (Phase 12). Named and validated; chunks are one-way and ignored unless
   // listening was started here. ----
   handle("audio:start", async (_event, source, sessionId) => {
+    refuseWhileInstalling();
     if (!isAudioSource(source) || !validateId(sessionId)) {
       throw new Error("Choose an audio source and a session.");
     }
@@ -674,6 +729,7 @@ export function registerDesktopIpc(deps: IpcDependencies): (() => void) & { clea
   const dispose = () => {
     diagnostics.provide("services", undefined);
     deepLinks.detach();
+    handoffChallenges.clear();
     capture.dispose();
     audio.dispose();
     ipcMain.removeListener("audio:chunk", onAudioChunk as never);

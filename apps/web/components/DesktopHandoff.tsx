@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { browserDetectDesktop } from "@/lib/desktop-presence";
+import { browserDetectDesktop, browserFetchChallenge } from "@/lib/desktop-presence";
 import {
   browserWatchForLeave,
   launchDesktop,
@@ -36,8 +36,13 @@ export function DesktopHandoff({ sessionId, compact = false }: { sessionId: stri
     setPhase("starting");
     setMessage("");
     const outcome = await launchDesktop({
-      requestCode: () =>
-        authedRequest<HandoffIssue>(`/api/v1/sessions/${sessionId}/handoff`, { method: "POST" }),
+      // SEC-08: bind the code to the challenge the running desktop app handed out (when it did).
+      fetchChallenge: () => browserFetchChallenge(),
+      requestCode: (challenge) =>
+        authedRequest<HandoffIssue>(`/api/v1/sessions/${sessionId}/handoff`, {
+          method: "POST",
+          ...(challenge !== null ? { body: { code_challenge: challenge } } : {}),
+        }),
       navigate: (url) => window.location.assign(url),
       watchForLeave: browserWatchForLeave,
       detect: skipDetect ? undefined : () => browserDetectDesktop(),

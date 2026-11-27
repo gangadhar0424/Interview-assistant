@@ -1,0 +1,10 @@
+{
+	auto_https off
+	admin off
+}
+:80 {
+	# OLD layout: every request, including /api/*, goes through the Next.js web app (its rewrite).
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

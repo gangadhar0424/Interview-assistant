@@ -17,13 +17,21 @@ import { ApiError } from "./api.ts";
 
 export const PROTOCOL_SCHEME = "interviewassistant";
 export const CODE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+/** SEC-08: base64url(SHA-256(verifier)) handed out by the running desktop app: always 43 characters. */
+export const CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 /** How long to wait for the page to lose focus before assuming the desktop app did not open. */
 export const LAUNCH_WAIT_MS = 2500;
 export type HandoffIssue = { code: string; expires_in: number };
 
-/** Builds the launch link, or null when the value is not a well-formed handoff code. */
-export function buildLaunchUrl(code: string): string | null {
-  return CODE_PATTERN.test(code) ? `${PROTOCOL_SCHEME}://start?h=${code}` : null;
+/**
+ * Builds the launch link, or null when the value is not a well-formed handoff code (or challenge).
+ * With a challenge (SEC-08) the link is `...?h=<code>&c=<challenge>`: still no session data, API URL
+ * or token, and no secret: the verifier the challenge commits to never leaves the desktop app.
+ */
+export function buildLaunchUrl(code: string, challenge: string | null = null): string | null {
+  if (!CODE_PATTERN.test(code)) return null;
+  if (challenge === null) return `${PROTOCOL_SCHEME}://start?h=${code}`;
+  return CHALLENGE_PATTERN.test(challenge) ? `${PROTOCOL_SCHEME}://start?h=${code}&c=${challenge}` : null;
 }
 
 /**
@@ -55,6 +63,8 @@ export type LaunchOutcome =
 
 export function describeHandoffError(error: unknown): string {
   if (error instanceof ApiError) {
+    // 422: the server requires the handoff to be bound (SEC-08) and this desktop app did not offer a challenge.
+    if (error.status === 422) return "Please update the desktop app, then try again.";
     if (error.status === 429) {
       const wait = error.retryAfterSeconds;
       return wait ? `Too many attempts. Please try again in ${wait} seconds.` : "Too many attempts. Please wait a moment.";
@@ -68,8 +78,16 @@ export function describeHandoffError(error: unknown): string {
 }
 
 export type LaunchDeps = {
-  /** POST /api/v1/sessions/{id}/handoff (authenticated). */
-  requestCode: () => Promise<HandoffIssue>;
+  /**
+   * POST /api/v1/sessions/{id}/handoff (authenticated). `challenge` is the desktop app's challenge
+   * (SEC-08) to bind the code to, or null for the unbound flow.
+   */
+  requestCode: (challenge: string | null) => Promise<HandoffIssue>;
+  /**
+   * Asks the running desktop app for a challenge (SEC-08), run after the presence check and BEFORE
+   * the code is requested. null or a rejection means "none": the unbound flow is used. Omitted -> none.
+   */
+  fetchChallenge?: () => Promise<string | null>;
   /** Navigates the browser to the protocol link. */
   navigate: (url: string) => void;
   /**
@@ -88,13 +106,22 @@ export type LaunchDeps = {
 /** One "Start Interview" attempt: new code -> launch link -> did the page lose focus? */
 export async function launchDesktop(deps: LaunchDeps): Promise<LaunchOutcome> {
   if (deps.detect && !(await deps.detect())) return { kind: "not-detected" };
+  let challenge: string | null = null;
+  if (deps.fetchChallenge) {
+    try {
+      const offered = await deps.fetchChallenge();
+      challenge = offered !== null && CHALLENGE_PATTERN.test(offered) ? offered : null;
+    } catch {
+      challenge = null; // an older desktop app or a refused answer: use the unbound flow
+    }
+  }
   let issued: HandoffIssue;
   try {
-    issued = await deps.requestCode();
+    issued = await deps.requestCode(challenge);
   } catch (error) {
     return { kind: "error", message: describeHandoffError(error) };
   }
-  const url = buildLaunchUrl(issued.code);
+  const url = buildLaunchUrl(issued.code, challenge);
   if (url === null) return { kind: "error", message: describeHandoffError(null) };
   const left = deps.watchForLeave(deps.waitMs ?? LAUNCH_WAIT_MS);
   deps.navigate(url);

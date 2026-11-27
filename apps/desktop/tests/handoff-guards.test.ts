@@ -76,7 +76,10 @@ describe("the code stays in the main process and out of logs", () => {
     const client = code("main/api-client.ts");
     const redeem = /async redeemHandoff[\s\S]*?\n  \}\n/.exec(client)?.[0] ?? "";
     expect(redeem).toContain('"/api/v1/sessions/handoff/redeem"');
-    expect(redeem).toMatch(/requestJson<unknown>\(\s*"\/api\/v1\/sessions\/handoff\/redeem",\s*\{ code \}/);
+    // SEC-08: the verifier travels in the same body (never in a URL), and only when there is one.
+    expect(redeem).toMatch(
+      /requestJson<unknown>\(\s*"\/api\/v1\/sessions\/handoff\/redeem",\s*verifier === undefined \? \{ code \} : \{ code, code_verifier: verifier \},?\s*\)/,
+    );
     expect(redeem).not.toMatch(/\?h=|searchParams|console\./);
   });
 

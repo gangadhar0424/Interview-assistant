@@ -135,6 +135,9 @@ def load_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WS_MAX_TOTAL_CONNECTIONS", str(LOAD_N * 4))
     monkeypatch.setenv("WS_TICKET_RATE_LIMIT_PER_MINUTE", "600")
     monkeypatch.setenv("WS_RESUME_GRACE_SECONDS", "10")  # reconnects under load take seconds
+    # Every simulated person gets a ready resume; one test user per client, but keep the upload
+    # quota (SEC-15) out of this load test's way.
+    monkeypatch.setenv("USER_MAX_RESUMES", "1000")
 
 
 def test_load_smoke_concurrent_connections_with_a_reconnect_storm(

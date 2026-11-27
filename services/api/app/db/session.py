@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.core.metrics import database_errors
 
 RUNTIME_DATABASE_ROLE = "interview_app_runtime"
@@ -36,9 +37,33 @@ def _apply_runtime_role(session: Session, transaction: object, connection: Conne
         )
 
 
-def create_engine(database_url: str) -> AsyncEngine:
+def engine_options(settings: Settings) -> dict[str, object]:
+    """Pool and per-connection limits from settings (M-12). Pure, so it is unit-testable."""
+    return {
+        "pool_pre_ping": True,
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_timeout": settings.db_pool_timeout_seconds,
+        "pool_recycle": settings.db_pool_recycle_seconds,
+        "connect_args": {
+            "timeout": settings.db_connect_timeout_seconds,
+            "server_settings": {
+                "application_name": "interview-assistant",
+                "statement_timeout": str(settings.db_statement_timeout_ms),
+                "idle_in_transaction_session_timeout": str(
+                    settings.db_idle_in_transaction_timeout_ms
+                ),
+            },
+        },
+    }
+
+
+def create_engine(database_url: str, settings: Settings | None = None) -> AsyncEngine:
     # Lazy: no connection is opened until first use, so startup never depends on Postgres.
-    engine = create_async_engine(database_url, pool_pre_ping=True)
+    # With `settings` (the API and the worker pass them) the pool is bounded and every connection
+    # gets statement and idle-transaction timeouts; without, only pre-ping (scripts and tests).
+    options = engine_options(settings) if settings is not None else {"pool_pre_ping": True}
+    engine = create_async_engine(database_url, **options)
 
     @event.listens_for(engine.sync_engine, "handle_error")
     def _record_database_error(exception_context: ExceptionContext) -> None:

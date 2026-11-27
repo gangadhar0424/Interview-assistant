@@ -262,7 +262,10 @@ export class DesktopApiClient {
   }
 
   /** M-9: the export file's text, for the main process to write where the user chose. */
-  async exportSession(sessionId: string, format: "markdown" | "json"): Promise<string> {
+  async exportSession(
+    sessionId: string,
+    format: "markdown" | "pdf",
+  ): Promise<string | Uint8Array> {
     if (!this.accessToken) {
       throw new DesktopApiError({
         kind: "http",
@@ -279,6 +282,7 @@ export class DesktopApiClient {
       response = await send(this.accessToken ?? "");
     }
     if (!response.ok) throw await responseError(response);
+    if (format === "pdf") return new Uint8Array(await response.arrayBuffer());
     return response.text();
   }
 
@@ -439,7 +443,7 @@ export class DesktopApiClient {
    * the caller may still decline (another account is signed in) and `discard()` the minted login.
    * Every failure is the same 404.
    */
-  async redeemHandoff(code: string): Promise<{
+  async redeemHandoff(code: string, verifier?: string): Promise<{
     userId: string;
     session: { id: string; title: string | null; company_name: string; status: string };
     commit(): void;
@@ -447,7 +451,7 @@ export class DesktopApiClient {
   }> {
     const { response, payload } = await this.requestJson<unknown>(
       "/api/v1/sessions/handoff/redeem",
-      { code },
+      verifier === undefined ? { code } : { code, code_verifier: verifier },
     );
     if (!response.ok) throw errorFromResponse(response, payload);
     const body = payload as {

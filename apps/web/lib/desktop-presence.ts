@@ -29,3 +29,44 @@ export async function browserDetectDesktop(timeoutMs: number = PRESENCE_TIMEOUT_
     window.clearTimeout(timer);
   }
 }
+
+// ---- Handoff binding (SEC-08) -------------------------------------------------------------------
+// The running desktop app hands the page a CHALLENGE: the SHA-256 of a secret verifier that stays in
+// the desktop app's memory. The page binds the one-time code it asks the API for to that challenge,
+// so a program that captures the launch link later has a code it cannot redeem. The challenge is not
+// a secret (it is a hash); the page never sees, stores or sends a verifier.
+
+export const CHALLENGE_URL = `http://127.0.0.1:${PRESENCE_PORT}/ia-presence/challenge`;
+export const CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+export const CHALLENGE_TIMEOUT_MS = 1500;
+
+/** Parses the beacon's answer; null for anything that is not exactly a well-formed challenge. */
+export function parseChallengeResponse(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const value = (payload as { challenge?: unknown }).challenge;
+  return typeof value === "string" && CHALLENGE_PATTERN.test(value) ? value : null;
+}
+
+/**
+ * Asks the running desktop app for a challenge. null means "none available" (an older desktop app,
+ * a refused or slow answer): the caller then uses the unbound flow, which the API accepts only while
+ * it does not require binding. Never throws.
+ */
+export async function browserFetchChallenge(timeoutMs: number = CHALLENGE_TIMEOUT_MS): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(CHALLENGE_URL, {
+      mode: "cors",
+      credentials: "omit",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return parseChallengeResponse(await response.json());
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}

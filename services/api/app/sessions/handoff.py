@@ -16,11 +16,14 @@ Handoff changes no session status and starts no capture.
 """
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import service as auth_service
@@ -46,6 +49,20 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 STARTABLE_STATUSES = frozenset({"ready"})
 
 
+class HandoffIssueRequest(BaseModel):
+    """Optional body (SEC-08). `code_challenge` = base64url(SHA-256(verifier)) of a secret the
+    DESKTOP generated and keeps; the code is then useless to anyone without the verifier."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code_challenge: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")] | None = None
+
+
+def challenge_of(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+
+
 class HandoffIssueResponse(BaseModel):
     code: str
     expires_in: int
@@ -56,6 +73,10 @@ class HandoffRedeemRequest(BaseModel):
 
     # Shape is checked again by the store (43 urlsafe characters); the cap only bounds the body.
     code: str = Field(min_length=1, max_length=128)
+    # SEC-08: required when the code was issued with a challenge (RFC 7636 verifier rules).
+    code_verifier: (
+        Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._~-]{43,128}$")] | None
+    ) = None
 
 
 class HandoffRedeemResponse(TokenResponse):
@@ -87,6 +108,8 @@ async def issue_handoff(
     response: Response,
     current: CurrentUser,
     db: SessionDep,
+    settings: SettingsDep,
+    body: HandoffIssueRequest | None = None,
 ) -> HandoffIssueResponse:
     # Order: authentication (401) -> rate limit (every attempt counts, so probing foreign session
     # ids is throttled) -> ownership (same 404 as an unknown id) -> state -> code.
@@ -96,9 +119,14 @@ async def issue_handoff(
         raise service.session_not_found()
     if row.status not in STARTABLE_STATUSES:
         raise AppError(409, "session_not_startable", "This session cannot be started.")
+    challenge = body.code_challenge if body is not None else None
+    if challenge is None and settings.handoff_require_challenge:
+        raise AppError(
+            422, "challenge_required", "This server requires the desktop app to bind the handoff."
+        )
     store: TicketStore = request.app.state.handoff_store
     try:
-        code = await store.issue(current.id, session_id)
+        code = await store.issue(current.id, session_id, challenge=challenge)
     except TicketStoreUnavailable:
         raise AppError(
             503, "handoff_unavailable", "Starting the desktop app is temporarily unavailable."
@@ -140,6 +168,15 @@ async def redeem_handoff(
         ) from None
     if binding is None:
         raise handoff_invalid()  # unknown/expired/reused/malformed: indistinguishable
+    # SEC-08: a bound code is worthless without the verifier only the desktop holds. The code was
+    # consumed above, so a wrong or missing verifier also burns it (same response as every failure).
+    if binding.challenge is not None:
+        if body.code_verifier is None or not hmac.compare_digest(
+            challenge_of(body.code_verifier), binding.challenge
+        ):
+            raise handoff_invalid()
+    elif settings.handoff_require_challenge:
+        raise handoff_invalid()  # an unbound (legacy) code is refused when binding is mandatory
     # Re-validated now: the account or session may have gone since the code was issued.
     await set_tenant_context(db, binding.user_id)
     row = await repository.get_for_user(db, binding.user_id, binding.session_id)

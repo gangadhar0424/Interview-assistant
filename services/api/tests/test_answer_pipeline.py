@@ -5,6 +5,7 @@ Real PostgreSQL with pgvector and the deterministic fake embedder; fake provider
 provider's reply hook plays the writer, the judge and the question rewriter.
 """
 
+import builtins
 import json
 from collections.abc import Sequence
 from typing import Any
@@ -113,6 +114,7 @@ def ask(scenario: Scenario, provider: RecordingProvider, question: str, **kw: An
 class FakeRedis:
     def __init__(self) -> None:
         self.data: dict[str, str] = {}
+        self.indexes: dict[str, builtins.set[str]] = {}
 
     async def get(self, name: str) -> str | None:
         return self.data.get(name)
@@ -120,6 +122,27 @@ class FakeRedis:
     async def set(self, name: str, value: str, *, ex: int) -> bool:
         self.data[name] = value
         return True
+
+    # Index and tombstone commands used since SEC-13 purge on delete (D-85); expiry is not modelled.
+    async def sadd(self, name: str, *values: str) -> int:
+        self.indexes.setdefault(name, builtins.set()).update(values)
+        return len(values)
+
+    async def smembers(self, name: str) -> builtins.set[str]:
+        return builtins.set(self.indexes.get(name, builtins.set()))
+
+    async def expire(self, name: str, time: int) -> bool:
+        return name in self.indexes or name in self.data
+
+    async def exists(self, *names: str) -> int:
+        return sum(1 for n in names if n in self.data or n in self.indexes)
+
+    async def delete(self, *names: str) -> int:
+        removed = 0
+        for n in names:
+            removed += int(self.data.pop(n, None) is not None)
+            removed += int(self.indexes.pop(n, None) is not None)
+        return removed
 
 
 # ------------------------------------------------------------------ exact text

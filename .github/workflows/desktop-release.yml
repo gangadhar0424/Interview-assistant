@@ -1,0 +1,150 @@
+name: Desktop release (signed)
+
+# M-10 (D-77). Builds, SIGNS and verifies the Windows installer. It never publishes anything: the
+# output is a workflow artifact (installer, blockmap, SHA256SUMS.txt, BUILD-KIND.txt) that the owner
+# publishes by hand after the checks below. See docs/DESKTOP_RELEASE.md.
+#
+# Safe by default:
+#   * manual trigger only (no push, no pull_request), so forks and pull requests can never reach the
+#     signing secrets;
+#   * the actor must be listed in the repository variable DESKTOP_RELEASE_ACTORS (a JSON array of
+#     GitHub logins); with the variable unset NOBODY can run it;
+#   * runs only from main, and the version input must equal apps/desktop/package.json;
+#   * the signing secrets live in the "desktop-release" ENVIRONMENT, which must be configured with
+#     required reviewers; they are not repository-level secrets;
+#   * REQUIRE_SIGNING=true: a missing, expired, untrusted or unusable certificate fails the job, and
+#     the build is verified as Valid + timestamped + SHA-256 before an artifact is uploaded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release; must equal apps/desktop/package.json"
+        required: true
+        type: string
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false # never cancel a signing run half-way
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    name: authorize and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Signed releases can only be built from main (this run is on ${GITHUB_REF})."
+          exit 1
+      - name: Actor is on the release allow-list
+        env:
+          ALLOWED: ${{ vars.DESKTOP_RELEASE_ACTORS }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "${ALLOWED}" ]; then
+            echo "::error::DESKTOP_RELEASE_ACTORS is not configured; nobody is authorized to release."
+            exit 1
+          fi
+          node -e 'const a=JSON.parse(process.env.ALLOWED); if(!Array.isArray(a)||!a.includes(process.env.ACTOR)){console.error("Actor is not authorized to release.");process.exit(1)}'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Version input matches package.json
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          node -e '
+            const v=require("./apps/desktop/package.json").version;
+            if(!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$/.test(v)){console.error("package.json version is not valid semver");process.exit(1)}
+            if(process.env.REQUESTED!==v){console.error("Requested version does not equal apps/desktop/package.json ("+v+")");process.exit(1)}
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT,"version="+v+"\n");
+          '
+
+  build-sign:
+    name: build, sign and verify
+    needs: authorize
+    runs-on: windows-latest
+    timeout-minutes: 45
+    environment: desktop-release # required reviewers + the signing secrets are configured here
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Write the certificate to a temporary file (certificate method only)
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PFX_BASE64)) { Write-Host "No certificate secret: relying on the Azure signing variables, if any."; exit 0 }
+          $path = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:PFX_BASE64))
+          "CSC_LINK=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Write the update-manifest signing key to a temporary file (SEC-09)
+        shell: pwsh
+        env:
+          MANIFEST_KEY_PEM: ${{ secrets.UPDATE_MANIFEST_SIGNING_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MANIFEST_KEY_PEM)) { Write-Host "No manifest signing key secret: a signed build with an update feed will be refused by the release script."; exit 0 }
+          $path = Join-Path $env:RUNNER_TEMP "manifest-signing.pem"
+          [IO.File]::WriteAllText($path, $env:MANIFEST_KEY_PEM)
+          "UPDATE_MANIFEST_SIGNING_KEY_FILE=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build, sign and verify (fails unless the result is Valid, timestamped and SHA-256)
+        env:
+          REQUIRE_SIGNING: "true"
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          SIGN_TIMESTAMP_URL: ${{ vars.SIGN_TIMESTAMP_URL }}
+          # Auto-update (M-11): an https static feed and the certificate's Common Name, pinned into the
+          # app. Required together for a signed build; without them the build cannot update itself.
+          UPDATE_FEED_URL: ${{ vars.UPDATE_FEED_URL }}
+          SIGN_PUBLISHER_NAME: ${{ vars.SIGN_PUBLISHER_NAME }}
+          # SEC-09: the Ed25519 PUBLIC key the app pins to authenticate update manifests (not secret).
+          # The matching private key is the secret UPDATE_MANIFEST_SIGNING_KEY written above.
+          UPDATE_MANIFEST_PUBLIC_KEY: ${{ vars.UPDATE_MANIFEST_PUBLIC_KEY }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          AZURE_TRUSTED_SIGNING_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: node scripts/release/package-release.mjs
+      - name: Re-verify checksums of the artifacts about to be uploaded
+        run: node scripts/release/verify-build.mjs --check-sums
+      - name: Delete the temporary certificate
+        if: always()
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          if (Test-Path $path) { Remove-Item -LiteralPath $path -Force }
+          $manifestKey = Join-Path $env:RUNNER_TEMP "manifest-signing.pem"
+          if (Test-Path $manifestKey) { Remove-Item -LiteralPath $manifestKey -Force }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-signed-${{ needs.authorize.outputs.version }}
+          path: |
+            apps/desktop/release/*-Windows-x64.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
+            apps/desktop/release/latest.yml.sig
+            apps/desktop/release/SHA256SUMS.txt
+            apps/desktop/release/BUILD-KIND.txt
+          if-no-files-found: error
+          retention-days: 30

@@ -1,3 +1,4 @@
+import { ACCEPTABLE_USE_VERSION } from "../src/shared/acknowledgement";
 import { acknowledgedSettings } from "./ack-fixture";
 /**
  * Phase 12: the real IPC layer driven with a fake ipcMain/window/backend. Proves the consent gate,
@@ -53,7 +54,7 @@ const tone = (windows: number, amplitude: number) => {
   return new Uint8Array(samples.buffer);
 };
 
-function setup(opts: { acknowledged?: boolean } = {}) {
+function setup(opts: { acknowledged?: boolean; updates?: UpdatesStub } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "audio-ipc-"));
   const handlers = new Map<string, Handler>();
   const listeners = new Map<string, (event: unknown, data: unknown) => void>();
@@ -152,6 +153,7 @@ function setup(opts: { acknowledged?: boolean } = {}) {
     confirmHandoffSwitch: async () => true,
     confirmHandoffAccountSwitch: async () => true,
     showWindow: () => undefined,
+    ...(opts.updates ? { updates: opts.updates as never } : {}),
   });
 
   const trusted = { senderFrame: { url: TRUSTED }, sender: { id: 1 } };
@@ -187,6 +189,12 @@ function setup(opts: { acknowledged?: boolean } = {}) {
   };
 }
 type Setup = ReturnType<typeof setup>;
+type UpdatesStub = {
+  getState: () => unknown;
+  check: (trigger?: string) => Promise<unknown>;
+  download: () => Promise<unknown>;
+  installAndRestart: () => Promise<unknown>;
+};
 
 describe("audio IPC", () => {
   let s: Setup;
@@ -383,7 +391,7 @@ describe("acceptable-use acknowledgement (M-1, D-68): audio", () => {
   it("first use: not accepted, and audio start is refused in main even when everything else is ready", async () => {
     await s.login();
     await s.enable();
-    expect((await s.call("app:get-acknowledgement")).data).toEqual({ accepted: false, version: 1, acceptedAt: null });
+    expect((await s.call("app:get-acknowledgement")).data).toEqual({ accepted: false, version: ACCEPTABLE_USE_VERSION, acceptedAt: null });
     const result = await s.call("audio:start", "microphone", SESSION);
     expect(result).toMatchObject({ ok: false, error: { code: "acknowledgement_required" } });
     expect(s.gate.read()).toEqual({ state: "idle", source: null });
@@ -397,12 +405,12 @@ describe("acceptable-use acknowledgement (M-1, D-68): audio", () => {
     await s.login();
     await s.enable();
     s.acceptUse.mockResolvedValueOnce(false);
-    expect((await s.call("app:accept-acknowledgement", 1)).ok).toBe(false);
+    expect((await s.call("app:accept-acknowledgement", ACCEPTABLE_USE_VERSION)).ok).toBe(false);
     expect((await s.call("app:get-acknowledgement")).data.accepted).toBe(false);
     expect((await s.call("audio:start", "microphone", SESSION)).ok).toBe(false);
 
-    const accepted = await s.call("app:accept-acknowledgement", 1);
-    expect(accepted).toMatchObject({ ok: true, data: { accepted: true, version: 1 } });
+    const accepted = await s.call("app:accept-acknowledgement", ACCEPTABLE_USE_VERSION);
+    expect(accepted).toMatchObject({ ok: true, data: { accepted: true, version: ACCEPTABLE_USE_VERSION } });
     expect(s.acceptUse).toHaveBeenCalledTimes(2);
     // Allowed now, and the existing explicit start / indicator behaviour is unchanged.
     expect((await s.call("audio:start", "microphone", SESSION)).ok).toBe(true);
@@ -412,14 +420,14 @@ describe("acceptable-use acknowledgement (M-1, D-68): audio", () => {
 
   it("accepting again does not show the dialog again", async () => {
     await s.login();
-    await s.call("app:accept-acknowledgement", 1);
-    await s.call("app:accept-acknowledgement", 1);
+    await s.call("app:accept-acknowledgement", ACCEPTABLE_USE_VERSION);
+    await s.call("app:accept-acknowledgement", ACCEPTABLE_USE_VERSION);
     expect(s.acceptUse).toHaveBeenCalledTimes(1);
   });
 
   it("rejects invalid inputs without opening the dialog", async () => {
     await s.login();
-    for (const bad of [0, 2, -1, 1.5, Number.NaN, "1", null, undefined, {}, [1], true]) {
+    for (const bad of [0, ACCEPTABLE_USE_VERSION + 1, -1, 1.5, Number.NaN, "1", null, undefined, {}, [1], true]) {
       expect((await s.call("app:accept-acknowledgement", bad)).ok, String(bad)).toBe(false);
     }
     expect((await s.call("app:accept-acknowledgement")).ok).toBe(false);
@@ -428,7 +436,7 @@ describe("acceptable-use acknowledgement (M-1, D-68): audio", () => {
   });
 
   it("cannot be accepted while signed out, and an untrusted sender can neither read nor accept it", async () => {
-    expect((await s.call("app:accept-acknowledgement", 1)).ok).toBe(false);
+    expect((await s.call("app:accept-acknowledgement", ACCEPTABLE_USE_VERSION)).ok).toBe(false);
     expect(s.acceptUse).not.toHaveBeenCalled();
     await s.login();
     for (const channel of ["app:get-acknowledgement", "app:accept-acknowledgement"]) {
@@ -440,7 +448,7 @@ describe("acceptable-use acknowledgement (M-1, D-68): audio", () => {
 
   it("the renderer cannot record acceptance through the settings channel", async () => {
     await s.login();
-    const forged = { version: 1, userId: user.id, acceptedAt: "2026-11-18T00:00:00Z" };
+    const forged = { version: ACCEPTABLE_USE_VERSION, userId: user.id, acceptedAt: "2026-11-18T00:00:00Z" };
     expect((await s.call("app:update-settings", { acceptableUse: forged })).ok).toBe(false);
     expect((await s.call("app:update-settings", { acknowledged: true })).ok).toBe(false);
     expect((await s.call("app:get-acknowledgement")).data.accepted).toBe(false);
@@ -449,7 +457,7 @@ describe("acceptable-use acknowledgement (M-1, D-68): audio", () => {
   it("is stored locally, survives a restart and a settings change, and holds no content", async () => {
     await s.login();
     await s.enable();
-    await s.call("app:accept-acknowledgement", 1);
+    await s.call("app:accept-acknowledgement", ACCEPTABLE_USE_VERSION);
     await s.call("app:update-settings", { alwaysOnTop: false }); // a later save must not erase it
     const file = join(s.dir, "settings.json");
     const restarted = new SettingsStore(file);
@@ -533,6 +541,157 @@ describe("renderer crash (M-5, D-70): the main process stops what the dead windo
       t.win.webContents.emit("render-process-gone", { reason: "crashed" });
       const refused = await t.call("audio:start", "microphone", SESSION);
       expect(refused).toMatchObject({ ok: false, error: { code: "acknowledgement_required" } });
+    } finally {
+      t.cleanup();
+    }
+  });
+});
+
+describe("updates never start, and always stop, capture (M-11)", () => {
+  const downloaded = { status: "downloaded", version: "0.2.0" };
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("without an updater the four channels answer 'disabled' and do nothing", async () => {
+    const t = setup();
+    try {
+      await t.login();
+      for (const channel of ["updates:get-state", "updates:check", "updates:download", "updates:install"]) {
+        expect(await t.call(channel)).toEqual({ ok: true, data: { status: "disabled", reason: "development" } });
+      }
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("refuses a caller that is not the app's own window", async () => {
+    const updates = { getState: vi.fn(() => downloaded), check: vi.fn(), download: vi.fn(), installAndRestart: vi.fn() };
+    const t = setup({ updates: updates as never });
+    try {
+      for (const channel of ["updates:get-state", "updates:check", "updates:download", "updates:install"]) {
+        const result = await (t.handlers.get(channel) as Handler)(t.untrusted);
+        expect(result.ok, channel).toBe(false);
+      }
+      expect(updates.check).not.toHaveBeenCalled();
+      expect(updates.download).not.toHaveBeenCalled();
+      expect(updates.installAndRestart).not.toHaveBeenCalled();
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("check and download are delegated to the manager; a check is always a manual one", async () => {
+    const updates = {
+      getState: vi.fn(() => ({ status: "idle", lastCheckedAt: null })),
+      check: vi.fn(async () => ({ status: "none", checkedAt: "2026-11-22T00:00:00.000Z" })),
+      download: vi.fn(async () => ({ status: "downloaded", version: "0.2.0" })),
+      installAndRestart: vi.fn(),
+    };
+    const t = setup({ updates: updates as never });
+    try {
+      expect((await t.call("updates:get-state")).data.status).toBe("idle");
+      await t.call("updates:check", "periodic", "ignored-extra-argument");
+      expect(updates.check).toHaveBeenCalledWith("manual");
+      await t.call("updates:download", { version: "9.9.9" });
+      expect(updates.download).toHaveBeenCalledWith();
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("installing stops listening BEFORE the app is asked to quit, and nothing starts it again", async () => {
+    const seen: string[] = [];
+    let t!: Setup;
+    const updates = {
+      getState: vi.fn(() => downloaded),
+      check: vi.fn(),
+      download: vi.fn(),
+      installAndRestart: vi.fn(async () => {
+        seen.push(t.gate.read().state);
+        return { status: "installing", version: "0.2.0" };
+      }),
+    };
+    t = setup({ updates: updates as never });
+    try {
+      await t.login();
+      await t.enable();
+      expect((await t.call("audio:start", "microphone", SESSION)).ok).toBe(true);
+      expect(t.gate.read().state).toBe("arming");
+      const result = await t.call("updates:install");
+      expect(result).toEqual({ ok: true, data: { status: "installing", version: "0.2.0" } });
+      expect(seen).toEqual(["idle"]); // listening was already stopped when the install was requested
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(t.gate.read().state).toBe("idle");
+      expect(t.transcribeCalls()).toHaveLength(0);
+      expect(t.calls.filter((c) => c.path.includes("/screenshots"))).toHaveLength(0);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("while an install is in progress audio and capture cannot be started; a failed install releases them", async () => {
+    // Regression for the M-11 review: dispose() alone left audio:start/capture:start callable.
+    let state: { status: string; version?: string; code?: string } = { status: "installing", version: "0.2.0" };
+    const updates = { getState: vi.fn(() => state), check: vi.fn(), download: vi.fn(), installAndRestart: vi.fn() };
+    const t = setup({ updates: updates as never });
+    try {
+      await t.login();
+      await t.enable();
+      const audio = await t.call("audio:start", "microphone", SESSION);
+      expect(audio.ok).toBe(false);
+      expect(JSON.stringify(audio)).toContain("update is being installed");
+      expect(t.gate.read().state).toBe("idle");
+      const shot = await t.call("capture:start", "display:1", SESSION);
+      expect(shot.ok).toBe(false);
+      expect(JSON.stringify(shot)).toContain("update is being installed");
+      expect(t.calls.filter((c) => c.path.includes("/screenshots"))).toHaveLength(0);
+      state = { status: "error", code: "install_failed" };
+      expect((await t.call("audio:start", "microphone", SESSION)).ok).toBe(true);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("an install request outside the 'downloaded' state touches nothing: listening continues", async () => {
+    const updates = {
+      getState: vi.fn(() => ({ status: "available", version: "0.2.0", sizeBytes: 1 })),
+      check: vi.fn(),
+      download: vi.fn(),
+      installAndRestart: vi.fn(),
+    };
+    const t = setup({ updates: updates as never });
+    try {
+      await t.login();
+      await t.enable();
+      await t.call("audio:start", "microphone", SESSION);
+      const result = await t.call("updates:install");
+      expect(result.data.status).toBe("available");
+      expect(updates.installAndRestart).not.toHaveBeenCalled();
+      expect(t.gate.read().state).toBe("arming");
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("a failed restart can be retried, and stops capture again first", async () => {
+    const updates = {
+      getState: vi.fn(() => ({ status: "error", code: "install_failed", message: "x", retryable: false })),
+      check: vi.fn(),
+      download: vi.fn(),
+      installAndRestart: vi.fn(async () => ({ status: "installing", version: "0.2.0" })),
+    };
+    const t = setup({ updates: updates as never });
+    try {
+      await t.login();
+      await t.enable();
+      await t.call("audio:start", "microphone", SESSION);
+      await t.call("updates:install");
+      expect(updates.installAndRestart).toHaveBeenCalledTimes(1);
+      expect(t.gate.read().state).toBe("idle");
     } finally {
       t.cleanup();
     }

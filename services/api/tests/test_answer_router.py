@@ -194,3 +194,47 @@ def test_enhancement_one_picks_its_own_section_not_a_heading_that_only_contains_
     decision = decide("enhancement 1", [], [wrong, other, right], CFG)
     assert decision.mode is Mode.DOCUMENT_EXTRACTIVE and decision.hit is right
     assert decision.reason == "title"
+
+
+def test_open_ended_question_matching_several_sections_is_synthesised_not_one_section() -> None:
+    """Real case: "tell me about enhancements" returned only the "Custom development and custom
+    enhancements" note while the document also has three real enhancement sections."""
+    custom = hit(
+        DOC_A,
+        "I have not written the code myself.",
+        "34. Custom development and custom enhancements",
+        fused=0.0330,
+        index=1,
+        section=(100, 200),
+    )
+    real = hit(
+        DOC_A,
+        "Receiving Excess Qty HHT",
+        "40. Enhancement in EWM",
+        fused=0.0300,
+        index=2,
+        section=(300, 900),
+    )
+    decision = decide("tell me about enhancements", [], [custom, real], CFG)
+    assert decision.mode is Mode.SYNTHESIS and decision.reason == "broad"
+
+
+def test_open_ended_question_with_one_matching_section_stays_exact() -> None:
+    only = hit(DOC_A, "POSC defines the external flow.", "38. Explain POSC", section=(1, 50))
+    decision = decide("tell me about POSC", [], [only], CFG)
+    assert decision.mode is Mode.DOCUMENT_EXTRACTIVE
+
+
+def test_definition_question_with_two_title_matches_is_not_treated_as_broad() -> None:
+    a = hit(
+        DOC_A, "POSC defines the flow.", "38. Explain POSC", fused=0.04, index=1, section=(1, 50)
+    )
+    b = hit(
+        DOC_A,
+        "Config for POSC.",
+        "39. What configuration is required for POSC?",
+        index=2,
+        section=(60, 90),
+    )
+    decision = decide("what is POSC", [], [a, b], CFG)
+    assert decision.mode is Mode.DOCUMENT_EXTRACTIVE and decision.reason == "title"

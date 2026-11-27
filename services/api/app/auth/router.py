@@ -8,11 +8,21 @@ from app.auth import service
 from app.auth.client_ip import client_key
 from app.auth.deps import CurrentUser, require_trusted_origin
 from app.auth.limits import AuthLimits, invite_allows
-from app.auth.schemas import LoginRequest, SignupRequest, SignupResponse, TokenResponse, UserPublic
+from app.auth.schemas import (
+    AccountDeleteRequest,
+    LoginRequest,
+    SignupRequest,
+    SignupResponse,
+    TokenResponse,
+    UserPublic,
+)
 from app.core.config import Settings, get_settings
 from app.core.errors import REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH, AppError
 from app.db.models import User
 from app.db.session import get_session
+from app.files.router import StorageDep
+from app.lifecycle import account as account_lifecycle
+from app.lifecycle.deps import DeletionRecorderDep
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -130,3 +140,35 @@ async def logout(
 async def me(current: CurrentUser, session: SessionDep) -> UserPublic:
     user = (await session.execute(select(User).where(User.id == current.id))).scalar_one()
     return UserPublic.model_validate(user)
+
+
+@router.post("/account/delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    body: AccountDeleteRequest,
+    request: Request,
+    response: Response,
+    current: CurrentUser,
+    session: SessionDep,
+    settings: SettingsDep,
+    storage: StorageDep,
+    recorder: DeletionRecorderDep,
+) -> None:
+    """SEC-13 Decision 4 (D-85): immediate, irreversible deletion of the caller's own account."""
+    limits: AuthLimits = request.app.state.auth_limits
+    limits.check_account_delete(str(current.id))
+    try:
+        await account_lifecycle.delete_own_account(
+            session, storage, recorder, current.id, body.password, body.confirmation
+        )
+    except AppError as exc:
+        if exc.code == "password_incorrect":
+            limits.record_account_delete_failure(str(current.id))
+        raise
+    response.delete_cookie(
+        REFRESH_COOKIE_NAME,
+        path=REFRESH_COOKIE_PATH,
+        secure=settings.cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "no-store"

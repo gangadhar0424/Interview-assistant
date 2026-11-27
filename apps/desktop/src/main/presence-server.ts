@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { HandoffChallenges } from "./handoff-challenge";
 
 /**
  * Presence beacon (D-60). A browser cannot ask Windows whether an app handles a custom protocol,
@@ -15,12 +16,60 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
  */
 export const PRESENCE_PORT = 47821;
 export const PRESENCE_PATH = "/ia-presence";
+/** SEC-08: where the web page asks for a handoff challenge (a SHA-256 hash; the secret stays here). */
+export const CHALLENGE_PATH = "/ia-presence/challenge";
 
 const LOOPBACK_HOSTS = new Set([`127.0.0.1:${PRESENCE_PORT}`, `localhost:${PRESENCE_PORT}`]);
 
-export function handlePresenceRequest(req: IncomingMessage, res: ServerResponse): void {
+/**
+ * The challenge endpoint. The body is exactly `{"challenge","expires_in"}`: a hash, never the
+ * verifier, never a user, token or version. It is readable cross-origin on purpose (the web page must
+ * read it) and that is safe because the value is not a secret: it only commits to a verifier that never
+ * leaves this process. The Host check below still refuses DNS-rebinding hosts, so only a page that
+ * reaches 127.0.0.1 by its real name can ask. Without a challenge store, or when the caller asked too
+ * often, the answer carries no challenge and the web page falls back to the unbound flow (or the API
+ * refuses it when binding is required).
+ */
+function handleChallengeRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  challenges: HandoffChallenges | undefined,
+): void {
+  const cors: Record<string, string> = {
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Private-Network": "true",
+  };
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, { ...cors, "Access-Control-Allow-Methods": "GET", "Access-Control-Max-Age": "60" }).end();
+    return;
+  }
+  if (req.method !== "GET") {
+    res.writeHead(405, { ...cors, Allow: "GET, OPTIONS" }).end();
+    return;
+  }
+  const issued = challenges?.issue() ?? null;
+  if (issued === null) {
+    res.writeHead(challenges ? 429 : 404, cors).end();
+    return;
+  }
+  res
+    .writeHead(200, { ...cors, "Content-Type": "application/json; charset=utf-8" })
+    .end(JSON.stringify({ challenge: issued.challenge, expires_in: issued.expiresInSeconds }));
+}
+
+export function handlePresenceRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  challenges?: HandoffChallenges,
+): void {
   const host = (req.headers.host ?? "").toLowerCase();
   const url = (req.url ?? "").split("?")[0];
+  if (LOOPBACK_HOSTS.has(host) && url === CHALLENGE_PATH) {
+    handleChallengeRequest(req, res, challenges);
+    return;
+  }
   if (!LOOPBACK_HOSTS.has(host) || url !== PRESENCE_PATH) {
     res.writeHead(404, { "Cache-Control": "no-store" }).end();
     return;
@@ -43,9 +92,12 @@ export function handlePresenceRequest(req: IncomingMessage, res: ServerResponse)
 }
 
 /** Starts the beacon. Resolves with the server, or null when it could not bind. */
-export function startPresenceServer(port: number = PRESENCE_PORT): Promise<Server | null> {
+export function startPresenceServer(
+  port: number = PRESENCE_PORT,
+  challenges?: HandoffChallenges,
+): Promise<Server | null> {
   return new Promise((resolve) => {
-    const server = createServer(handlePresenceRequest);
+    const server = createServer((req, res) => handlePresenceRequest(req, res, challenges));
     server.once("error", () => resolve(null));
     server.listen(port, "127.0.0.1", () => {
       server.removeAllListeners("error");

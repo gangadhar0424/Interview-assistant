@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.config import ConfigurationError, Settings, load_settings
+from app.core.config import ConfigurationError, Settings, find_repo_root, load_settings
 
 
 @pytest.fixture(autouse=True)
@@ -123,13 +123,140 @@ def test_plaintext_redis_is_rejected_outside_local(monkeypatch: pytest.MonkeyPat
     assert "REDIS_URL" in str(exc.value)
 
 
-def test_maintenance_database_url_is_required_outside_local(
+def test_ordinary_processes_do_not_need_the_maintenance_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SEC-12: the API and worker must start WITHOUT the privileged identity.
+    _set_valid_deployment_settings(monkeypatch)
+    monkeypatch.delenv("MAINTENANCE_DATABASE_URL")
+
+    settings = load_settings()
+
+    assert settings.maintenance_database_url is None
+
+
+def test_maintenance_commands_refuse_to_run_without_the_url_outside_local(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_valid_deployment_settings(monkeypatch)
     monkeypatch.delenv("MAINTENANCE_DATABASE_URL")
+    settings = load_settings()
+
+    with pytest.raises(ConfigurationError) as exc:
+        settings.require_maintenance_database_url()
+
+    assert "MAINTENANCE_DATABASE_URL" in str(exc.value)
+
+
+def test_maintenance_url_is_returned_when_set_and_local_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_valid_deployment_settings(monkeypatch)
+    assert "maintenance" in load_settings().require_maintenance_database_url()
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.delenv("MAINTENANCE_DATABASE_URL")
+    monkeypatch.delenv("REDIS_URL")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    local = load_settings()
+    assert local.require_maintenance_database_url() == local.database_url
+
+
+def test_blank_maintenance_url_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `.env.example` ships `MAINTENANCE_DATABASE_URL=` (blank).
+    monkeypatch.setenv("MAINTENANCE_DATABASE_URL", "  ")
+    assert load_settings().maintenance_database_url is None
+
+
+# ---- SEC-07: APP_ENV defaults to local, which must not start against remote services ----
+
+
+def test_local_default_is_refused_when_the_database_is_remote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)  # the forgotten-variable case
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.internal.example:5432/app")
 
     with pytest.raises(ConfigurationError) as exc:
         load_settings()
 
-    assert "MAINTENANCE_DATABASE_URL" in str(exc.value)
+    message = str(exc.value)
+    assert "APP_ENV" in message and "DATABASE_URL" in message
+    assert "u:p@" not in message  # never echoes the URL
+
+
+def test_local_default_is_refused_when_redis_or_cors_is_remote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv("REDIS_URL", "redis://cache.internal.example:6379/0")
+    with pytest.raises(ConfigurationError) as exc:
+        load_settings()
+    assert "REDIS_URL" in str(exc.value)
+
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com")
+    with pytest.raises(ConfigurationError) as exc:
+        load_settings()
+    assert "CORS_ORIGINS" in str(exc.value)
+
+
+def test_local_with_loopback_services_still_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)
+    for url in ("localhost", "127.0.0.1", "[::1]"):
+        monkeypatch.setenv("DATABASE_URL", f"postgresql+asyncpg://u:p@{url}:5432/app")
+        monkeypatch.setenv("REDIS_URL", f"redis://{url}:6379/0")
+        assert load_settings().app_env == "local"
+
+
+def test_local_with_remote_services_needs_an_explicit_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.internal.example:5432/app")
+    monkeypatch.setenv("LOCAL_ALLOW_REMOTE_SERVICES", "true")
+
+    assert load_settings().app_env == "local"
+
+
+def test_deployed_environments_are_unaffected_by_the_local_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_valid_deployment_settings(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db.internal.example:5432/app")
+    monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com")
+
+    assert load_settings().app_env == "staging"
+
+
+def test_production_safeguards_stay_on_when_app_env_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_valid_deployment_settings(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "production")
+    settings = load_settings()
+    assert settings.cookie_secure is True and settings.docs_enabled is False
+    monkeypatch.setenv("JWT_SECRET", "x" * 43)  # weak
+    with pytest.raises(ConfigurationError):
+        load_settings()
+
+
+def test_repo_root_in_a_checkout_is_the_repository(tmp_path: Path) -> None:
+    config = tmp_path / "repo" / "services" / "api" / "app" / "core" / "config.py"
+    config.parent.mkdir(parents=True)
+    config.write_text("")
+    assert find_repo_root(config) == tmp_path / "repo"
+
+
+def test_repo_root_in_a_container_layout_does_not_crash() -> None:
+    """/app/app/core/config.py has only four ancestors; this used to raise IndexError on import."""
+    root = find_repo_root(Path("/app/app/core/config.py"))
+    assert root.as_posix().endswith("app") or root.as_posix() == "/app"
+
+
+def test_repo_root_with_a_deep_path_that_is_not_the_repository(tmp_path: Path) -> None:
+    config = tmp_path / "a" / "b" / "c" / "d" / "e" / "config.py"
+    config.parent.mkdir(parents=True)
+    config.write_text("")
+    assert (
+        find_repo_root(config) == config.resolve().parents[2]
+    )  # no services/api ancestor: app dir

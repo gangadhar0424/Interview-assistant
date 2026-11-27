@@ -1,6 +1,76 @@
 # Windows Desktop Release Process
 
-Status: **process documented in Phase 10B; no signed or distributed release exists.** Code signing and auto-update are **not implemented** and need owner approval (see "Decisions requiring owner approval" below). All commands run from `apps/desktop` in PowerShell.
+Status: **M-10 signing and verification pipeline implemented (section 0); no signed or distributed release exists because no certificate has been provided.** Auto-update is covered by M-11. The sections after 0 are the earlier Phase 10B process and the D-50 options. All commands run from `apps/desktop` in PowerShell.
+
+## 0. M-10 release pipeline (D-77): signing, verification and CI
+
+Status (2026-11-22): **pipeline implemented and tested; no certificate exists, so no signed release has been produced.** An unsigned build is verified end to end. Signing with real credentials is **BLOCKED on the owner actions in section 0.6**. Nothing is published by any script or workflow.
+
+### 0.1 Commands (from `apps/desktop`)
+
+| Command | What it does |
+|---|---|
+| `npm run package:win:release` | Preflight, build, package and verify. With `REQUIRE_SIGNING=true` it is a **signed** release build; otherwise an **UNSIGNED internal** build. |
+| `npm run verify:release` | Verifies an existing `release/` folder (add `-- --mode signed` for a signed build) and writes `release/SHA256SUMS.txt` and `release/BUILD-KIND.txt` on success. |
+| `node scripts/release/verify-build.mjs --check-sums` | Re-hashes `release/` against `SHA256SUMS.txt`; non-zero on any mismatch or missing file. |
+| `npm run package:win` | The older unsigned path (no verification). Internal testing only. |
+
+### 0.2 What `package-release` does and refuses
+
+1. **Preflight (before anything is touched):** `package.json` version is valid semver; the timestamp URL is a valid `http(s)` URL without credentials; with `REQUIRE_SIGNING=true`, exactly one complete signing configuration exists (certificate: `CSC_LINK` + `CSC_KEY_PASSWORD`; or Azure managed signing: `AZURE_TRUSTED_SIGNING_ENDPOINT`, `_ACCOUNT`, `_PROFILE`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`). A missing variable is reported **by name only**, never by value. Both methods at once is refused.
+2. **Certificate check (certificate method, file path):** the PFX must open with the password, be inside its validity period, have a private key, be valid for code signing (EKU 1.3.6.1.5.5.7.3.3), and chain to a **trusted** root. A self-signed, expired or wrong-password certificate stops the release (exit 2). Expiry within 30 days produces a renewal warning.
+3. **Clean, build, package:** old `release/` output is deleted first so a stale artifact can never pass verification. Signed builds use electron-builder with `forceCodeSigning`, **SHA-256** digests and an **RFC 3161 timestamp** (`SIGN_TIMESTAMP_URL`, default `http://timestamp.digicert.com`; the timestamp token is itself signed, so plain HTTP is the service's normal endpoint). Tools run through `node` with fixed arguments.
+4. **Verify (`verify-build`), all must pass:** valid version; installer and blockmap exist for exactly this version; no installer of another version in `release/`; required packaged files; the application executable is an **x64** PE image (the NSIS installer is a 32-bit stub by design, checked only as a valid PE); product name and file version equal `package.json`; all six Electron **fuses** in their release state; renderer CSP has no `unsafe-inline` styles; Authenticode of installer and application executable: signed build => `Valid` + timestamped + `sha256` (digest read with `signtool verify /pa /v`), unsigned build => `NotSigned`.
+5. **On success only:** `SHA256SUMS.txt` (installer and blockmap) and `BUILD-KIND.txt` (`signed` or `unsigned-internal`). A failed verification writes neither.
+
+### 0.3 Signed versus unsigned is explicit
+
+`BUILD-KIND.txt` records the kind; CI names its artifact `desktop-UNSIGNED-internal-<sha>`; the release workflow names its artifact `desktop-signed-<version>` and can only produce it if verification passed in signed mode. Unsigned output prints `UNSIGNED internal build (not for distribution)`.
+
+### 0.4 CI and the protected release workflow
+
+* `.github/workflows/ci.yml`: unchanged triggers (push to `main`, pull requests); every action is now pinned to a full commit SHA; new job `desktop-windows` (`windows-latest`): `npm ci`, typecheck, full `npm test`, **unsigned** `package-release`, checksum re-verification, and an artifact retained for 7 days. It never references a secret.
+* `.github/workflows/desktop-release.yml`: **manual only**. Gates: the run must be on `main`; the actor must be in the repository variable `DESKTOP_RELEASE_ACTORS` (JSON array of logins; **unset means nobody can run it**); the version input must equal `apps/desktop/package.json`; the signing job runs in the GitHub **environment** `desktop-release` (configure required reviewers there; the secrets live there, not at repository level). It sets `REQUIRE_SIGNING=true`, deletes the temporary certificate file even on failure, re-verifies checksums, uploads the artifact (30 days) and **publishes nothing**; the owner publishes by hand after reviewing the artifact. Concurrency never cancels a signing run half-way.
+* `.github/workflows/security.yml` (existing): CodeQL, gitleaks, `pip-audit`, `npm audit` (production dependencies gate at high/critical).
+* Tests that pin these properties: `tests/release-workflow.test.ts`.
+
+### 0.5 Failure behaviour (all automated unless marked)
+
+| Situation | Result | Test |
+|---|---|---|
+| No certificate / missing variable / both methods / bad timestamp URL | exit 2 before any build; names the variable only | `release-scripts.test.ts`, `release-lib.test.ts` |
+| Certificate file missing | exit 2 | `release-scripts.test.ts` |
+| Wrong certificate password | exit 2, password never echoed | real PFX, Windows |
+| Expired certificate | exit 2 | real PFX, Windows |
+| Untrusted (self-signed) chain | exit 2 | real PFX, Windows |
+| Invalid version metadata | preflight and verify fail | unit |
+| Packaging or build failure | non-zero exit, no artifacts claimed; stale output already removed | by construction (exit codes are propagated); not injected |
+| Release artifact missing / stale installer / missing packaged files | verification fails, no checksums written | `release-scripts.test.ts` |
+| Checksum mismatch / file missing / malformed checksum file | `--check-sums` exits 1 | `release-scripts.test.ts` |
+| Signature not Valid, no timestamp, SHA-1 digest, unsigned artifact in a signed build | verification fails | unit |
+| Timestamp server unreachable during signing | electron-builder fails the signing step, the job fails | **not injected** (needs the real signing step) |
+| Interruption / CI cancellation | child process stopped, exit 130, partial artifacts are never accepted because the next run cleans and verifies; handler logic unit-tested, a real signal on Windows was not exercised | unit only |
+| Unauthorized release dispatch | job fails in `authorize` | **not testable without GitHub**; workflow guards are pinned by a static test |
+
+### 0.6 Owner actions required before a signed release can exist
+
+1. Choose and obtain a signing method (D-50 options): Azure managed signing (recommended in D-50 if eligible), or an OV/EV certificate whose key may be used from CI (modern CAs require a hardware or cloud HSM, which changes the CI step; the workflow's PFX path assumes an exportable certificate).
+2. Create the GitHub environment `desktop-release` with **required reviewers**, and store there: `WINDOWS_SIGNING_PFX_BASE64` and `WINDOWS_SIGNING_PFX_PASSWORD` (certificate method), or `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (secrets) and `AZURE_TRUSTED_SIGNING_ENDPOINT`, `_ACCOUNT`, `_PROFILE` (variables). Configure exactly one method.
+3. Set the repository variable `DESKTOP_RELEASE_ACTORS` (for example `["login1","login2"]`) and optionally `SIGN_TIMESTAMP_URL`.
+4. Run the workflow once and confirm `Get-AuthenticodeSignature` reports `Valid` with a timestamp on the downloaded installer, then run the clean-VM install, upgrade-over and uninstall checks in section 5.
+5. Protect `main` (required reviews and status checks) so only reviewed code reaches the signing job.
+6. **Update-manifest keys (SEC-09).** For a signed build with an update feed, generate the Ed25519 pair (`node scripts/release/manifest-keys.mjs generate <file>`), store the private key as the `desktop-release` environment secret `UPDATE_MANIFEST_SIGNING_KEY` and the public key as the repository variable `UPDATE_MANIFEST_PUBLIC_KEY`. `package-release` refuses a signed build with a feed unless both exist and match, signs `latest.yml` into `latest.yml.sig`, and `verify-build` checks that the signature verifies against the key shipped inside the app. Details and limits: `docs/DESKTOP_UPDATES.md` section 11.
+7. **Signing secrets are scoped (SEC-17).** The build and verification steps run with the signing credentials removed from their environment; only the electron-builder step receives them.
+
+### 0.7 Certificate renewal and expiry
+
+Track the certificate's `NotAfter` date: preflight warns at 30 days and refuses an expired certificate. Renew before expiry (certificate methods need a new PFX in the environment secret; Azure methods renew in the service). **Already-released installers stay valid after the certificate expires because of the RFC 3161 timestamp**; new builds need a valid certificate. On suspected key compromise: revoke with the CA/service, remove the secret, rotate, rebuild and publish a higher version, and withdraw the old installer.
+
+### 0.8 What was verified in this repository (2026-11-22)
+
+* Unsigned end-to-end run of `npm run package:win:release` on Windows: all verification checks passed.
+* Signing machinery demonstrated with a **throw-away self-signed certificate** (removed afterwards): electron-builder signed the installer and the application executable with SHA-256 and a real RFC 3161 timestamp from the default service; Windows reported `UnknownError` (untrusted root) and the verifier correctly **rejected** it as a signed build. A trusted `Valid` result was **not** obtained (no certificate): **BLOCKED**.
+* GitHub workflows were YAML-parsed and checked by `tests/release-workflow.test.ts`; they have **not** been run on GitHub and actionlint was not run.
 
 ## 1. Production build
 
@@ -40,7 +110,7 @@ The app icon is generated from project-owned artwork by `scripts/generate-icon.m
 | Backend URL | Desktop **Settings**, or `INTERVIEW_API_URL` in the user's environment before first launch | Default `http://127.0.0.1:8000`. Any non-loopback URL **must be `https://`** (enforced). Changing it signs the user out. |
 | AI provider keys | Backend only | The desktop app never holds provider keys. |
 | Backend CORS / ticket settings | Backend `.env` | The desktop main process calls the REST/SSE API directly; no renderer origin is involved. |
-| Signing (future) | Build machine only: `CSC_LINK`/`CSC_KEY_PASSWORD` or a cloud-signing configuration | Never committed. Not configured today. |
+| Signing | CI environment secrets or the build machine environment only: `CSC_LINK` + `CSC_KEY_PASSWORD`, or the `AZURE_*` variables (section 0) | Never committed; `REQUIRE_SIGNING=true` makes a missing configuration fail the build. |
 
 Windows secure storage (DPAPI via Electron `safeStorage`) must be available; otherwise the app refuses to persist the refresh token and the user must sign in each launch.
 
@@ -51,7 +121,7 @@ Windows secure storage (DPAPI via Electron `safeStorage`) must be available; oth
 | Authenticode | `NotSigned` (verified) | Valid publisher signature + timestamp |
 | SmartScreen / browsers | "Windows protected your PC" / unknown publisher warnings | Warnings reduce as reputation builds; depends on certificate type |
 | Allowed use | Developer and owner testing; a small trusted group that has been told to expect the warning | Any distribution beyond that |
-| Auto-update | Not possible to do safely | Prerequisite (the updater must verify the publisher) |
+| Auto-update | Off by design: the app refuses to start the updater without a pinned publisher (`docs/DESKTOP_UPDATES.md`) | Possible once signed with `UPDATE_FEED_URL` and `SIGN_PUBLISHER_NAME` set |
 
 Do not distribute the unsigned installer outside trusted testers.
 

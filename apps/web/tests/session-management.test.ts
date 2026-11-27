@@ -65,7 +65,7 @@ test("activity text is relative and never throws", () => {
 test("the export file name carries no company, title or user data", () => {
   const sid = "abcdef12-2222-4333-8444-555555555555";
   assert.equal(exportFileName(sid, "markdown"), "session-abcdef12.md");
-  assert.equal(exportFileName(sid, "json"), "session-abcdef12.json");
+  assert.equal(exportFileName(sid, "pdf"), "session-abcdef12.pdf");
 });
 
 test("the export and delete warnings say what happens", () => {

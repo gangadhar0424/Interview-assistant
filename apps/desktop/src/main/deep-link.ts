@@ -26,6 +26,36 @@ export function parseHandoffLink(raw: unknown): string | null {
   return CODE_PATTERN.test(code) ? code : null;
 }
 
+export type HandoffLinkParts = {
+  code: string;
+  /** SEC-08: base64url(SHA-256(verifier)) of the secret this app handed to the web page; null on a legacy link. */
+  challenge: string | null;
+};
+
+/**
+ * Like `parseHandoffLink`, but also accepts the binding challenge (SEC-08):
+ *
+ *   interviewassistant://start?h=<43 characters>            (legacy: unbound)
+ *   interviewassistant://start?h=<43 characters>&c=<43 characters>
+ *
+ * Exactly those two shapes; the parameters must come in that order, appear once, and nothing else is
+ * allowed (no path, fragment, userinfo, port or extra parameter). The challenge is NOT a secret (it is
+ * a hash); the verifier it commits to never appears in a link.
+ */
+export function parseHandoffLinkParts(raw: unknown): HandoffLinkParts | null {
+  if (typeof raw !== "string" || raw.length > MAX_LINK_LENGTH) return null;
+  if (/[\u0000- \u007f\\]/.test(raw)) return null;
+  if (!raw.toLowerCase().startsWith(LINK_PREFIX)) return null;
+  const rest = raw.slice(LINK_PREFIX.length);
+  const match = /^start\/?\?h=([^&#?]*)(?:&c=([^&#?]*))?$/i.exec(rest);
+  if (!match) return null;
+  const code = match[1] ?? "";
+  if (!CODE_PATTERN.test(code)) return null;
+  const challenge = match[2];
+  if (challenge === undefined) return { code, challenge: null };
+  return CODE_PATTERN.test(challenge) ? { code, challenge } : null;
+}
+
 /**
  * The first argument that looks like one of our links. On Windows the OS starts (or re-starts) the
  * app with the link in argv; other arguments (flags, paths) are ignored.

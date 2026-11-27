@@ -36,3 +36,12 @@ Thumbs.db
 
 # Local-only copy of the desktop installer served by the dev web app (never commit binaries)
 apps/web/public/downloads/
+
+# Production environment files and backups (never commit; see docs/DEPLOYMENT.md)
+infra/deploy/production.env
+infra/deploy/*.env
+!infra/deploy/*.env.example
+backups/
+
+# The release TOOLING (scripts) is source; only the build OUTPUT folder apps/desktop/release/ is ignored.
+!apps/desktop/scripts/release/

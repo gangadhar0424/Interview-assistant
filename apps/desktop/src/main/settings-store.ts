@@ -5,6 +5,7 @@ import {
   ACCEPTABLE_USE_VERSION,
   type AcknowledgementState,
 } from "../shared/acknowledgement";
+import { CAPTURE_PRIVACY_CONSENT_VERSION, type CapturePrivacyConsent } from "../shared/capture-privacy";
 import type { DesktopSettings } from "../shared/contracts";
 import {
   DEFAULT_SHORTCUT_CONFIG,
@@ -102,6 +103,20 @@ function isDefaultShortcuts(config: ShortcutConfig): boolean {
   );
 }
 
+/** A consent record counts only for the current wording version and with a real timestamp. */
+function parseCapturePrivacyConsent(value: unknown): CapturePrivacyConsent | null {
+  if (!isObject(value)) return null;
+  const { version, acceptedAt } = value;
+  if (
+    version !== CAPTURE_PRIVACY_CONSENT_VERSION ||
+    typeof acceptedAt !== "string" ||
+    Number.isNaN(Date.parse(acceptedAt))
+  ) {
+    return null;
+  }
+  return { version, acceptedAt };
+}
+
 type StoredPlacements = Partial<Record<WindowMode, SavedPlacement>>;
 
 /** Lenient: an unusable entry is dropped and the default placement is used for that mode. */
@@ -119,6 +134,10 @@ export class SettingsStore {
   private ack: StoredAcknowledgement | null = null;
   private placements: StoredPlacements = {};
   private shortcuts: ShortcutConfig = structuredClone(DEFAULT_SHORTCUT_CONFIG);
+  /** M-15: the user's saved screen-capture-privacy choice. Off unless the file says exactly `true`. */
+  private capturePrivacy = false;
+  /** Consent record for the CURRENT wording; non-null exactly when `capturePrivacy` is true. */
+  private capturePrivacyConsentRecord: CapturePrivacyConsent | null = null;
 
   constructor(
     private readonly filePath: string,
@@ -132,6 +151,10 @@ export class SettingsStore {
       this.ack = isObject(parsed) ? parseAcknowledgement(parsed.acceptableUse) : null;
       this.shortcuts = parseShortcuts(isObject(parsed) ? parsed.shortcuts : undefined);
       this.placements = parsePlacements(isObject(parsed) ? parsed.windowPlacement : undefined);
+      // Fail closed: "on" counts only with a valid consent record for the current wording version.
+      const consent = isObject(parsed) ? parseCapturePrivacyConsent(parsed.capturePrivacyConsent) : null;
+      this.capturePrivacy = isObject(parsed) && parsed.capturePrivacy === true && consent !== null;
+      this.capturePrivacyConsentRecord = this.capturePrivacy ? consent : null;
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") return { ...this.settings };
       throw new Error("Could not read desktop settings.", { cause: error });
@@ -141,7 +164,7 @@ export class SettingsStore {
 
   update(patch: Partial<DesktopSettings>): DesktopSettings {
     const next = validateSettings({ ...this.settings, ...patch });
-    this.write(next, this.ack, this.shortcuts, this.placements);
+    this.write(next, this.ack, this.shortcuts, this.placements, this.capturePrivacy, this.capturePrivacyConsentRecord);
     this.settings = next;
     return { ...next };
   }
@@ -173,7 +196,7 @@ export class SettingsStore {
   acknowledge(userId: string, acceptedAt: string): AcknowledgementState {
     const next: StoredAcknowledgement = { version: ACCEPTABLE_USE_VERSION, userId, acceptedAt };
     if (!parseAcknowledgement(next)) throw new Error("Could not save the acknowledgement.");
-    this.write(this.settings, next, this.shortcuts, this.placements);
+    this.write(this.settings, next, this.shortcuts, this.placements, this.capturePrivacy, this.capturePrivacyConsentRecord);
     this.ack = next;
     return this.acknowledgement(userId);
   }
@@ -186,7 +209,7 @@ export class SettingsStore {
   /** Validate (throws a user-safe Error) and save the shortcut preferences. */
   setShortcuts(value: unknown): ShortcutConfig {
     const next = validateShortcutConfig(value);
-    this.write(this.settings, this.ack, next, this.placements);
+    this.write(this.settings, this.ack, next, this.placements, this.capturePrivacy, this.capturePrivacyConsentRecord);
     this.shortcuts = next;
     return structuredClone(next);
   }
@@ -201,8 +224,27 @@ export class SettingsStore {
     const parsed = parseSavedPlacement(placement);
     if (!parsed || (mode !== "compact" && mode !== "expanded")) throw new Error("Could not save the window position.");
     const next = { ...this.placements, [mode]: parsed };
-    this.write(this.settings, this.ack, this.shortcuts, next);
+    this.write(this.settings, this.ack, this.shortcuts, next, this.capturePrivacy, this.capturePrivacyConsentRecord);
     this.placements = next;
+  }
+
+  /** Whether the user chose screen-capture privacy (M-15). False by default and for any damaged value. */
+  capturePrivacyEnabled(): boolean {
+    return this.capturePrivacy;
+  }
+
+  /** Save the choice. Only the main process calls this, after the acknowledgement and native confirmation. */
+  setCapturePrivacy(enabled: boolean, consent?: CapturePrivacyConsent): void {
+    if (typeof enabled !== "boolean") throw new Error("Could not save the setting.");
+    if (enabled && !parseCapturePrivacyConsent(consent)) throw new Error("Could not save the setting without consent.");
+    this.write(this.settings, this.ack, this.shortcuts, this.placements, enabled, enabled ? consent ?? null : null);
+    this.capturePrivacy = enabled;
+    this.capturePrivacyConsentRecord = enabled ? consent ?? null : null;
+  }
+
+  /** The recorded consent for the current wording, or null (also null whenever the setting is off). */
+  capturePrivacyConsent(): CapturePrivacyConsent | null {
+    return this.capturePrivacyConsentRecord ? { ...this.capturePrivacyConsentRecord } : null;
   }
 
   private write(
@@ -210,6 +252,8 @@ export class SettingsStore {
     ack: StoredAcknowledgement | null,
     shortcuts: ShortcutConfig,
     placements: StoredPlacements,
+    capturePrivacy: boolean,
+    capturePrivacyConsent: CapturePrivacyConsent | null,
   ): void {
     const tempPath = join(dirname(this.filePath), `.settings-${randomUUID()}.tmp`);
     try {
@@ -220,6 +264,7 @@ export class SettingsStore {
         ...(ack ? { acceptableUse: ack } : {}),
         ...(isDefaultShortcuts(shortcuts) ? {} : { shortcuts }),
         ...(Object.keys(placements).length > 0 ? { windowPlacement: placements } : {}),
+        ...(capturePrivacy && capturePrivacyConsent ? { capturePrivacy: true, capturePrivacyConsent } : {}),
       };
       writeFileSync(tempPath, JSON.stringify(body, null, 2), { encoding: "utf8", mode: 0o600 });
       renameSync(tempPath, this.filePath);

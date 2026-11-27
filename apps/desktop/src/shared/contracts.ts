@@ -1,9 +1,11 @@
 import type { AcknowledgementState } from "./acknowledgement";
 import type { AnswerSource } from "./answer-source";
+import type { CapturePrivacyState } from "./capture-privacy";
 import type { DisplayList } from "./placement";
 import type { CopyDiagnosticsResult, RecoveryInfo } from "./recovery";
 import type { ShortcutConfig, ShortcutEvent, ShortcutState } from "./shortcuts";
 import type { SessionDraft, SessionOptions } from "./session-form";
+import type { UpdateState } from "./updates";
 
 export type DesktopSettings = {
   backendBaseUrl: string;
@@ -55,7 +57,7 @@ export type SessionSummary = {
 };
 
 /** User-triggered session export (M-9). The content is saved by the main process; never returned. */
-export type SessionExportFormat = "markdown" | "json";
+export type SessionExportFormat = "markdown" | "pdf";
 export type SessionExportResult = { saved: boolean; fileName: string | null };
 
 /** A resume or document the user may select (Phase 11.5). Names and status only: never content. */
@@ -278,6 +280,13 @@ export type DesktopBridge = {
      * the text never reaches the renderer). Returns only how many characters were copied.
      */
     copyDiagnostics(): Promise<DesktopResult<CopyDiagnosticsResult>>;
+    /** Screen-capture privacy state (M-15). Off by default; see shared/capture-privacy.ts. */
+    getCapturePrivacy(): Promise<DesktopResult<CapturePrivacyState>>;
+    /**
+     * Ask for it on or off. Turning on is refused until the acceptable-use notice is accepted, and
+     * needs a native confirmation in the main process. Returns the resulting state.
+     */
+    setCapturePrivacy(enabled: boolean): Promise<DesktopResult<CapturePrivacyState>>;
     /** The connected displays and which one the assistant is on (M-6, D-71). */
     getDisplays(): Promise<DesktopResult<DisplayList>>;
     /** Moves the assistant to the middle of that display and remembers it. Validated in main. */
@@ -324,6 +333,16 @@ export type DesktopBridge = {
       format: SessionExportFormat,
     ): Promise<DesktopResult<SessionExportResult>>;
   };
+  updates: {
+    /** The current update state (always "disabled" with a reason in an unsigned or development build). */
+    getState(): Promise<DesktopResult<UpdateState>>;
+    /** A manual metadata check. Downloads nothing. */
+    check(): Promise<DesktopResult<UpdateState>>;
+    /** Downloads the announced update. Only valid from "available". */
+    download(): Promise<DesktopResult<UpdateState>>;
+    /** Stops capture, quits and installs. Only valid from "downloaded". Never starts audio or capture. */
+    install(): Promise<DesktopResult<UpdateState>>;
+  };
   handoff: {
     /** The current handoff state (the link can arrive before the renderer is listening). */
     getState(): Promise<DesktopResult<HandoffState>>;
@@ -353,6 +372,7 @@ export type DesktopBridge = {
   onStreamMessage(listener: (message: StreamMessage) => void): () => void;
   onSessionExpired(listener: () => void): () => void;
   onHandoffEvent(listener: (state: HandoffState) => void): () => void;
+  onUpdateEvent(listener: (state: UpdateState) => void): () => void;
 };
 
 declare global {

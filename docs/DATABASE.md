@@ -131,8 +131,8 @@ Index: `(question_id)`, `(session_id, created_at)`.
 ### screenshots (later phase; **not created in the Phase 11 MVP, D-51:** screenshots are memory-only, so there is no table, column or migration; `detected_questions.source = 'screenshot'` already exists)
 `id, session_id, user_id, storage_key, mime_type, size_bytes, sha256, status, extracted_text (sensitive) NULL, expires_at, created_at`. Index `(expires_at)` for retention sweeps.
 
-### audit_events
-`id, user_id NULL, actor_type, event_type, resource_type, resource_id, ip_hash, user_agent_hash, metadata jsonb (no content), created_at`. Append-only (no UPDATE/DELETE grants). Index `(user_id, created_at DESC)`, `(event_type, created_at)`.
+### audit_events (**PLANNED, NOT IMPLEMENTED:** no migration creates this table and no code writes to it; SEC-31, checked 2026-11-24)
+The design below is a proposal only. Until it is built, the application keeps **no persistent audit trail**: security-relevant events appear only in operational logs (IDs, never content), whose retention is whatever the host's log policy is. Building it is a schema change and needs owner approval (see `docs/OWNER_DECISIONS_SEC13_SEC20.md` for how audit retention interacts with account deletion). Proposed columns: `id, user_id NULL, actor_type, event_type, resource_type, resource_id, ip_hash, user_agent_hash, metadata jsonb (no content), created_at`. Append-only (no UPDATE/DELETE grants). Index `(user_id, created_at DESC)`, `(event_type, created_at)`.
 
 ## 3. Ownership Relationships
 Everything hangs off `users.id`. Every user-owned table carries a **denormalized `user_id`** (resumes, documents, ingestion_jobs, chunks, sessions, session_preferences via session, transcript_segments, detected_questions, generated_answers, screenshots). Child rows must match parent's `user_id` (composite FK `(id, user_id)` references or trigger). Cross-user references (e.g., a session pointing to another user's resume) are prevented by this constraint, not only by application code.

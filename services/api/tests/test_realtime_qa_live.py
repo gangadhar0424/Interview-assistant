@@ -10,9 +10,11 @@ and verify what only a real socket shows:
   everything is cleaned up, and another user's connection keeps working.
 """
 
+import asyncio
 import json
 import logging
 import socket
+import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
@@ -106,8 +108,17 @@ class Rig:
         assert response.status_code == 200, response.text
         return str(response.json()["ticket"])
 
-    def open(self, who: Person, resume_from_seq: int | None = None) -> ClientConnection:
-        ws = connect(self.live.ws(who.session_id, self.ticket(who)), open_timeout=10)
+    def open(
+        self, who: Person, resume_from_seq: int | None = None, rcvbuf: int | None = None
+    ) -> ClientConnection:
+        url = self.live.ws(who.session_id, self.ticket(who))
+        if rcvbuf is None:
+            ws = connect(url, open_timeout=10)
+        else:  # a tiny receive window: the server's writes block after only a little data
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
+            sock.connect(("127.0.0.1", self.live.port))
+            ws = connect(url, sock=sock, open_timeout=10)
         self.ready = json.loads(ws.recv(timeout=10))  # session.ready
         payload: dict[str, Any] = {"protocol_version": 1}
         if resume_from_seq is not None:
@@ -327,6 +338,39 @@ def test_a_client_that_stops_reading_is_closed_as_a_slow_consumer_without_losing
     assert not any("yyyy" in r.getMessage() for r in rig.records.records)  # no text in logs
 
 
+class LoopProbe:
+    """Measures how long the server's event loop takes to run a callback it is handed from outside
+    (the test thread): a loop blocked by CPU-bound work, or starved, shows up as lag. It is the
+    direct measure of "one user cannot delay another", independent of any one request's latency."""
+
+    def __init__(self) -> None:
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self.max_lag = 0.0
+        self.samples = 0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            loop = self.loop
+            if loop is not None and not loop.is_closed():
+                done = threading.Event()
+                started = time.monotonic()
+                loop.call_soon_threadsafe(done.set)
+                if done.wait(60):
+                    self.max_lag = max(self.max_lag, time.monotonic() - started)
+                    self.samples += 1
+            time.sleep(0.01)
+
+    def __enter__(self) -> "LoopProbe":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=70)
+
+
 def test_one_slow_client_does_not_stall_another_user(
     small_buffers: None, rig_factory: Callable[[Any], Rig]
 ) -> None:
@@ -357,3 +401,72 @@ def test_one_slow_client_does_not_stall_another_user(
     finally:
         bob.close()
     assert wait_for(lambda: 4010 in rig.records.closed_codes(), timeout=30)
+
+
+def test_one_slow_client_does_not_delay_the_event_loop(
+    small_buffers: None, rig_factory: Callable[[Any], Rig]
+) -> None:
+    """Alice's answer is a flood her client never reads, and her generation stays open (held by
+    `release`) while Bob asks. Her client has a tiny receive window and reads nothing. The claim:
+    the server keeps serving Bob, and its event loop is never blocked or starved by Alice. Nothing
+    here is a wall-clock race: Bob's request is awaited on events (generous timeouts that only
+    bound a hang), and the delay is measured on the loop.
+
+    The flood is 100 x 1 KiB, about the size of the largest answer a provider can produce
+    (`max_output_tokens` is capped at 32768). The slow-consumer CLOSE (4010) is asserted by the
+    sibling test and, for a write stuck in the kernel, deterministically in
+    `test_realtime_channel.py`; loopback buffers on Windows swallow a few MB, so no realistic
+    volume reliably wedges the socket here. This test is deliberately small and measures the event
+    loop's own lag. The 25 MiB flood of `test_one_slow_client_does_not_stall_another_user` above
+    used to block the loop for seconds in the post-processing of the finished answer (SEC-33,
+    fixed: an ASCII fast path in `clean_text` plus running the citation check in a worker thread;
+    `tests/test_qa_event_loop.py` and `tests/test_sanitize_fast_path.py` pin that fix)"""
+    probe = LoopProbe()
+    hold: dict[str, Any] = {}
+
+    class Mixed(FloodProvider):
+        """Floods for the first request (then stays open until released), quick for any later."""
+
+        async def stream_chat(
+            self, messages: Sequence[Message], model: str, config: GenerationConfig
+        ) -> Any:
+            if self.calls == 0:
+                probe.loop = asyncio.get_running_loop()
+                hold["release"] = asyncio.Event()
+                self.calls += 1
+                for _ in range(self.tokens):
+                    self.emitted += 1
+                    yield Token("y" * self.size)
+                await hold["release"].wait()  # Alice's generation stays in flight
+                self.finished = True
+                yield Usage(1, self.tokens)
+                return
+            self.calls += 1
+            yield Token("a short answer")
+            yield Usage(1, 3)
+
+    provider = Mixed(tokens=100, size=1024)
+    rig = rig_factory(provider)
+    with probe:
+        stalled = rig.open(rig.alice, rcvbuf=1024)
+        say(stalled)  # Alice never reads
+        assert wait_for(lambda: provider.emitted == provider.tokens, timeout=30)
+        assert wait_for(lambda: not provider.finished and probe.samples > 0, timeout=10)
+        bob = rig.open(rig.bob)  # a new ticket and socket while Alice's flood is unread
+        try:
+            say(bob)
+            assert read_until(bob, *TERMINAL, timeout=30)[-1]["type"] == "answer.done"
+        finally:
+            bob.close()
+        loop = probe.loop
+        assert loop is not None
+        loop.call_soon_threadsafe(hold["release"].set)
+        assert wait_for(lambda: provider.finished, timeout=30)
+        # Alice's generation completes and is stored whatever her socket does, and once her socket
+        # is gone nothing is left behind.
+        assert wait_for(lambda: rig.limits.active(rig.user_id(rig.alice)) == 0, timeout=30)
+        stalled.socket.close()
+        assert wait_for(lambda: rig.registry_size() == 0, timeout=30)
+    # Evidence-based bound: the loop served callbacks with a lag of a few milliseconds while Alice
+    # flooded; 2 s only tolerates a heavily loaded machine and still fails on blocking work.
+    assert probe.max_lag < 2.0, f"event loop blocked for {probe.max_lag:.2f}s"

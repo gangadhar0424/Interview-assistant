@@ -73,6 +73,9 @@ describe("capture can only start from the one explicit, gated path", () => {
       "main/secure-refresh-store.ts",
       "main/session-files.ts",
       "main/settings-store.ts",
+      // M-11: read-only. It reads the build's app-update.yml and measures free disk space; the guard
+      // in updater-guards.test.ts forbids every write API in it.
+      "main/updater-io.ts",
     ]);
   });
 
@@ -96,12 +99,14 @@ describe("the preload bridge stays narrow", () => {
         "app:copy-diagnostics",
         "app:copy-text",
         "app:get-acknowledgement",
+        "app:get-capture-privacy",
         "app:get-displays",
         "app:get-recovery",
         "app:get-settings",
         "app:get-shortcuts",
         "app:minimize",
         "app:move-to-display",
+        "app:set-capture-privacy",
         "app:set-expanded",
         "app:set-shortcuts",
         "app:update-settings",
@@ -128,6 +133,11 @@ describe("the preload bridge stays narrow", () => {
         "sessions:set-voice",
         "sessions:stream-cancel",
         "sessions:stream-start",
+        // M-11: four argument-free channels (updater-guards.test.ts pins their shape).
+        "updates:check",
+        "updates:download",
+        "updates:get-state",
+        "updates:install",
       ].sort(),
     );
     expect(preload).not.toMatch(/invoke:\s*ipcRenderer|ipcRenderer:\s*ipcRenderer|exposeInMainWorld\("(?!desktop")/);

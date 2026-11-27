@@ -184,15 +184,15 @@ Use a signed-in account with at least two sessions, one with a few answered ques
 
 | # | Check | Pass |
 |---|---|---|
-| 1 | The Sessions page shows each session's name, company, state (Active, Completed or Interrupted), question count and last activity; the open session says **Current** | |
-| 2 | **Rename** a session, press Enter: the new name shows in the list, the Ask page selector and History; Escape cancels | |
-| 3 | Open session A, ask a question, switch to B: B shows only B's history and none of A's answer; switching back shows A's | |
-| 4 | Switch sessions while an answer is streaming: the old answer stops and does not appear under the new session | |
-| 5 | Press Listen, then switch session: listening stops and Listen has to be pressed again | |
-| 6 | **Complete** the open session: listening stops, the state becomes Completed, Ask is disabled; **Reopen** returns it to Active and starts nothing | |
-| 7 | **Delete** shows a native confirmation; Cancel changes nothing; Delete removes the session, and the next session opens without recording | |
-| 8 | **Export** shows the native warning, then a Save dialog; cancelling at either step writes nothing; saving writes a readable `.md` (and **JSON** a `.json`) containing the questions and answers and no resume text, tokens or e-mail | |
-| 9 | Disconnect the network and try Rename, Complete, Delete and Export: each says the session was not changed or the export failed, and nothing is written; reconnect and retry works | |
-| 10 | Delete a session in the web app, then Complete it here without refreshing: "This session is no longer available" and the list refreshes | |
-| 11 | Close and reopen the app: the most recently used ready session is selected and nothing is recording | |
-| 12 | Create a session, drop the network just as you press Create, retry: only one session exists | |
+| 1 | The Sessions page shows each session's name, company, state (Active, Completed or Interrupted), question count and last activity; the open session says **Current** | Passed (owner-confirmed 2026-11-22) |
+| 2 | **Rename** a session, press Enter: the new name shows in the list, the Ask page selector and History; Escape cancels | Passed (owner-confirmed 2026-11-22) |
+| 3 | Open session A, ask a question, switch to B: B shows only B's history and none of A's answer; switching back shows A's | Passed (owner-confirmed 2026-11-22) |
+| 4 | Switch sessions while an answer is streaming: the old answer stops and does not appear under the new session | Passed (owner-confirmed 2026-11-22) |
+| 5 | Press Listen, then switch session: listening stops and Listen has to be pressed again | Passed (owner-confirmed 2026-11-22) |
+| 6 | **Complete** the open session: listening stops, the state becomes Completed, Ask is disabled; **Reopen** returns it to Active and starts nothing | Passed (owner-confirmed 2026-11-22) |
+| 7 | **Delete** shows a native confirmation; Cancel changes nothing; Delete removes the session, and the next session opens without recording | Passed (owner-confirmed 2026-11-22) |
+| 8 | **Export** shows the native warning, then a Save dialog; cancelling at either step writes nothing; saving writes a readable `.md` (and **PDF** a `.pdf` that opens in a PDF viewer) containing the questions and answers and no resume text, tokens or e-mail | Passed (owner-confirmed 2026-11-22) |
+| 9 | Disconnect the network and try Rename, Complete, Delete and Export: each says the session was not changed or the export failed, and nothing is written; reconnect and retry works | Passed (owner-confirmed 2026-11-22) |
+| 10 | Delete a session in the web app, then Complete it here without refreshing: "This session is no longer available" and the list refreshes | Passed (owner-confirmed 2026-11-22) |
+| 11 | Close and reopen the app: the most recently used ready session is selected and nothing is recording | Passed (owner-confirmed 2026-11-22) |
+| 12 | Create a session, drop the network just as you press Create, retry: only one session exists | Passed (owner-confirmed 2026-11-22) |

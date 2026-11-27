@@ -1,6 +1,7 @@
 """Alembic environment (async). The URL comes from application settings."""
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -19,9 +20,17 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _database_url() -> str:
+    """The migration URL. An explicit DATABASE_URL in the process environment wins, so the one-shot
+    migrate container needs only that variable (SEC-12: no JWT secret, provider keys or maintenance
+    credential). Otherwise the full application settings (including the repo `.env`) are used."""
+    url = os.environ.get("DATABASE_URL", "").strip()
+    return url or get_settings().database_url
+
+
 def run_migrations_offline() -> None:
     context.configure(
-        url=get_settings().database_url,
+        url=_database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -37,7 +46,7 @@ def _do_run(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    engine = create_async_engine(get_settings().database_url, poolclass=pool.NullPool)
+    engine = create_async_engine(_database_url(), poolclass=pool.NullPool)
     async with engine.connect() as connection:
         await connection.run_sync(_do_run)
     await engine.dispose()

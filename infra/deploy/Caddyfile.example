@@ -1,0 +1,44 @@
+# Example TLS-terminating reverse proxy for docker-compose.prod.yml (M-12). NOT exercised in this
+# repository's tests: validate it in your environment. Replace the host names; Caddy obtains and
+# renews certificates automatically once DNS points at this machine.
+#
+# Why a proxy: the API listens on 127.0.0.1 only and speaks plain HTTP; browsers and the desktop app
+# must reach it over HTTPS. The API runs with --no-proxy-headers and TRUSTED_PROXY_ENABLED=true,
+# TRUSTED_PROXY_HOPS=1 so it takes the client address from the LAST entry this proxy appends to
+# X-Forwarded-For (docs/OPERATIONS.md, "Auth abuse protection").
+
+app.example.com {
+	encode zstd gzip
+
+	# SEC-14 (checked on a real chain, infra/deploy/proxy-check): send /api/* straight to the API. Measured
+	# with the web image and Caddy: the Next.js rewrite passes X-Forwarded-For through UNCHANGED, so the
+	# per-client login limit also works through it. Routing /api/* directly is kept because it does not
+	# depend on that behaviour of any Next.js version (an extra appended hop would make TRUSTED_PROXY_HOPS=1
+	# read the proxy address and put every web user in one bucket), and it streams answers (SSE) unbuffered.
+	# Same-origin is preserved, so the HttpOnly refresh cookie and CORS behave as before.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	# Everything else is the Next.js web app.
+	handle {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+}
+
+api.example.com {
+	# Direct API access for the desktop app and WebSockets. Streaming (SSE) must not be buffered.
+	reverse_proxy 127.0.0.1:8000 {
+		flush_interval -1
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	# Keep the operational endpoints off the public internet.
+	@internal path /metrics /ready
+	respond @internal 404
+}

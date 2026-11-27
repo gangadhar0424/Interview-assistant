@@ -59,6 +59,9 @@ select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "TID251"]
 "tests/test_job_import_ssrf.py" = ["S104"]  # 0.0.0.0 etc. are intentional blocked-address data
 "scripts/verify_openai_model.py" = ["TID251"]  # dev-only probe of the raw SDK; not imported by app
 "app/ai/adapters/**" = ["TID251"]  # the only place provider SDKs may be imported (Phase 6)
+# Dev-only attack probes (docs/SECURITY_TESTING.md): they assert on outcomes, call docker through
+# subprocess and print long result lines. Never imported by the app and never run in production.
+"scripts/security/**" = ["S101", "S603", "S607", "E501", "E402"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "openai".msg = "Provider SDKs may only be imported in app/ai/adapters/."

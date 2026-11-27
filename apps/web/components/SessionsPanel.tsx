@@ -330,8 +330,8 @@ export function SessionsPanel() {
                     <button type="button" disabled={busyId !== null} onClick={() => exportSession(item, "markdown")}>
                       Export
                     </button>
-                    <button type="button" disabled={busyId !== null} onClick={() => exportSession(item, "json")}>
-                      Export JSON
+                    <button type="button" disabled={busyId !== null} onClick={() => exportSession(item, "pdf")}>
+                      Export PDF
                     </button>
                     <button type="button" disabled={busyId !== null} onClick={() => remove(item)}>
                       Delete

@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AcknowledgementState } from "../shared/acknowledgement";
+import type { CapturePrivacyState } from "../shared/capture-privacy";
 import type { DisplayList } from "../shared/placement";
 import type { CopyDiagnosticsResult, RecoveryInfo } from "../shared/recovery";
 import type { ShortcutEvent, ShortcutState } from "../shared/shortcuts";
+import type { UpdateState } from "../shared/updates";
 import type {
   AudioEvent,
   CaptureDisplay,
@@ -46,6 +48,10 @@ const bridge: DesktopBridge = {
     getRecovery: () => ipcRenderer.invoke("app:get-recovery") as Promise<DesktopResult<RecoveryInfo>>,
     copyDiagnostics: () =>
       ipcRenderer.invoke("app:copy-diagnostics") as Promise<DesktopResult<CopyDiagnosticsResult>>,
+    getCapturePrivacy: () =>
+      ipcRenderer.invoke("app:get-capture-privacy") as Promise<DesktopResult<CapturePrivacyState>>,
+    setCapturePrivacy: (enabled) =>
+      ipcRenderer.invoke("app:set-capture-privacy", enabled) as Promise<DesktopResult<CapturePrivacyState>>,
     getDisplays: () => ipcRenderer.invoke("app:get-displays") as Promise<DesktopResult<DisplayList>>,
     moveToDisplay: (displayId) =>
       ipcRenderer.invoke("app:move-to-display", displayId) as Promise<DesktopResult<DisplayList>>,
@@ -85,6 +91,12 @@ const bridge: DesktopBridge = {
       ipcRenderer.invoke("sessions:export", sessionId, format) as Promise<
         DesktopResult<SessionExportResult>
       >,
+  },
+  updates: {
+    getState: () => ipcRenderer.invoke("updates:get-state") as Promise<DesktopResult<UpdateState>>,
+    check: () => ipcRenderer.invoke("updates:check") as Promise<DesktopResult<UpdateState>>,
+    download: () => ipcRenderer.invoke("updates:download") as Promise<DesktopResult<UpdateState>>,
+    install: () => ipcRenderer.invoke("updates:install") as Promise<DesktopResult<UpdateState>>,
   },
   handoff: {
     getState: () => ipcRenderer.invoke("handoff:get-state") as Promise<DesktopResult<HandoffState>>,
@@ -130,6 +142,11 @@ const bridge: DesktopBridge = {
     const wrapped = (_event: Electron.IpcRendererEvent, state: HandoffState) => listener(state);
     ipcRenderer.on("handoff:event", wrapped);
     return () => ipcRenderer.removeListener("handoff:event", wrapped);
+  },
+  onUpdateEvent: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: UpdateState) => listener(state);
+    ipcRenderer.on("updates:event", wrapped);
+    return () => ipcRenderer.removeListener("updates:event", wrapped);
   },
   onSessionExpired: (listener) => {
     const wrapped = () => listener();

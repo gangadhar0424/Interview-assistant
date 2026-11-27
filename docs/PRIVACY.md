@@ -105,6 +105,12 @@ monitoring. The wording is a policy statement for the owner to approve, not lega
 - Not built: withdrawing the acknowledgement from the UI (delete the `acceptableUse` entry or raise the
   wording version), a server-side record, per-session acknowledgement.
 
+## Screen-capture privacy setting (M-15, D-80)
+
+- Optional and **off by default**. Turning it on needs the acceptable-use notice (version 2, which describes this setting) and a native confirmation. It asks Windows to leave this app's own window out of supported screen capture. It is not a guarantee, it does not hide the app from the taskbar, the tray, the process list or monitoring, security or proctoring software, and in a Windows remote session the window is not excluded.
+- The choice is stored on this device only (`capturePrivacy` in `settings.json`) and is never sent anywhere. A saved choice is re-applied after restart or window recovery with the in-window indicator shown; nothing turns it on automatically.
+- You remain responsible for the rules of any interview, meeting or assessment. Details and limits: `docs/WINDOW_CAPTURE_PRIVACY.md`.
+
 ## Crash recovery and local diagnostics (M-5, D-70)
 
 When the desktop window's renderer process crashes, the main process stops listening, wipes any held screenshot and cancels running answers, reloads the window once, and tells the user. Nothing is restarted for the user: audio, screenshots and sessions need the user's own explicit action again, with every consent, indicator and countdown.

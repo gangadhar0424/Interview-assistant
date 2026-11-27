@@ -16,10 +16,23 @@ _BLANK_RUNS = re.compile(r"\n{3,}")
 _TRAILING_SPACE = re.compile(r"[ \t]+\n")
 
 
-def clean_text(text: str) -> str:
-    """NFC-normalise, drop unsafe control/format characters, tidy whitespace (pure, idempotent)."""
+# ASCII fast path (SEC-33). For pure-ASCII text the per-character loop below reduces to a table: a
+# tab becomes a space, every other control character (category Cc: U+0000 to U+001F and U+007F) is
+# dropped, and the newline is kept. The line-break, format, surrogate and private-use rules cannot
+# apply to ASCII. `str.translate` does this in C, about a hundred times faster than the loop, which
+# matters only for extreme inputs (a 25 MiB answer took about 14 s in the loop);
+# tests/test_sanitize_fast_path.py proves both paths agree on every ASCII character.
+_ASCII_TABLE: dict[int, str | None] = {
+    code: None for code in range(0x20) if code not in (0x09, 0x0A)
+}
+_ASCII_TABLE[0x09] = " "
+_ASCII_TABLE[0x7F] = None
+
+
+def _clean_characters(normalized: str) -> str:
+    """The reference rules, character by character (used for any text that is not pure ASCII)."""
     out: list[str] = []
-    for ch in unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n")):
+    for ch in normalized:
         if ch == "\n" or ch in _LINE_BREAKS:
             out.append("\n")
         elif ch == "\t":
@@ -31,5 +44,16 @@ def clean_text(text: str) -> str:
             ):
                 continue
             out.append(ch)
-    cleaned = _TRAILING_SPACE.sub("\n", "".join(out))
+    return "".join(out)
+
+
+def clean_text(text: str) -> str:
+    """NFC-normalise, drop unsafe control/format characters, tidy whitespace (pure, idempotent)."""
+    unified = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = unicodedata.normalize("NFC", unified)
+    if normalized.isascii():
+        joined = normalized.translate(_ASCII_TABLE)
+    else:
+        joined = _clean_characters(normalized)
+    cleaned = _TRAILING_SPACE.sub("\n", joined)
     return _BLANK_RUNS.sub("\n\n", cleaned).strip()

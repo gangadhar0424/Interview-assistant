@@ -23,7 +23,9 @@ For staging/production:
 3. Use `REDIS_URL=rediss://...`; provision TLS and certificate validation at the Redis endpoint.
 4. Set `FILE_STORAGE_ROOT` to an absolute persistent volume path shared by API and workers.
 5. Set `MAINTENANCE_DATABASE_URL` to a separate operations identity used only for the recovery and
-   reindex commands. Do not copy it into ordinary API/worker runtime configuration.
+   reindex commands. It is not part of API or worker configuration and the production compose file
+   does not pass it to them: run those commands through the opt-in `maintenance` service
+   (`docker compose --profile ops run --rm maintenance ...`, SEC-12).
 6. Configure `DATABASE_URL` with a non-superuser, non-owner login that can `SET ROLE
    interview_app_runtime`. Never run the API as a PostgreSQL superuser.
 7. Store `OPENAI_API_KEY` (or `OLLAMA_API_KEY` for Ollama Cloud) only in the API environment when a
@@ -101,6 +103,8 @@ must use the configured maintenance connection.
 
 ## Database and file backup / restore
 
+**Scripts and a proven drill (M-12, D-79):** `infra/backup/backup.sh` (database, roles, uploads, manifest, checksums, mandatory authenticated encryption, `BACKUP_PASSPHRASE_FILE` required), `restore.sh` (authenticates the whole backup before restoring, refuses old-format backups, refuses a non-empty target, compares schema version and row counts) and `prune.sh` (dry run unless `--apply`). A restore into a fresh cluster was drilled with the results in `docs/DEPLOYMENT.md` section 8. Schedule the backup, copy it off the host, and repeat the drill regularly.
+
 - Back up PostgreSQL and the file-storage volume. Restore them as a coordinated set because
   database metadata points to stored files.
 - Use encrypted backups and least-privilege access; define retention with the data owner.
@@ -110,6 +114,20 @@ must use the configured maintenance connection.
 - Storage currently has no automated orphan-file reconciliation or disk quota. Alert on free space,
   inode exhaustion, and unexpected growth; restrict signup until per-user quotas are available if
   disk capacity is at risk.
+
+## Worker health and database limits (M-12)
+
+* **Worker liveness:** `python -m app.workers.healthcheck` exits 0 when at least one worker wrote a heartbeat within 45 s (it reads `ia:worker:heartbeat:*` from Redis). It is the worker container's health check; use it from a monitor too. "No worker heartbeat" with a growing `pending` backlog means ingestion is stopped: check the worker container, then run `python -m app.workers.recovery --dry-run`.
+* **Database connections:** each API and worker process holds up to `DB_POOL_SIZE + DB_MAX_OVERFLOW` connections. A burst of 503 `service_unavailable` responses with `database_errors` rising and Postgres at `max_connections` means the pools are larger than the server allows; reduce them or raise the server limit. A runaway query is cancelled after `DB_STATEMENT_TIMEOUT_MS`; a transaction left open is terminated after `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS`.
+* **503 versus 500:** 503 means a dependency (database, Redis, network) was unreachable, slow or out of capacity and the request can be retried; 500 `internal_error` is a bug: search the logs for the `request_id` (the log line carries the exception class only).
+
+## Upload quotas and storage capacity (SEC-15)
+
+- **Limits per user** (server-enforced; env vars, restart to change): `USER_MAX_RESUMES` (20), `USER_MAX_DOCUMENTS` (100), `USER_MAX_STORAGE_MB` (500, resumes and documents together). Per-file limits stay `RESUME_MAX_UPLOAD_MB` (10) and `DOCUMENT_MAX_UPLOAD_MB` (20). The defaults are assumptions pending owner confirmation.
+- **Worst case on disk:** users x `USER_MAX_STORAGE_MB`, plus in-flight temporary files (at most one per concurrent upload, each up to the per-file limit, removed on every failure path). Signup is invite-gated in production, so size the volume for the real user count; **no total cap is enforced in the application**, so alert on the uploads volume (for example at 80 percent) and on `file_quota_exceeded` / `storage_quota_exceeded` responses.
+- **Raising a limit** is a configuration change only; lowering one does not delete existing files, it only blocks further uploads until the user is under the limit.
+- **Concurrency:** the final check takes a PostgreSQL advisory lock per user for the duration of the insert, so one user's parallel uploads queue briefly and other users are unaffected. The lock is released on commit or rollback, including after a crash.
+- **Support:** a user at the limit gets `409`; deleting files frees space immediately. Quota counts database rows, so a file removed from disk by hand still counts until its row is deleted.
 
 ## Observability and alert response
 

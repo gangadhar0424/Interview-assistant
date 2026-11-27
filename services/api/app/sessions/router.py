@@ -4,12 +4,12 @@ Not in Phase 7B (see docs/PHASES.md): job import (7C), `start`/`end` (later phas
 answers (Phase 8).
 """
 
-import json
 import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.ai.registry import ProviderRegistry
 from app.ai.router_api import get_registry, get_stt_router
@@ -18,6 +18,7 @@ from app.auth.deps import CurrentUser
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.db.session import get_session
+from app.lifecycle.deps import DeletionRecorderDep
 from app.sessions import export as session_export
 from app.sessions import service
 from app.sessions.idempotency import Claim, IdempotencyStore, valid_key
@@ -128,9 +129,14 @@ async def update_session(
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
-    session_id: uuid.UUID, current: CurrentUser, session: SessionDep
+    session_id: uuid.UUID,
+    current: CurrentUser,
+    session: SessionDep,
+    recorder: DeletionRecorderDep,
 ) -> Response:
     await service.delete_session(session, current.id, session_id)
+    # After the commit only: purge cached answers and record the deletion (SEC-13, D-85).
+    await recorder.session_deleted(current.id, session_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -153,23 +159,22 @@ async def export_session(
     session_id: uuid.UUID,
     current: CurrentUser,
     session: SessionDep,
-    export_format: Annotated[Literal["json", "markdown"], Query(alias="format")] = "json",
+    export_format: Annotated[Literal["markdown", "pdf"], Query(alias="format")] = "markdown",
 ) -> Response:
     """A user-triggered download of one owned session (what it contains is declared in the file
     and in docs/SESSION_MANAGEMENT.md). Nothing is stored or sent anywhere by the server."""
     data = await session_export.build_export(session, current.id, session_id)
-    if export_format == "markdown":
-        content, media, extension = session_export.render_markdown(data), "text/markdown", "md"
+    content: str | bytes
+    if export_format == "pdf":
+        content = await run_in_threadpool(session_export.render_pdf, data)  # SEC-15: off the loop
+        media, extension = "application/pdf", "pdf"
     else:
-        content, media, extension = (
-            json.dumps(data, indent=2, ensure_ascii=False),
-            ("application/json"),
-            "json",
-        )
+        content = session_export.render_markdown(data)
+        media, extension = "text/markdown; charset=utf-8", "md"
     short = str(session_id)[:8]
     return Response(
         content=content,
-        media_type=f"{media}; charset=utf-8",
+        media_type=media,
         headers={
             # The file name carries no company, title or user data.
             "Content-Disposition": f'attachment; filename="session-{short}.{extension}"',

@@ -1,8 +1,8 @@
 import asyncio
+import hmac
 import logging
 import re
 import time
-import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -21,10 +21,10 @@ from app.api.v1.router import router as v1_router
 from app.audio.limits import AudioLimits
 from app.audio.service import Transcriber
 from app.auth.limits import AuthLimits
-from app.core.body_limit import BodySizeLimitMiddleware
+from app.core.body_limit import BodySizeLimitMiddleware, is_body_limit_signal
 from app.core.config import get_settings
-from app.core.errors import register_error_handlers
-from app.core.logging import configure_logging, request_id_ctx
+from app.core.errors import register_error_handlers, unhandled_error_response
+from app.core.logging import accepted_request_id, configure_logging, request_id_ctx
 from app.core.metrics import http_request_duration, http_requests
 from app.core.security_headers import apply_security_headers
 from app.db.session import create_engine, create_sessionmaker
@@ -33,6 +33,7 @@ from app.ingestion.dispatch import DramatiqDispatcher
 from app.jobs_import.fetch import SafeFetcher
 from app.jobs_import.limiter import SlidingWindowLimiter
 from app.jobs_import.service import JobImporter
+from app.lifecycle.recorder import DeletionRecorder, build_deletion_ledger
 from app.qa.cache import AnswerCache
 from app.qa.limits import QuestionLimits
 from app.qa.service import QuestionAnswerer
@@ -57,7 +58,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_engine(settings.database_url)  # lazy: does not connect yet
+        engine = create_engine(settings.database_url, settings)  # lazy: does not connect yet
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
         app.state.storage = LocalFileStorage(settings.storage_root)  # no I/O until first use
@@ -169,8 +170,11 @@ def create_app() -> FastAPI:
         app.state.idempotency_store = IdempotencyStore(ticket_redis)  # M-9: duplicate creates
         # Answer pipeline (D-66, Phase 4): the validated-general-answer cache, and a background
         # warm-up so the first question does not pay for loading the embedding model.
-        app.state.question_answerer.set_cache(
-            AnswerCache(ticket_redis, settings.qa_answer_cache_ttl_seconds)
+        # The same cache object purges entries when a session, file or account is deleted (SEC-13).
+        app.state.answer_cache = AnswerCache(ticket_redis, settings.qa_answer_cache_ttl_seconds)
+        app.state.question_answerer.set_cache(app.state.answer_cache)
+        app.state.deletion_recorder = DeletionRecorder(
+            app.state.answer_cache, build_deletion_ledger(settings)
         )
         app.state.background_tasks = set()
         warm_up_task = asyncio.create_task(app.state.question_answerer.warm_up())
@@ -209,19 +213,33 @@ def create_app() -> FastAPI:
         await ticket_redis.aclose()
         await engine.dispose()
 
-    app = FastAPI(title="Interview Assistant API", version="0.2.0", lifespan=lifespan)
+    docs = settings.docs_enabled
+    app = FastAPI(
+        title="Interview Assistant API",
+        version="0.2.0",
+        lifespan=lifespan,
+        # Outside local development the API describes itself to nobody.
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
     register_error_handlers(app)
 
     @app.middleware("http")
     async def request_context(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        request_id = accepted_request_id(request.headers.get("x-request-id"))
         token = request_id_ctx.set(request_id)
         started = time.perf_counter()
         status_code = 500
         try:
-            response = await call_next(request)
+            try:
+                response = await call_next(request)
+            except Exception as exc:  # noqa: BLE001 - last line of defence: safe JSON, no stack trace
+                if is_body_limit_signal(exc):
+                    raise  # answered with 413 by the outermost BodySizeLimitMiddleware
+                response = unhandled_error_response(exc)
             status_code = response.status_code
             response.headers["x-request-id"] = request_id
             apply_security_headers(request.url.path, response.headers)
@@ -244,7 +262,16 @@ def create_app() -> FastAPI:
             request_id_ctx.reset(token)
 
     @app.get("/metrics", include_in_schema=False)
-    async def metrics() -> Response:
+    async def metrics(request: Request) -> Response:
+        token = settings.metrics_bearer_token
+        if token is not None:
+            supplied = request.headers.get("authorization", "")
+            expected = f"Bearer {token.get_secret_value()}"
+            if not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
+                return Response(
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+                )
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # Explicit origins only (never "*"): credentials are allowed for the refresh cookie.
@@ -266,6 +293,9 @@ def create_app() -> FastAPI:
             "/api/v1/documents": settings.document_max_bytes + mib,
         },
         # Screenshots are a raw body (not multipart), so only a small framing allowance is added.
+        # Every other write is JSON (SEC-3). 2 MiB covers the largest legal job description even
+        # when JSON-escaped, and is far below what an attacker could otherwise stream in.
+        default_limit=2 * mib,
         pattern_limits=[
             (
                 re.compile(r"/api/v1/sessions/[0-9a-fA-F-]{36}/screenshots"),

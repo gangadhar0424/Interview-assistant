@@ -80,3 +80,20 @@ class FileStorage(ABC):
 
     @abstractmethod
     def exists(self, key: str) -> bool: ...
+
+    @abstractmethod
+    def delete_user_tree(self, user_id: UUID) -> int:
+        """Remove every stored file of one user (account deletion, SEC-13). Idempotent and
+        retryable from the user id alone; returns how many files were removed."""
+
+    @abstractmethod
+    def iter_stored(self) -> Iterator["StoredEntry"]:
+        """Every permanent stored file as (key, age in seconds), for the orphan sweep. Entries
+        whose name does not have the generated key shape are reported with `key=None`."""
+
+
+@dataclass(frozen=True)
+class StoredEntry:
+    key: str | None  # None: a file under uploads/ that this storage would never have written
+    age_seconds: float
+    relative_path: str  # under the storage root; used only to remove a malformed entry

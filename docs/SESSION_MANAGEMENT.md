@@ -47,7 +47,7 @@ Stored `status` (unchanged domain, `sessions.status`): `draft`, `ready`, `active
 
 ## Export
 
-User triggered only. `GET /sessions/{id}/export?format=json|markdown` returns one owned session as a download (`Content-Disposition: attachment`, `Cache-Control: no-store`; the file name is `session-<first 8 characters of the id>.json|md`, with no company or title).
+User triggered only. `GET /sessions/{id}/export?format=markdown|pdf` (default `markdown`; JSON was replaced by PDF, D-76) returns one owned session as a download (`Content-Disposition: attachment`, `Cache-Control: no-store`; the file name is `session-<first 8 characters of the id>.md|pdf`, with no company or title).
 
 - **Web:** a confirmation states what the file contains and that nothing is sent anywhere, then the browser saves it.
 - **Desktop:** the main process shows the same warning in a native dialog, asks for a path in a native save dialog, fetches the export **only after a path is chosen**, and writes it there (mode 0600). The renderer never receives the content or the path, only the saved file name.

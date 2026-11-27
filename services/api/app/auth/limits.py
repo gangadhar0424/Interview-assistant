@@ -72,6 +72,18 @@ class AuthLimits:
     def record_login_success(self, email: str) -> None:
         self._login_email.reset(self._key("login-email", email))
 
+    # ------------------------------------------------------- account deletion
+    # SEC-13 (D-85): the password check on account deletion must not become a guessing oracle for a
+    # stolen access token. Failures per user share the login-per-email budget and window.
+
+    def check_account_delete(self, user_id: str) -> None:
+        key = self._key("account-delete", user_id)
+        if self._login_email.blocked(key):
+            raise throttled(self._login_email.retry_after(key))
+
+    def record_account_delete_failure(self, user_id: str) -> None:
+        self._login_email.record(self._key("account-delete", user_id))
+
     # ----------------------------------------------------------------- signup
 
     def check_signup(self, client: str | None) -> None:

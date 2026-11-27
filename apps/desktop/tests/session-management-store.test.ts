@@ -273,14 +273,14 @@ describe("export", () => {
 
   it("says nothing when the user cancels", async () => {
     desktop.sessions.exportToFile.mockResolvedValueOnce(ok({ saved: false, fileName: null }));
-    await state().exportSession(A, "json");
+    await state().exportSession(A, "pdf");
     expect(state().sessionNotice).toBeNull();
     expect(state().sessionBusyId).toBeNull();
   });
 
   it("shows a failure and frees the busy flag", async () => {
     desktop.sessions.exportToFile.mockResolvedValueOnce(NETWORK);
-    await state().exportSession(A, "json");
+    await state().exportSession(A, "pdf");
     expect(state().sessionNotice?.tone).toBe("error");
     expect(state().sessionBusyId).toBeNull();
   });

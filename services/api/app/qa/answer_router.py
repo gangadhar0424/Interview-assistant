@@ -78,6 +78,23 @@ _INTRO = re.compile(
 )
 
 
+_BROAD = re.compile(
+    r"^\W*(?:please\s+)?(?:can\s+you\s+|could\s+you\s+)?"
+    r"(?:tell|talk)\s+(?:me\s+)?(?:a\s+(?:bit|little)\s+|more\s+)?about\b"
+    r"|^\W*(?:please\s+)?(?:walk|take)\s+me\s+through\b"
+    r"|^\W*(?:what(?:'s|\s+is)\s+)?your\s+experience\s+(?:with|in|on)\b"
+    r"|^\W*(?:do\s+you\s+have\s+)?experience\s+(?:with|in|on)\b"
+    r"|^\W*(?:an\s+)?overview\s+of\b",
+    re.IGNORECASE,
+)
+BROAD_MAX_TERMS = 2  # an open-ended question names a topic, not a specific thing
+
+
+def is_broad_question(question: str) -> bool:
+    """An open-ended "tell me about <topic>" question (asks for the whole topic)."""
+    return _BROAD.search(question) is not None
+
+
 def is_intro_question(question: str) -> bool:
     """ "Tell me about yourself" and its common phrasings: answered from the resume's opening."""
     return _INTRO.search(question) is not None
@@ -167,6 +184,18 @@ def decide(
             reason="intro",
             span=(0, INTRO_SPAN_CHARS),
         )
+
+    if is_broad_question(question) and 0 < len(words) <= BROAD_MAX_TERMS:
+        titled = {
+            _section_key(h)
+            for h in (*resume_hits, *document_hits)
+            if strength(words, h, cfg) == STRENGTH_TITLE
+        }
+        if len(titled) >= 2:
+            # Several different sections are about this topic ("tell me about enhancements"):
+            # one of them verbatim would be an arbitrary pick, so the model answers from all of
+            # them (keeping their wording, and the role guard keeps the candidate's real role).
+            return Decision(Mode.SYNTHESIS, reason="broad")
 
     resume = _best_anchored(words, resume_hits, cfg)
     document = _best_anchored(words, document_hits, cfg)

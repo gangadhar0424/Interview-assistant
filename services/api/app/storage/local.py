@@ -18,6 +18,7 @@ Safety properties:
 import hashlib
 import os
 import re
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -31,6 +32,7 @@ from app.storage.base import (
     FileTooLarge,
     InvalidStorageKey,
     PendingUpload,
+    StoredEntry,
     StoredFile,
     StoredFileMissing,
 )
@@ -49,6 +51,11 @@ class LocalFileStorage(FileStorage):
     def __init__(self, root: Path) -> None:
         # No I/O here: the root is created lazily so merely building the app never touches disk.
         self._root = Path(root).expanduser().absolute()
+        # Serialises path resolution and directory creation inside this process. On Windows,
+        # `Path.resolve()` of a path whose parent directories another thread is creating can
+        # return a path outside the root, so concurrent first uploads by one user failed with a
+        # spurious "escapes the storage root" (found by the SEC-15 concurrency tests).
+        self._path_lock = threading.RLock()
 
     # ------------------------------------------------------------------ helpers
     def _ensure_root(self) -> Path:
@@ -59,11 +66,12 @@ class LocalFileStorage(FileStorage):
         """Map a generated key to a path, proving it stays inside the root."""
         if not _KEY_RE.fullmatch(key):
             raise InvalidStorageKey("malformed storage key")
-        root = self._ensure_root()
-        path = (root / key).resolve()
-        if not path.is_relative_to(root):
-            raise InvalidStorageKey("storage key escapes the storage root")
-        return path
+        with self._path_lock:
+            root = self._ensure_root()
+            path = (root / key).resolve()
+            if not path.is_relative_to(root):
+                raise InvalidStorageKey("storage key escapes the storage root")
+            return path
 
     def _make_private_dirs(self, directory: Path) -> None:
         """Create `directory` and every missing ancestor below the root with mode 0700.
@@ -73,15 +81,16 @@ class LocalFileStorage(FileStorage):
         (typically 0755, listable by other local users). Each level is therefore created
         explicitly and chmod-ed, which is also independent of the process umask.
         """
-        root = self._ensure_root()
-        missing: list[Path] = []
-        current = directory
-        while current != root and not current.exists() and current != current.parent:
-            missing.append(current)
-            current = current.parent
-        for path in reversed(missing):
-            path.mkdir(mode=_DIR_MODE, exist_ok=True)
-            os.chmod(path, _DIR_MODE)
+        with self._path_lock:
+            root = self._ensure_root()
+            missing: list[Path] = []
+            current = directory
+            while current != root and not current.exists() and current != current.parent:
+                missing.append(current)
+                current = current.parent
+            for path in reversed(missing):
+                path.mkdir(mode=_DIR_MODE, exist_ok=True)
+                os.chmod(path, _DIR_MODE)
 
     def _tmp_dir(self) -> Path:
         tmp = self._ensure_root() / "tmp"
@@ -123,6 +132,53 @@ class LocalFileStorage(FileStorage):
 
     def exists(self, key: str) -> bool:
         return self._resolve(key).is_file()
+
+    def _user_dir(self, user_id: UUID) -> Path:
+        """`uploads/<user_id>`, proven to stay inside the root."""
+        if not isinstance(user_id, UUID):
+            raise InvalidStorageKey("user id must be a UUID")
+        with self._path_lock:
+            root = self._ensure_root()
+            path = (root / "uploads" / str(user_id)).resolve()
+            if not path.is_relative_to(root / "uploads") or path.name != str(user_id):
+                raise InvalidStorageKey("user directory escapes the storage root")
+            return path
+
+    def delete_user_tree(self, user_id: UUID) -> int:
+        directory = self._user_dir(user_id)
+        if not directory.exists():
+            return 0
+        removed = 0
+        # Files first (counted), then directories bottom-up. A symlink is unlinked, never followed.
+        for path in sorted(directory.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+            try:
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                    removed += 1
+                elif path.is_dir():
+                    path.rmdir()
+            except FileNotFoundError:
+                continue
+        try:
+            directory.rmdir()
+        except FileNotFoundError:
+            pass
+        return removed
+
+    def iter_stored(self) -> Iterator[StoredEntry]:
+        uploads = self._ensure_root() / "uploads"
+        if not uploads.is_dir():
+            return
+        now = time.time()
+        for path in uploads.rglob("*"):
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                age = now - path.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            relative = path.relative_to(uploads.parent).as_posix()
+            yield StoredEntry(relative if _KEY_RE.fullmatch(relative) else None, age, relative)
 
     def purge_stale_temp(self, max_age_seconds: float) -> int:
         """Remove abandoned `.part` files (e.g. left by a crash). Returns how many were removed."""

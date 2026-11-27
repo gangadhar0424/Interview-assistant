@@ -134,3 +134,88 @@ Executed: file reads and text searches only. Not executed: tests, build, packagi
 - Code the model writes is displayed and copied, never executed by the app. The evaluation runner (`scripts/coding_exec.py`) executes model-written Python for synthetic evaluation prompts only; it is **not a sandbox** (file and network access are not blocked) and must not be run on output from real interview content.
 - The general-answer validator now excludes fenced code from some checks. Evidence tags, prompt delimiters and e-mail addresses are still rejected inside code; test `test_evidence_tags_and_prompt_delimiters_still_count_as_leaks_even_inside_code`.
 - The v5 system prompt adds a rule that the model must not claim code was run. It is an instruction, not a guarantee; the evaluation counted zero such claims in 84 answers (three runs of 28).
+
+## M-15 addendum: capture privacy toggle implemented (2026-11-22)
+- The owner approved the conditional toggle (M-14, merged into M-15) in the 2026-11-22 directive. It meets every minimum condition above: off by default; explanation and rules reminder before enabling and in the native confirmation; non-dismissible in-window indicator; tray, taskbar and process untouched (guard-tested); no detection or evasion of monitoring software; wording added to the acknowledgement (version 2); documented in PRIVACY.md.
+- The original recommendation is not withdrawn. Residual risk: the setting works against ordinary screen sharing by design, and the product cannot verify intent or whether the interview rules allow it.
+- Added control: Electron's remote-session window exclusion is disabled so remote-access tools still see the window (not verified in a real remote session).
+- Evidence and limits: `docs/WINDOW_CAPTURE_PRIVACY.md`.
+
+
+
+---
+
+## 2026-11-23: remediation sprint (D-82)
+
+Full evidence and per-finding state: `docs/SECURITY_ASSESSMENT_PHASE_E.md`, "Remediation log". This section keeps the reasoning that belongs with the standing review.
+
+### SEC-08 handoff: assessment, recommended architecture and trade-offs
+
+**Today.** The signed-in web user asks for a code; the web page opens `interviewassistant://start?h=<code>`; the desktop redeems the code once, without any other credential, and receives a full login for that account (a separate 14-day refresh-token family of type `desktop`) plus the prepared session. The code is 256-bit random, lives 60 seconds, is consumed by the first attempt, is stored only as a hash, is never logged, and redemption is rate-limited per client.
+
+**Threat.** Whoever sees the link in its 60 second life and redeems first becomes that user on a desktop session: another program registered for the same URL scheme, a browser extension, a shared screen, shell history of a launcher. The code authenticates the *web user*, not the *desktop that is meant to receive it*, and what it buys is the whole account, not one session.
+
+**Options considered.**
+
+| Option | Closes the interception? | Cost | Verdict |
+|---|---|---|---|
+| A. Keep as is (short life, single use, rate limit) | no | none | acceptable only as a stop-gap |
+| B. PKCE-style binding: the desktop makes a random verifier, keeps it, and gives the web page only its SHA-256 (the challenge); the code is bound to the challenge; redemption needs the verifier | **yes**: a captured link is useless without the verifier, which never leaves the desktop | the desktop must be running (or start first) to create the challenge before the web page asks for the code: a flow change in both clients | **recommended** |
+| C. Challenge handed over through the running app's local presence server (`127.0.0.1:47821`) | yes, for the case where the app is already running | any local process can also read a challenge from that port, so it stops a *link* thief but not a local attacker who can talk to the port; the app must be running | useful as the transport for B, not a substitute |
+| D. Bind the code to the redeeming client's IP address | partly | web and desktop on the same machine can still show different addresses (IPv4 and IPv6, split tunnels, proxies), so real users would be locked out | rejected |
+| E. Mint a narrower credential (one session, short life, no refresh) | limits the damage, does not stop the theft | needs scoped-token support across the API and the desktop | worthwhile later, in addition to B |
+| F. Make the user confirm in the desktop before it signs in | no (the thief runs the same step) | friction | not a control |
+
+**Recommended architecture (B).** The desktop generates the verifier (43 to 128 URL-safe characters) in memory, derives the challenge (`base64url(SHA-256(verifier))`) and exposes it to the web page through the existing desktop-presence handshake or a first deep link (`interviewassistant://prepare`); the page sends it in the body of `POST /sessions/{id}/handoff`; the link carries only the code; the desktop sends `code_verifier` with `POST /sessions/handoff/redeem`. Then set `HANDOFF_REQUIRE_CHALLENGE=true` so unbound codes are refused. A wrong or missing verifier still burns the code and gets the same `404 handoff_invalid` as every other failure. After that, consider E (a narrower token) so a stolen desktop session is not a full account.
+
+**What was built in this sprint.** Only the server half (optional challenge and verifier, the enforcement switch, tests, `docs/API.md`). It changes nothing for users because the default is off and neither client sends a challenge. **The finding stays Open until both clients adopt it and the switch is turned on.** Trade-offs accepted: the web flow needs the desktop to be reachable before the code is requested; if the desktop restarts between the two steps its verifier is gone and the user clicks again; a wrong verifier burns the code (a denial of service for that one attempt, never an access).
+
+### Other standing-review changes
+
+* **Configuration (SEC-07).** The default `APP_ENV=local` is now only valid when every service is on this machine. This turns "I forgot to set it" from a silent downgrade into a start-up failure.
+* **Credentials (SEC-12).** The privileged operations identity exists only in the opt-in `maintenance` service. Application containers hold the runtime login only, and the migration job holds only the migration login. This was verified against real database permissions, not only configuration text.
+* **Updates (SEC-09).** The update manifest is authenticated with a pinned Ed25519 key and the installer is bound to it by hash, so a feed writer can no longer present an old signed build as a new one. The code-signing certificate and the manifest key are deliberately separate. Real-world validation is BLOCKED on the owner's key, a signed build and a feed.
+* **Backups (SEC-10, SEC-11).** Encryption is mandatory and backups are authenticated; restore verifies everything before it writes anything. Old-format backups are refused.
+* **Data stores (SEC-16).** Postgres and Redis run unprivileged, read-only and capability-free on a network with no internet route. Verified on real containers locally.
+* **Deletion and retention (SEC-13).** Documented in `docs/DATA_LIFECYCLE.md` as a proposal. Nothing irreversible was implemented. Owner decisions are listed there.
+* **Logs (SEC-03, earlier).** Exception messages are never written; frames and class names only.
+
+### Still not claimed
+
+No production environment, signed build, real update feed, proxy or restore drill on production infrastructure exists, so none of the above is PRODUCTION-VALIDATED. M-15 behaviour on real Windows capture tools is NOT TESTED (`docs/M15_OWNER_APPROVAL_AND_TEST_PLAN.md`).
+
+
+---
+
+## 2026-11-23, second sprint: closure work (D-83)
+
+Evidence and per-finding state: `docs/SECURITY_ASSESSMENT_PHASE_E.md`, "Remediation log, sprint 3". Harnesses: `docs/SECURITY_TESTING.md`.
+
+### SEC-08 handoff: now built in both clients
+
+The architecture recommended above (option B) is implemented, with option C's loopback transport:
+
+1. The desktop keeps a **verifier** (32 random bytes, 43 URL-safe characters) in memory and exposes only its SHA-256, the **challenge**, at `http://127.0.0.1:47821/ia-presence/challenge`. The endpoint has the presence beacon's Host-header check (DNS-rebinding hygiene), answers GET and the private-network preflight, returns exactly `{"challenge","expires_in"}`, is rate limited (30 a minute) and bounded (16 pending).
+2. The web page fetches it after the presence check and before asking for a code, and sends it in the body of `POST /sessions/{id}/handoff` (`code_challenge`).
+3. The link becomes `interviewassistant://start?h=<code>&c=<challenge>`. It contains no secret: the challenge is a hash.
+4. The desktop takes the verifier for `c` (single use, 120 s lifetime) and sends it as `code_verifier` in the redeem body. If the verifier is gone the code is not sent at all.
+5. The API checks `base64url(SHA-256(verifier)) == challenge` in constant time. A missing or wrong verifier gives the same 404 as every other failure and still consumes the code. With `HANDOFF_REQUIRE_CHALLENGE=true` (the production default) an unbound code is neither issued nor accepted.
+
+What this does and does not stop. It stops a program that captures the link (or any observer of it) from signing in: it has the code and the challenge but not the verifier. It does **not** stop a program running as the same Windows user from reading the desktop app's memory, or from asking the beacon for a challenge of its own and then using the real web session: those already have the user's privileges. Residual: any web page can ask the beacon for a challenge, which can interrupt (not hijack) a legitimate attempt; rate limiting and the bound limit it.
+
+Trade-offs accepted: the desktop app must be running (the web page already required that, through the presence check); a desktop older than this change fails against a server that requires binding and the user is told to update; a wrong verifier burns the code (a denial of one attempt, never access).
+
+### Measured, and a correction
+
+* **SEC-14.** Real Caddy, web and API containers with distinct client addresses showed the API receiving a single-entry `X-Forwarded-For` with the real client in both layouts, so the per-client login limit is correct through the Next.js rewrite as well as through the direct route. The earlier concern was not reproduced. My first attempt at this test was wrong (clients reused one address) and wrongly suggested the new layout failed; the corrected result is in the Phase E log.
+* **SEC-24.** The `GrantFileProtocolExtraPrivileges` fuse cannot be disabled in the current design: with it off the packaged renderer does not render. It stays enabled; the controls that compensate for it were exercised on the real packaged app (isolation, navigation, CSP, permissions, IPC validation).
+* **WebSocket gateway.** 28 attack checks on a live loopback instance, all refused or contained as designed: handshake without, with unknown, replayed, expired and mismatched tickets; another user's ticket; a bad Origin; oversized and binary frames; malformed and flooded messages; wrong protocol version and a missing hello; the per-user connection cap and the supersede rule; the ticket-request rate limit; no ticket in the server log. A client without an `Origin` header (not a browser) is accepted by design, because browsers always send one and the single-use ticket is still required.
+* **Backups.** A real PostgreSQL round trip restored every row count and a byte-identical upload; thirteen kinds of damage and a wrong passphrase were each refused with exit 4 before any database or uploads write.
+
+### Still not claimed
+
+No production system, signed build, real update feed, hosted proxy or restore drill on production infrastructure exists; none of this is PRODUCTION-VALIDATED. The M-15 capture behaviour on real tools, multiple monitors and screen readers is NOT TESTED until the owner's session (`docs/M15_MANUAL_SESSION_RUNBOOK.md`).
+
+## Update 2026-11-26: M-15 manual validation owner-confirmed
+
+The owner has confirmed that M-15 was manually validated and works successfully (recorded first in D-84). This supersedes the two "NOT TESTED" statements about M-15 above only to the extent of that overall confirmation: no individual tool, Windows version, monitor layout or screen reader result was reported, so none is claimed. The security position is unchanged: the setting is a request to Windows and not a guarantee; it hides no process, tray or taskbar entry; remote-session exclusion stays disabled; it does not evade monitoring or proctoring software. Nothing here is PRODUCTION-VALIDATED.

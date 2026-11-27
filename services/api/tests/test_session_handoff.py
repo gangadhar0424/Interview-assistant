@@ -351,3 +351,147 @@ def test_the_code_and_tokens_are_never_logged(
     world.redeem(code)
     assert code not in caplog.text
     assert data["access_token"] not in caplog.text
+
+
+# ---------------------------------------------- SEC-08: binding the code to a desktop-held secret
+VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk-0123456789"  # 54 chars, RFC 7636 alphabet
+
+
+def _challenge(verifier: str) -> str:
+    from app.sessions.handoff import challenge_of
+
+    return challenge_of(verifier)
+
+
+def _bound_code(world: World, verifier: str = VERIFIER) -> str:
+    response = world.client.post(
+        f"/api/v1/sessions/{world.alice_session}/handoff",
+        headers=world.alice,
+        json={"code_challenge": _challenge(verifier)},
+    )
+    assert response.status_code == 200, response.text
+    code: str = response.json()["code"]
+    return code
+
+
+def _redeem_with(world: World, code: str, verifier: str | None) -> Any:
+    payload: dict[str, str] = {"code": code}
+    if verifier is not None:
+        payload["code_verifier"] = verifier
+    return world.client.post("/api/v1/sessions/handoff/redeem", json=payload)
+
+
+def test_a_bound_code_redeems_with_the_matching_verifier(world: World) -> None:
+    response = _redeem_with(world, _bound_code(world), VERIFIER)
+    assert response.status_code == 200, response.text
+    assert response.json()["user"]["email"] == "alice@example.com"
+
+
+def test_a_bound_code_without_the_verifier_is_refused_like_every_failure(world: World) -> None:
+    """The interception case: an attacker who captured the link has the code, not the verifier."""
+    code = _bound_code(world)
+    stolen = _redeem_with(world, code, None)
+    assert stolen.status_code == 404
+    assert shape(stolen) == shape(world.redeem("A" * 43))
+    assert "set-cookie" not in stolen.headers
+
+
+def test_a_wrong_verifier_is_refused_and_the_code_is_burned(world: World) -> None:
+    code = _bound_code(world)
+    other = "x" * 43
+    assert _redeem_with(world, code, other).status_code == 404
+    # The legitimate desktop now also fails: the code is single-use whoever presents it.
+    assert _redeem_with(world, code, VERIFIER).status_code == 404
+
+
+def test_a_verifier_cannot_turn_an_unbound_code_into_a_different_one(world: World) -> None:
+    code = world.code()  # issued without a challenge (today's flow)
+    assert _redeem_with(world, code, VERIFIER).status_code == 200  # legacy path unchanged
+
+
+def test_issue_rejects_a_malformed_challenge(world: World) -> None:
+    for bad in ("short", "!" * 43, "A" * 44, ""):
+        response = world.client.post(
+            f"/api/v1/sessions/{world.alice_session}/handoff",
+            headers=world.alice,
+            json={"code_challenge": bad},
+        )
+        assert response.status_code == 422, bad
+
+
+def test_redeem_rejects_a_malformed_verifier(world: World) -> None:
+    code = _bound_code(world)
+    for bad in ("short", "has space" * 6, "A" * 129):
+        assert _redeem_with(world, code, bad).status_code == 422, bad
+
+
+def test_the_challenge_is_stored_with_the_hashed_code_never_the_verifier(world: World) -> None:
+    code = _bound_code(world)
+    stored = "\n".join(value for value, _expiry in world.redis.data.values())
+    assert _challenge(VERIFIER) in stored
+    assert VERIFIER not in stored and code not in stored
+
+
+def test_binding_is_mandatory_when_the_server_requires_it(
+    build_world: Callable[..., World],
+) -> None:
+    world = build_world(HANDOFF_REQUIRE_CHALLENGE="true")
+    unbound = world.client.post(
+        f"/api/v1/sessions/{world.alice_session}/handoff", headers=world.alice
+    )
+    assert unbound.status_code == 422
+    assert unbound.json()["error"]["code"] == "challenge_required"
+    assert _redeem_with(world, _bound_code(world), VERIFIER).status_code == 200
+
+
+def test_an_unbound_code_issued_before_the_switch_is_refused_when_binding_is_required(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    legacy = world.code()  # issued while binding was optional
+    monkeypatch.setattr(get_settings(), "handoff_require_challenge", True)
+    assert world.redeem(legacy).status_code == 404
+
+
+def test_a_websocket_ticket_cannot_carry_a_challenge_across_purposes(world: World) -> None:
+    store = TicketStore(world.redis, 60, key_prefix="ws_ticket:")
+    ticket = asyncio.run(store.issue(uuid.uuid4(), uuid.uuid4()))
+    assert world.redeem(ticket).status_code == 404
+
+
+def test_a_bound_code_is_short_lived_like_any_other(world: World) -> None:
+    """SEC-08: binding does not extend the lifetime: the verifier cannot revive an expired code."""
+    fresh = _bound_code(world)
+    world.clock.now += 59.9
+    assert _redeem_with(world, fresh, VERIFIER).status_code == 200  # valid just inside the TTL
+    old = _bound_code(world)
+    world.clock.now += 60
+    expired = _redeem_with(world, old, VERIFIER)
+    assert expired.status_code == 404
+    assert expired.json()["error"]["code"] == "handoff_invalid"
+
+
+def test_a_bound_code_cannot_be_redeemed_twice_even_with_the_right_verifier(world: World) -> None:
+    code = _bound_code(world)
+    assert _redeem_with(world, code, VERIFIER).status_code == 200
+    assert _redeem_with(world, code, VERIFIER).status_code == 404  # replay of a captured pair
+
+
+def test_every_binding_failure_is_the_same_response(world: World) -> None:
+    """No oracle: a missing, wrong, malformed-but-valid-shaped or unknown pair all look alike."""
+    bound = [_bound_code(world) for _ in range(3)]
+    responses = [
+        _redeem_with(world, bound[0], None),
+        _redeem_with(world, bound[1], "x" * 50),
+        _redeem_with(world, "A" * 43, VERIFIER),
+    ]
+    assert {r.status_code for r in responses} == {404}
+    assert len({str(shape(r)) for r in responses}) == 1
+    assert all("set-cookie" not in r.headers for r in responses)
+
+
+def test_the_verifier_never_appears_in_logs(world: World, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG)
+    code = _bound_code(world)
+    _redeem_with(world, code, VERIFIER)
+    assert VERIFIER not in caplog.text and _challenge(VERIFIER) not in caplog.text
+    assert code not in caplog.text

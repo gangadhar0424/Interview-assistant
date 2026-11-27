@@ -22,6 +22,7 @@ from app.files.kinds import FileKind, document_kind, resume_kind
 from app.files.repository import FileRow
 from app.ingestion.dispatch import JobDispatcher
 from app.ingestion.repository import JobsByStage
+from app.lifecycle.deps import DeletionRecorderDep
 from app.storage.base import FileStorage
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -116,14 +117,20 @@ def build_router(path: str, kind_factory: Callable[[Settings], FileKind]) -> API
         settings: SettingsDep,
     ) -> FileOut:
         kind = kind_factory(settings)
+        user_id = current.id
+        # SEC-35: authentication has just used the database, which holds a pooled connection until
+        # the transaction ends. Reading the body can take as long as a slow client likes, so give
+        # the connection back first; otherwise `pool_size + max_overflow` stalled uploads from one
+        # account make every other request wait for the pool and fail with 503. The identity is
+        # copied out because a rollback expires loaded objects; the next query starts a new
+        # transaction, which rebinds the tenant (see `app/db/session.py`).
+        await session.rollback()
         form = await request.form(max_files=1, max_fields=4)
         try:
             file = form.get("file")
             if not isinstance(file, UploadFile):
                 raise AppError(422, "file_required", "A file must be uploaded in the 'file' field.")
-            row, jobs = await service.create_file(
-                session, storage, dispatcher, current.id, kind, file
-            )
+            row, jobs = await service.create_file(session, storage, dispatcher, user_id, kind, file)
         finally:
             await form.close()
         return _to_out(row, jobs)
@@ -187,8 +194,14 @@ def build_router(path: str, kind_factory: Callable[[Settings], FileKind]) -> API
         session: SessionDep,
         storage: StorageDep,
         settings: SettingsDep,
+        recorder: DeletionRecorderDep,
     ) -> Response:
-        await service.delete_file(session, storage, current.id, kind_factory(settings), file_id)
+        kind = kind_factory(settings)
+        await service.delete_file(session, storage, current.id, kind, file_id)
+        # After the commit only: purge cached answers and record the deletion (SEC-13, D-85).
+        await recorder.file_deleted(
+            current.id, "resume" if kind.name == "resume" else "document", file_id
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router

@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "package:win": "npm run build && electron-builder --win nsis",
+    "package:win:release": "node scripts/release/package-release.mjs",
+    "verify:release": "node scripts/release/verify-build.mjs",
     "icon": "node scripts/generate-icon.mjs"
   },
   "keywords": [],
@@ -19,19 +21,21 @@
   "license": "UNLICENSED",
   "description": "Windows desktop client for Interview Assistant",
   "dependencies": {
+    "electron-updater": "6.8.11",
     "framer-motion": "^14.10.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "@tailwindcss/vite": "^4.3.5",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
-    "electron": "^45.2.3",
-    "electron-builder": "^26.18.0",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
     "electron-vite": "^6.0.0",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.5",

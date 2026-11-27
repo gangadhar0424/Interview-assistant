@@ -25,3 +25,17 @@ export function isTrustedRenderer(
     return false;
   }
 }
+
+/**
+ * The renderer dev-server URL, honoured ONLY in an unpackaged (development) run. A packaged build
+ * always loads its own bundled file, so an `ELECTRON_RENDERER_URL` set in the environment can never
+ * make the window (and its preload bridge) load, or trust, a different origin (E-01).
+ */
+export function rendererDevUrl(
+  env: Record<string, string | undefined>,
+  isPackaged: boolean,
+): string | undefined {
+  if (isPackaged) return undefined;
+  const url = env.ELECTRON_RENDERER_URL;
+  return url ? url : undefined;
+}

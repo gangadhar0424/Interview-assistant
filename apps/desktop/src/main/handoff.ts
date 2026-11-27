@@ -17,7 +17,7 @@ import {
   type HandoffSession,
   type HandoffState,
 } from "../shared/contracts";
-import { parseHandoffLink } from "./deep-link";
+import { parseHandoffLinkParts } from "./deep-link";
 
 /** Matches the server code lifetime (60 s). A code that waited out a dialog longer is not sent. */
 export const HANDOFF_CODE_TTL_MS = 60_000;
@@ -37,8 +37,14 @@ export type HandoffPorts = {
   settled(): Promise<void>;
   /** The user currently signed in on this desktop, if any. */
   currentUserId(): string | null;
-  /** `POST /sessions/handoff/redeem`: public; returns the prepared session and a new login. */
-  redeem(code: string): Promise<RedeemedHandoff>;
+  /** `POST /sessions/handoff/redeem`: public; returns the prepared session and a new login. The
+   * verifier (SEC-08) is sent only in the request body, and only for a code bound to a challenge. */
+  redeem(code: string, verifier?: string): Promise<RedeemedHandoff>;
+  /**
+   * SEC-08: the secret verifier this app generated for `challenge`, removed on the way out (single
+   * use), or null when it is unknown or has expired. Never forwarded to the renderer or logged.
+   */
+  takeVerifier(challenge: string): string | null;
   /** True while a screenshot countdown/capture/held image or live audio exists. */
   isLive(): boolean;
   /** Stops any capture (the existing "session changed" safety behaviour). */
@@ -77,14 +83,14 @@ export class HandoffController {
 
   /** Entry point for a raw link from the OS. Anything that is not a well-formed link is refused. */
   receiveLink(raw: string): void {
-    const code = parseHandoffLink(raw);
+    const parts = parseHandoffLinkParts(raw);
     this.ports.showWindow();
     this.epoch += 1;
-    if (code === null) {
+    if (parts === null) {
       this.setState({ phase: "failed", session: null, failure: "invalid" });
       return;
     }
-    void this.process(code, this.ports.now(), this.epoch);
+    void this.process(parts.code, parts.challenge, this.ports.now(), this.epoch);
   }
 
   /** Sign-out or an expired session: nothing handed off survives it. */
@@ -105,7 +111,12 @@ export class HandoffController {
     this.setState({ phase: "failed", session: null, failure });
   }
 
-  private async process(code: string, receivedAt: number, epoch: number): Promise<void> {
+  private async process(
+    code: string,
+    challenge: string | null,
+    receivedAt: number,
+    epoch: number,
+  ): Promise<void> {
     this.setState({ phase: "redeeming", session: null, failure: null });
     try {
       await this.ports.settled();
@@ -124,7 +135,22 @@ export class HandoffController {
         return;
       }
 
-      const redeemed = await this.ports.redeem(code); // the code is consumed here
+      // SEC-08: a link that names a challenge is redeemed ONLY with the verifier this app made for
+      // it. If that verifier is gone (expired, already used, or never ours) the code is not sent at
+      // all: sending it would only burn it, and an unbound attempt must never be made for a bound code.
+      let verifier: string | undefined;
+      if (challenge !== null) {
+        const taken = this.ports.takeVerifier(challenge);
+        if (taken === null) {
+          this.fail("expired");
+          return;
+        }
+        verifier = taken;
+      }
+      // A legacy (unbound) link is redeemed exactly as before: the code alone.
+      const redeemed = await (verifier === undefined
+        ? this.ports.redeem(code)
+        : this.ports.redeem(code, verifier)); // the code is consumed here
       if (epoch !== this.epoch) {
         await redeemed.discard();
         return;

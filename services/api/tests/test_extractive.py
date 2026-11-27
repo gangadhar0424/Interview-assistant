@@ -71,3 +71,19 @@ def test_streaming_pieces_join_back_to_the_exact_text() -> None:
     pieces = split_for_streaming(text)
     assert len(pieces) == 3 and "".join(pieces) == text
     assert split_for_streaming("one line") == ["one line"]
+
+
+def test_strip_coaching_removes_notes_to_the_candidate_but_keeps_the_answer() -> None:
+    from app.qa.extractive import strip_coaching
+
+    raw = (
+        "Confirm before using.\n"
+        "I gathered the requirements and prepared the functional specifications.\n"
+        "A cart takes four totes [confirm: inferred from the exception]. Say how: a cart ID.\n"
+        "Keep the bracketed lines only if they are true."
+    )
+    out = strip_coaching(raw)
+    assert "Confirm before using" not in out
+    assert "[confirm" not in out and "Say how" not in out and "Keep the bracketed" not in out
+    assert "I gathered the requirements and prepared the functional specifications." in out
+    assert "A cart takes four totes" in out

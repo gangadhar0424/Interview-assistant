@@ -161,8 +161,13 @@ def _settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> Settings:
     for key in ("FILE_STORAGE_ROOT", "APP_ENV"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("JWT_SECRET", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4")
-    # Deployed environments also require TLS Redis and a maintenance DB URL (D-45).
-    monkeypatch.setenv("REDIS_URL", "rediss://redis.example.invalid:6379/0")
+    # Deployed environments also require TLS Redis and a maintenance DB URL (D-45). A local
+    # environment must use a loopback Redis (SEC-07 refuses APP_ENV=local against remote services).
+    local = env.get("APP_ENV", "local") == "local"
+    monkeypatch.setenv(
+        "REDIS_URL",
+        "redis://localhost:6379/0" if local else "rediss://redis.example.invalid:6379/0",
+    )
     monkeypatch.setenv(
         "MAINTENANCE_DATABASE_URL",
         "postgresql+asyncpg://maintenance:placeholder@db.example.invalid/app",

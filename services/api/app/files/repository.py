@@ -7,7 +7,7 @@ function that reads or deletes a row without it. Callers pass the identity from 
 import uuid
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Document, Resume
@@ -37,3 +37,35 @@ async def get_for_user(
 
 async def delete_row(session: AsyncSession, row: FileRow) -> None:
     await session.delete(row)
+
+
+async def lock_user_uploads(session: AsyncSession, user_id: uuid.UUID) -> None:
+    """Serialise upload quota decisions for one user until the transaction ends (SEC-15).
+
+    A transaction-scoped advisory lock keyed by the user: two concurrent uploads by the same user
+    queue here, so each sees the other's committed row and the quota cannot be passed by racing.
+    Other users are unaffected. Released by commit or rollback.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"upload-quota:{user_id}"},
+    )
+
+
+async def usage_for_user(
+    session: AsyncSession, model: FileModel, user_id: uuid.UUID
+) -> tuple[int, int]:
+    """(files of this kind, bytes across resumes and documents) for one user."""
+    count = (
+        await session.execute(
+            select(func.count()).select_from(model).where(model.user_id == user_id)
+        )
+    ).scalar_one()
+    total = 0
+    for table in (Resume, Document):
+        total += (
+            await session.execute(
+                select(func.coalesce(func.sum(table.size_bytes), 0)).where(table.user_id == user_id)
+            )
+        ).scalar_one()
+    return int(count), int(total)

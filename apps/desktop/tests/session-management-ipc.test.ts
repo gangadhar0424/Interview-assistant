@@ -247,7 +247,7 @@ describe("export", () => {
 
   it("refuses an unknown format", async () => {
     await s.login();
-    for (const bad of ["pdf", "", undefined, 1]) expect((await s.call("sessions:export", SID, bad)).ok).toBe(false);
+    for (const bad of ["json", "", undefined, 1]) expect((await s.call("sessions:export", SID, bad)).ok).toBe(false);
     expect(s.calls).toEqual([]);
     expect(s.sessionFiles?.chooseExportFile).not.toHaveBeenCalled();
   });
@@ -256,7 +256,7 @@ describe("export", () => {
     s.cleanup();
     s = setup({ chooseExportFile: vi.fn(async () => null) });
     await s.login();
-    expect(await s.call("sessions:export", SID, "json")).toEqual({ ok: true, data: { saved: false, fileName: null } });
+    expect(await s.call("sessions:export", SID, "pdf")).toEqual({ ok: true, data: { saved: false, fileName: null } });
     expect(s.calls).toEqual([]);
     expect(s.sessionFiles?.writeFile).not.toHaveBeenCalled();
   });
@@ -273,11 +273,28 @@ describe("export", () => {
     expect(fetched?.headers.Authorization).toBe("Bearer access-1");
   });
 
+  it("writes a PDF as bytes, not text, and returns only the file name", async () => {
+    await s.login();
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x00, 0xff]);
+    s.backend.respond = (c) =>
+      c.path.includes("/export")
+        ? new Response(bytes, { status: 200, headers: { "Content-Type": "application/pdf" } })
+        : null;
+    const result = await s.call("sessions:export", SID, "pdf");
+    expect(result).toEqual({ ok: true, data: { saved: true, fileName: "session-aaaaaaaa.md" } });
+    expect(s.sessionFiles?.chooseExportFile).toHaveBeenCalledWith("session-11111111.pdf", "pdf");
+    const fetched = s.calls.find((c) => c.path.includes("/export"));
+    expect(fetched?.path).toBe(`/api/v1/sessions/${SID}/export?format=pdf`);
+    const written = vi.mocked(s.sessionFiles!.writeFile).mock.calls[0]?.[1];
+    expect(written).toBeInstanceOf(Uint8Array);
+    expect(Array.from(written as Uint8Array)).toEqual(Array.from(bytes));
+  });
+
   it("writes nothing when the export request fails", async () => {
     await s.login();
     s.backend.respond = (c) =>
       c.path.includes("/export") ? json({ error: { code: "session_not_found", message: "Session not found." } }, 404) : null;
-    expect(await s.call("sessions:export", SID, "json")).toMatchObject({ ok: false, error: { status: 404 } });
+    expect(await s.call("sessions:export", SID, "pdf")).toMatchObject({ ok: false, error: { status: 404 } });
     expect(s.sessionFiles?.writeFile).not.toHaveBeenCalled();
   });
 
@@ -287,7 +304,7 @@ describe("export", () => {
       if (c.path.includes("/export")) throw new TypeError("fetch failed");
       return null;
     };
-    expect((await s.call("sessions:export", SID, "json")).ok).toBe(false);
+    expect((await s.call("sessions:export", SID, "pdf")).ok).toBe(false);
     expect(s.sessionFiles?.writeFile).not.toHaveBeenCalled();
   });
 });

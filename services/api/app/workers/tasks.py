@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 async def _run(job_id: uuid.UUID, user_id: uuid.UUID) -> str:
     settings = get_settings()
-    engine = create_engine(settings.database_url)
+    engine = create_engine(settings.database_url, settings)
     try:
         return await process_job(
             create_sessionmaker(engine),

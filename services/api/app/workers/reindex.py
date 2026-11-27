@@ -27,7 +27,7 @@ async def main(rechunk: bool = False) -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
     model_id = build_embedding_provider(settings).model_id  # does not load the model
-    engine = create_engine(settings.maintenance_database_url or settings.database_url)
+    engine = create_engine(settings.require_maintenance_database_url(), settings)
     try:
         async with create_maintenance_sessionmaker(engine)() as session:
             job_ids = await enqueue_missing_embeddings(session, model_id, rechunk=rechunk)

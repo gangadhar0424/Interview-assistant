@@ -38,6 +38,7 @@ function setup(overrides: Partial<HandoffPorts> = {}, minted = redeemed()) {
     settled: async () => undefined,
     currentUserId: () => flags.current,
     redeem: vi.fn(async () => minted),
+    takeVerifier: vi.fn(() => null),
     isLive: () => flags.live,
     stopLive: vi.fn(),
     resetForAccountChange: vi.fn(),

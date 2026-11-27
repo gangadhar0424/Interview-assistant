@@ -17,6 +17,8 @@ from typing import Any, Protocol
 
 KEY_PREFIX = "ws_ticket:"
 _TICKET_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")  # token_urlsafe(32) is always 43 characters
+# SEC-08: an optional PKCE-style challenge, base64url(SHA-256(verifier)) = always 43 characters.
+CHALLENGE_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
 
 
 class RedisClient(Protocol):
@@ -35,6 +37,8 @@ class TicketStoreUnavailable(Exception):  # noqa: N818 - infrastructure conditio
 class TicketBinding:
     user_id: uuid.UUID
     session_id: uuid.UUID
+    # When set, redemption must also present the verifier whose SHA-256 this is (SEC-08).
+    challenge: str | None = None
 
 
 def _key(ticket: str, prefix: str = KEY_PREFIX) -> str:
@@ -51,11 +55,16 @@ class TicketStore:
         # keyspace: a code of one kind can never be redeemed as the other.
         self._prefix = key_prefix
 
-    async def issue(self, user_id: uuid.UUID, session_id: uuid.UUID) -> str:
+    async def issue(
+        self, user_id: uuid.UUID, session_id: uuid.UUID, *, challenge: str | None = None
+    ) -> str:
+        if challenge is not None and not CHALLENGE_SHAPE.fullmatch(challenge):
+            raise ValueError("challenge must be 43 URL-safe characters")
         ticket = secrets.token_urlsafe(32)
+        value = f"{user_id}:{session_id}" + (f":{challenge}" if challenge else "")
         try:
             stored = await self._client.set(
-                _key(ticket, self._prefix), f"{user_id}:{session_id}", ex=self.ttl_seconds, nx=True
+                _key(ticket, self._prefix), value, ex=self.ttl_seconds, nx=True
             )
         except Exception:
             raise TicketStoreUnavailable from None
@@ -74,8 +83,12 @@ class TicketStore:
         if raw is None:
             return None
         text = raw.decode("ascii", "replace") if isinstance(raw, bytes) else str(raw)
+        parts = text.split(":")
         try:
-            user, session = text.split(":")
-            return TicketBinding(uuid.UUID(user), uuid.UUID(session))
+            if len(parts) == 2:
+                return TicketBinding(uuid.UUID(parts[0]), uuid.UUID(parts[1]))
+            if len(parts) == 3 and CHALLENGE_SHAPE.fullmatch(parts[2]):
+                return TicketBinding(uuid.UUID(parts[0]), uuid.UUID(parts[1]), parts[2])
         except ValueError:
             return None
+        return None

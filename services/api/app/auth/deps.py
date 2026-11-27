@@ -54,7 +54,15 @@ async def get_current_user(
     user = await session.get(User, user_id)
     if user is None or user.status != "active":
         raise _unauthenticated()
-    return AuthenticatedUser(id=user.id, email=user.email)
+    identity = AuthenticatedUser(id=user.id, email=user.email)
+    # SEC-35: reading the user started a transaction, and the request-scoped session keeps its
+    # pooled connection until the request ends. A slow body, a long answer stream or a slow
+    # provider call would then pin one connection each, and `pool_size + max_overflow` of them
+    # starve every other request. End the transaction now; the handler's first query starts a new
+    # one, and `app/db/session.py` rebinds the tenant at the start of every transaction. Nothing
+    # else uses the loaded `user` object, so expiring it is harmless.
+    await session.rollback()
+    return identity
 
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]

@@ -48,6 +48,28 @@ def _unsupported(kind: FileKind) -> AppError:
     return AppError(415, "unsupported_file_type", f"Unsupported file type. Allowed: {allowed}.")
 
 
+async def _enforce_quota(
+    session: AsyncSession, user_id: uuid.UUID, kind: FileKind, incoming_bytes: int
+) -> None:
+    """Refuse when this upload would pass the per-user count or total-storage quota (SEC-15)."""
+    count, used = await repository.usage_for_user(session, kind.model, user_id)
+    if count >= kind.max_files:
+        raise AppError(
+            409,
+            "file_quota_exceeded",
+            f"You have reached the limit of {kind.max_files} {kind.namespace}. "
+            "Delete one to upload another.",
+        )
+    if used + incoming_bytes > kind.max_user_bytes:
+        limit_mb = kind.max_user_bytes // (1024 * 1024)
+        raise AppError(
+            409,
+            "storage_quota_exceeded",
+            f"Your upload storage limit ({limit_mb} MB) would be exceeded. "
+            "Delete files to free space.",
+        )
+
+
 async def create_file(
     session: AsyncSession,
     storage: FileStorage,
@@ -61,6 +83,11 @@ async def create_file(
     fmt = validation.FORMATS.get(extension) if extension in kind.allowed_extensions else None
     if fmt is None or not validation.declared_type_acceptable(fmt, upload.content_type):
         raise _unsupported(kind)
+
+    # Cheap early refusal so an over-quota user does not stream a body to disk. The authoritative,
+    # race-free check is repeated under a per-user lock just before the row is inserted.
+    await _enforce_quota(session, user_id, kind, 0)
+    await session.rollback()  # end the read transaction; the final check starts its own
 
     pending = None
     try:
@@ -103,10 +130,16 @@ async def create_file(
         storage_key=stored.key,
     )
     job = ingestion.new_job(user_id, kind.name, row.id)
-    session.add(row)
-    session.add(job)  # same transaction as the file record: both exist or neither does
     try:
+        await repository.lock_user_uploads(session, user_id)
+        await _enforce_quota(session, user_id, kind, stored.size)
+        session.add(row)
+        session.add(job)  # same transaction as the file record: both exist or neither does
         await session.commit()
+    except AppError:
+        await session.rollback()
+        await _discard_stored(storage, stored.key)  # over quota: no orphan file
+        raise
     except Exception:
         await session.rollback()
         logger.exception("saving file record failed", extra={"user_id": str(user_id)})

@@ -1,6 +1,6 @@
 """M-9 session management: lifecycle, derived state, isolation, idempotent create, export."""
 
-import json
+import unicodedata
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -387,56 +387,85 @@ def test_a_malformed_key_is_rejected_and_an_outage_does_not_block_creation(
 # ------------------------------------------------------------------ export
 
 
-def test_json_export_is_documented_complete_and_private(world: World) -> None:
+def test_markdown_export_is_documented_complete_and_private(world: World) -> None:
     sid = world.make(title="Round 2", company_name="Acme")["id"]
     world.add_question(sid, "Describe a conflict.", answer="I listened first.")
-    response = world.client.get(f"{SESSIONS}/{sid}/export", headers=world.alice)
+    response = world.client.get(f"{SESSIONS}/{sid}/export", headers=world.alice)  # default
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["content-type"].startswith("text/markdown")
     assert response.headers["cache-control"] == "no-store"
     disposition = response.headers["content-disposition"]
-    assert disposition == f'attachment; filename="session-{sid[:8]}.json"'
+    assert disposition == f'attachment; filename="session-{sid[:8]}.md"'
     assert "Acme" not in disposition and "Round" not in disposition
-    data = json.loads(response.text)
-    assert data["format"] == "interview-assistant.session-export" and data["version"] == 1
-    assert data["contents"] and data["excluded"]
-    assert data["session"]["company_name"] == "Acme"
-    assert data["session"]["resume_filename"] == "cv.pdf"
-    assert data["questions"][0]["text"] == "Describe a conflict."
-    assert data["questions"][0]["answers"][0]["text"] == "I listened first."
-    assert data["truncated"] is False
+    text = response.text
+    assert "## What this file contains" in text and "## Not included" in text
+    assert "Company: Acme" in text and "Resume: cv.pdf" in text
+    assert "Describe a conflict." in text and "I listened first." in text
+
+
+def test_pdf_export_is_a_real_pdf_with_the_session_content_and_no_secrets(world: World) -> None:
+    import pymupdf
+
+    sid = world.make(title="Round 2", company_name="Acme")["id"]
+    world.add_question(sid, "Describe a conflict.", answer="I listened first.\n    indented line")
+    response = world.client.get(f"{SESSIONS}/{sid}/export?format=pdf", headers=world.alice)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["cache-control"] == "no-store"
+    disposition = response.headers["content-disposition"]
+    assert disposition == f'attachment; filename="session-{sid[:8]}.pdf"'
+    assert "Acme" not in disposition and "Round" not in disposition
+    assert response.content.startswith(b"%PDF")
+    document = pymupdf.open(stream=response.content, filetype="pdf")
+    # The PDF font typesets "fi"/"fl" as ligatures; NFKC turns them back for comparison.
+    text = unicodedata.normalize(
+        "NFKC", " ".join(document[i].get_text() for i in range(document.page_count))
+    )
+    assert "Describe a conflict." in text and "I listened first." in text
+    assert "Not included" in text and "Acme" in text
+    uid = world.user_id("alice@example.com")
+    for forbidden in ("alice@example.com", uid, "Bearer "):
+        assert forbidden not in text, forbidden
+
+
+def test_pdf_export_spans_pages_for_long_sessions(world: World) -> None:
+    import pymupdf
+
+    sid = world.make(title="Long")["id"]
+    for index in range(40):
+        world.add_question(sid, f"Question number {index}", answer="word " * 150)
+    response = world.client.get(f"{SESSIONS}/{sid}/export?format=pdf", headers=world.alice)
+    assert response.status_code == 200
+    document = pymupdf.open(stream=response.content, filetype="pdf")
+    assert document.page_count > 3
+    assert "Question number 39" in " ".join(
+        document[i].get_text() for i in range(document.page_count)
+    )
 
 
 def test_export_excludes_credentials_account_data_and_internal_fields(world: World) -> None:
     sid = world.make()["id"]
     world.add_question(sid)
-    text = world.client.get(f"{SESSIONS}/{sid}/export", headers=world.alice).text
     markdown = world.client.get(
         f"{SESSIONS}/{sid}/export?format=markdown", headers=world.alice
     ).text
     uid = world.user_id("alice@example.com")
     # The file's own "not included" list names these words, so check only the real content.
-    data = json.loads(text)
-    content = json.dumps({"session": data["session"], "questions": data["questions"]})
-    markdown = markdown.split("## Job description", 1)[1]
-    assert (
-        "## Job description"
-        in world.client.get(f"{SESSIONS}/{sid}/export?format=markdown", headers=world.alice).text
-    )
-    for payload in (content, markdown):
-        for forbidden in (
-            "alice@example.com",
-            uid,
-            "Bearer ",
-            "password",
-            "api_key",
-            "storage_key",
-            "generation_config",
-            "retrieved_chunk",
-            "embedding",
-        ):
-            assert forbidden not in payload, forbidden
-    assert world.alice["Authorization"].split()[-1] not in text
+    assert "## Job description" in markdown
+    content = markdown.split("## Job description", 1)[1]
+    for forbidden in (
+        "alice@example.com",
+        uid,
+        "Bearer ",
+        "password",
+        "api_key",
+        "storage_key",
+        "generation_config",
+        "retrieved_chunk",
+        "embedding",
+    ):
+        assert forbidden not in content, forbidden
+    assert world.alice["Authorization"].split()[-1] not in markdown
 
 
 def test_markdown_export_survives_code_fences_in_answers(world: World) -> None:
@@ -453,7 +482,7 @@ def test_markdown_export_survives_code_fences_in_answers(world: World) -> None:
 def test_export_rejects_unknown_formats_and_foreign_sessions(world: World) -> None:
     sid = world.make()["id"]
     assert (
-        world.client.get(f"{SESSIONS}/{sid}/export?format=pdf", headers=world.alice).status_code
+        world.client.get(f"{SESSIONS}/{sid}/export?format=json", headers=world.alice).status_code
         == 422
     )
     assert world.client.get(f"{SESSIONS}/{sid}/export", headers=world.bob).status_code == 404

@@ -31,7 +31,9 @@ import type {
 } from "../../shared/contracts";
 import type { AnswerSource } from "../../shared/answer-source";
 import { IDLE_HANDOFF } from "../../shared/contracts";
+import type { UpdateState } from "../../shared/updates";
 import { ACCEPTABLE_USE_VERSION, type AcknowledgementState } from "../../shared/acknowledgement";
+import type { CapturePrivacyState } from "../../shared/capture-privacy";
 import type { DisplayChoice, DisplayList } from "../../shared/placement";
 import type { CopyDiagnosticsResult, RecoveryInfo } from "../../shared/recovery";
 import type { ShortcutConfig, ShortcutPanel, ShortcutState } from "../../shared/shortcuts";
@@ -128,6 +130,10 @@ type AppState = {
   displays: DisplayChoice[] | null;
   displaysBusy: boolean;
   displaysNotice: string | null;
+  /** Screen-capture privacy (M-15). Null until loaded. */
+  capturePrivacy: CapturePrivacyState | null;
+  capturePrivacyBusy: boolean;
+  capturePrivacyNotice: string | null;
   diagnosticsBusy: boolean;
   diagnosticsMessage: string | null;
   connection: BackendStatus;
@@ -152,11 +158,15 @@ type AppState = {
   answerProvider: { choices: ProviderChoice[] | null; saving: boolean; notice: string | null };
   /** Web -> desktop handoff (D-55): state pushed by main; it never contains the code. */
   handoff: HandoffState;
+  /** Secure updates (M-11): state pushed by main. Downloading and installing are always user actions. */
+  update: UpdateState;
   busy: boolean;
   error: string | null;
   initialize(): Promise<void>;
   loadAcknowledgement(): Promise<void>;
   loadDisplays(): Promise<void>;
+  loadCapturePrivacy(): Promise<void>;
+  setCapturePrivacy(enabled: boolean): Promise<void>;
   moveToDisplay(displayId: number): Promise<void>;
   loadRecovery(): Promise<void>;
   dismissRecoveryNotice(): void;
@@ -203,6 +213,11 @@ type AppState = {
   expireSession(): void;
   handleHandoffEvent(state: HandoffState): Promise<void>;
   dismissHandoff(): Promise<void>;
+  handleUpdateEvent(state: UpdateState): void;
+  loadUpdateState(): Promise<void>;
+  checkForUpdate(): Promise<void>;
+  downloadUpdate(): Promise<void>;
+  installUpdate(): Promise<void>;
   loadCreateOptions(): Promise<void>;
   updateDraft(patch: Partial<SessionDraft>): void;
   resetCreate(): void;
@@ -413,6 +428,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   captureNotice: null,
   audio: IDLE_AUDIO,
   handoff: IDLE_HANDOFF,
+  update: { status: "disabled", reason: "development" },
   answerProvider: { choices: null, saving: false, notice: null },
   acknowledgement: null,
   acknowledgementBusy: false,
@@ -425,10 +441,32 @@ export const useDesktopStore = create<AppState>((set, get) => ({
   displays: null,
   displaysBusy: false,
   displaysNotice: null,
+  capturePrivacy: null,
+  capturePrivacyBusy: false,
+  capturePrivacyNotice: null,
   diagnosticsBusy: false,
   diagnosticsMessage: null,
   busy: false,
   error: null,
+  loadCapturePrivacy: async () => {
+    try {
+      set({ capturePrivacy: unwrap<CapturePrivacyState>(await window.desktop.app.getCapturePrivacy()) });
+    } catch (error) {
+      set({ capturePrivacyNotice: safeMessage(error) });
+    }
+  },
+  setCapturePrivacy: async (enabled) => {
+    if (get().capturePrivacyBusy) return;
+    set({ capturePrivacyBusy: true, capturePrivacyNotice: null });
+    try {
+      const next = unwrap<CapturePrivacyState>(await window.desktop.app.setCapturePrivacy(enabled));
+      // A declined confirmation or an unsupported device returns the unchanged state: say so.
+      const notice = enabled && !next.enabled ? next.message : null;
+      set({ capturePrivacy: next, capturePrivacyBusy: false, capturePrivacyNotice: notice });
+    } catch (error) {
+      set({ capturePrivacyBusy: false, capturePrivacyNotice: safeMessage(error) });
+    }
+  },
   loadDisplays: async () => {
     try {
       set({ displays: unwrap<DisplayList>(await window.desktop.app.getDisplays()).displays });
@@ -526,6 +564,7 @@ export const useDesktopStore = create<AppState>((set, get) => ({
       // A handoff link can arrive (cold start) before this window was listening.
       const handoff = await window.desktop.handoff.getState();
       if (handoff.ok) await get().handleHandoffEvent(handoff.data);
+      await get().loadUpdateState();
       set({ initialized: true });
     } catch (error) {
       set({ ...errorState(error), initialized: true });
@@ -856,6 +895,40 @@ export const useDesktopStore = create<AppState>((set, get) => ({
     set({ handoff });
     // Selecting the prepared session is all READY does. It starts no audio and no capture.
     await selectHandedOffSession(get, set);
+  },
+  handleUpdateEvent: (state) => set({ update: state }),
+  loadUpdateState: async () => {
+    try {
+      const result = await window.desktop.updates.getState();
+      if (result.ok) set({ update: result.data });
+    } catch {
+      /* an unavailable updater simply stays disabled */
+    }
+  },
+  // Each action returns the state main decided on; the renderer never decides a transition itself.
+  checkForUpdate: async () => {
+    try {
+      const result = await window.desktop.updates.check();
+      if (result.ok) set({ update: result.data });
+    } catch {
+      /* the next pushed event carries the outcome */
+    }
+  },
+  downloadUpdate: async () => {
+    try {
+      const result = await window.desktop.updates.download();
+      if (result.ok) set({ update: result.data });
+    } catch {
+      /* the next pushed event carries the outcome */
+    }
+  },
+  installUpdate: async () => {
+    try {
+      const result = await window.desktop.updates.install();
+      if (result.ok) set({ update: result.data });
+    } catch {
+      /* the app is quitting to install, or the next pushed event carries the outcome */
+    }
   },
   dismissHandoff: async () => {
     set({ handoff: IDLE_HANDOFF });

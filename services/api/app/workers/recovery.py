@@ -19,7 +19,7 @@ from app.ingestion.service import find_stuck_jobs, recover_stale_jobs
 async def main(dry_run: bool) -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
-    engine = create_engine(settings.maintenance_database_url or settings.database_url)
+    engine = create_engine(settings.require_maintenance_database_url(), settings)
     sessions = create_maintenance_sessionmaker(engine)
     try:
         if dry_run:

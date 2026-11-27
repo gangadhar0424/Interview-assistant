@@ -1,6 +1,6 @@
 # M-9 manual test sheet
 
-Status: **nothing here has been performed or passed.** A person fills in the Result column. Procedure for the 12 rows of `docs/DESKTOP_MANUAL_CHECKLIST.md` ("Session management (M-9)"); behaviour is described in `docs/SESSION_MANAGEMENT.md`.
+Status (2026-11-22): the **12 desktop checks (section 1) are recorded as passed on the owner's confirmation** (the owner personally ran all 12; no screenshots, logs or recordings were provided, so none are attached or invented). Check 8 was amended on 2026-11-22 to export Markdown and **PDF** instead of JSON (D-76); the owner confirmation is recorded against the sheet as it stood when the owner reported it, and a re-run of check 8 on the PDF build is recommended. **The six browser checks W1-W6 (section 2) are NOT recorded as passed**: the owner has not confirmed that they were performed. A person fills in the Result column. Procedure for the 12 rows of `docs/DESKTOP_MANUAL_CHECKLIST.md` ("Session management (M-9)"); behaviour is described in `docs/SESSION_MANAGEMENT.md`.
 
 ## 0. Build and launch (PowerShell, repository root `interview assistant`)
 
@@ -32,7 +32,7 @@ npm run package:win                  # = npm run build + electron-builder --win 
 # Output: apps/desktop/release/Interview Assistant-0.1.0-Windows-x64.exe  -> run it to install over the old one
 ```
 
-Confirm the build is M-9: the file's timestamp is today, and Sessions cards show **Rename / Complete / Export / JSON / Delete** links. The desktop has no password sign-in: sign in on the web, open a session, press **Start Interview** (desktop handoff); the installed app must be the one registered for `interviewassistant://`.
+Confirm the build is M-9: the file's timestamp is today, and Sessions cards show **Rename / Complete / Export / PDF / Delete** links. The desktop has no password sign-in: sign in on the web, open a session, press **Start Interview** (desktop handoff); the installed app must be the one registered for `interviewassistant://`.
 
 **Prepare data:** use a non-production account. Create **two sessions** (A and B) in the web wizard with a ready resume; in A ask 2–3 typed questions (the dev `.env` uses real providers, so working provider keys are needed for any answer). Keep DevTools closed in the packaged app.
 
@@ -40,18 +40,18 @@ Confirm the build is M-9: the file's timestamp is today, and Sessions cards show
 
 | # | Do | Expected | Evidence | Result |
 |---|---|---|---|---|
-| 1 | Open Sessions | Each card shows name, company, state pill (Active/Completed/Interrupted), "N questions", relative last activity; the open session has a **Current** pill | Screenshot of the list | |
-| 2 | **Rename** B, type a name, Enter. Then Rename again and press Escape | Name updates in the list, Ask selector and History; green "Session renamed."; Escape cancels with no change | Screenshots of list and Ask selector | |
-| 3 | Open A (Ask page shows its answers), switch to B (Ask selector or card) | B shows only B's history; none of A's questions or answers at any moment; switching back shows A's | Screenshots of A, B, A | |
-| 4 | Ask a long question in A; while it streams switch to B | Streaming stops; A's partial text never appears under B; B's history is its own | Screenshot of B right after the switch | |
-| 5 | Settings: enable audio input and accept the notice; in A press **Listen**; switch to B | Listening indicator and tray state go idle; Listen must be pressed again (it never restarts alone) | Screenshot before and after; tray tooltip | |
-| 6 | **Complete** A (open session) then **Reopen** | Complete: listening stops, state Completed, Ask disabled; Reopen: state Active, Ask enabled, nothing recording | Screenshots of each state | |
-| 7 | **Delete** B; first choose Cancel, then repeat and confirm | Native dialog appears; Cancel changes nothing; confirm removes B, history cleared, the next session opens, nothing records | Screenshot of the dialog and of the list after | |
-| 8 | **Export** A: Cancel at the warning; then Cancel at the Save dialog; then save as `.md`; then **JSON** save | No file after either cancel; saved files open: `.md` has the job description, questions and answers and a "Not included" section; `.json` is valid with `format: "interview-assistant.session-export"`; no resume text, token or your e-mail | Screenshots of both dialogs; the two files (open, do not share) | |
-| 9 | Turn the network off (Wi-Fi off, or stop the backend). Try Rename, Complete, Delete (confirm), Export (pick a path) | Each shows "could not reach the backend / was not changed" (export: an error); nothing changes; **no file at the export path**; after reconnecting, each works | Screenshots of the messages; folder listing showing no file | |
-| 10 | In the web dashboard delete session B (browser confirm). In the desktop, without refreshing, click **Complete** on B | "This session is no longer available."; the list refreshes and B is gone | Screenshot of the message and the list | |
-| 11 | Quit from the tray and start the app from the Start menu (not a web link) | Signed in; the most recently used **ready** session is selected; nothing is recording | Screenshot after start; tray state | |
-| 12 | In the desktop **New session**, fill the form, press **Create** and cut the network at that moment; restore it and press Create again with the same form | Never two sessions with the same details; the list ends with exactly one (if the first request never reached the server it is created now) | Screenshot of the list; count rows | |
+| 1 | Open Sessions | Each card shows name, company, state pill (Active/Completed/Interrupted), "N questions", relative last activity; the open session has a **Current** pill | Screenshot of the list | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 2 | **Rename** B, type a name, Enter. Then Rename again and press Escape | Name updates in the list, Ask selector and History; green "Session renamed."; Escape cancels with no change | Screenshots of list and Ask selector | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 3 | Open A (Ask page shows its answers), switch to B (Ask selector or card) | B shows only B's history; none of A's questions or answers at any moment; switching back shows A's | Screenshots of A, B, A | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 4 | Ask a long question in A; while it streams switch to B | Streaming stops; A's partial text never appears under B; B's history is its own | Screenshot of B right after the switch | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 5 | Settings: enable audio input and accept the notice; in A press **Listen**; switch to B | Listening indicator and tray state go idle; Listen must be pressed again (it never restarts alone) | Screenshot before and after; tray tooltip | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 6 | **Complete** A (open session) then **Reopen** | Complete: listening stops, state Completed, Ask disabled; Reopen: state Active, Ask enabled, nothing recording | Screenshots of each state | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 7 | **Delete** B; first choose Cancel, then repeat and confirm | Native dialog appears; Cancel changes nothing; confirm removes B, history cleared, the next session opens, nothing records | Screenshot of the dialog and of the list after | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 8 | **Export** A: Cancel at the warning; then Cancel at the Save dialog; then save as `.md`; then **PDF** save | No file after either cancel; saved files open: `.md` has the job description, questions and answers and a "Not included" section; `.pdf` opens in a PDF viewer with the same sections (details, "What this file contains", "Not included", job description, questions and answers); no resume text, token or your e-mail | Screenshots of both dialogs; the two files (open, do not share) | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 9 | Turn the network off (Wi-Fi off, or stop the backend). Try Rename, Complete, Delete (confirm), Export (pick a path) | Each shows "could not reach the backend / was not changed" (export: an error); nothing changes; **no file at the export path**; after reconnecting, each works | Screenshots of the messages; folder listing showing no file | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 10 | In the web dashboard delete session B (browser confirm). In the desktop, without refreshing, click **Complete** on B | "This session is no longer available."; the list refreshes and B is gone | Screenshot of the message and the list | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 11 | Quit from the tray and start the app from the Start menu (not a web link) | Signed in; the most recently used **ready** session is selected; nothing is recording | Screenshot after start; tray state | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
+| 12 | In the desktop **New session**, fill the form, press **Create** and cut the network at that moment; restore it and press Create again with the same form | Never two sessions with the same details; the list ends with exactly one (if the first request never reached the server it is created now) | Screenshot of the list; count rows | **Passed** (owner-confirmed 2026-11-22; no evidence files attached) |
 
 ## 2. Browser tests (web, `http://localhost:3000`, signed in)
 
@@ -59,8 +59,8 @@ These are the **web** part of the same features (checks 8, 9, 10 and 12 also hav
 
 | # | Do | Expected | Evidence | Result |
 |---|---|---|---|---|
-| W1 | Dashboard **Call Sessions** | Each row: name, company, state label, "Last activity", question count; Rename, Complete or Reopen, Export, Export JSON, Delete | Screenshot | |
-| W2 | **Export**: cancel the browser confirmation, then accept | Cancel: no download; accept: `session-xxxxxxxx.md` downloads, green "Export ready"; **Export JSON** gives `.json`; contents as in desktop check 8 | Downloaded files; screenshot | |
+| W1 | Dashboard **Call Sessions** | Each row: name, company, state label, "Last activity", question count; Rename, Complete or Reopen, Export, Export PDF, Delete | Screenshot | |
+| W2 | **Export**: cancel the browser confirmation, then accept | Cancel: no download; accept: `session-xxxxxxxx.md` downloads, green "Export ready"; **Export PDF** gives `session-xxxxxxxx.pdf`; contents as in desktop check 8 | Downloaded files; screenshot | |
 | W3 | **Delete**: cancel the confirm, then accept | Cancel: nothing; accept: row removed, "Session deleted." | Screenshot | |
 | W4 | **Complete** then **Reopen** | State Completed (Reopen shown), then Active | Screenshots | |
 | W5 | Offline, then click Export / Complete | "Could not reach the server… not changed"; no download | Screenshot | |

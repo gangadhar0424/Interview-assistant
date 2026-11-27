@@ -32,7 +32,7 @@ export function createSessionFiles(window: BrowserWindow): SessionFiles {
         message: "Save this session to a file on this computer?",
         detail:
           "The file will contain the session details, the job description you entered, your " +
-          "answer preferences, and every question and answer in this session, as readable text. " +
+          "answer preferences, and every question and answer in this session, as readable text (Markdown) or a formatted PDF. " +
           "It will not contain your resume or document text, audio, screenshots, passwords, " +
           "tokens or API keys.\n\n" +
           "Anyone who can open the file can read it, and it is not removed when you delete the " +
@@ -49,13 +49,17 @@ export function createSessionFiles(window: BrowserWindow): SessionFiles {
         filters:
           format === "markdown"
             ? [{ name: "Markdown", extensions: ["md"] }]
-            : [{ name: "JSON", extensions: ["json"] }],
+            : [{ name: "PDF document", extensions: ["pdf"] }],
       });
       return chosen.canceled || !chosen.filePath ? null : chosen.filePath;
     },
 
-    async writeFile(path, text) {
-      await writeFile(path, text, { encoding: "utf8", mode: 0o600 });
+    async writeFile(path, content) {
+      await writeFile(
+        path,
+        content,
+        typeof content === "string" ? { encoding: "utf8", mode: 0o600 } : { mode: 0o600 },
+      );
     },
   };
 }

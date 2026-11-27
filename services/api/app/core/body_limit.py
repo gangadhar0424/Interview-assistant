@@ -12,8 +12,19 @@ from collections.abc import Sequence
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
-class _BodyTooLarge(Exception):
+class _BodyTooLarge(Exception):  # noqa: N818 - internal control-flow signal, not an error type
     pass
+
+
+def is_body_limit_signal(exc: BaseException) -> bool:
+    """True for the internal "request body too large" signal (maybe wrapped in an exception group).
+
+    It is raised inside the request stream and answered with a 413 by BodySizeLimitMiddleware, the
+    outermost layer. No inner layer (such as the catch-all in main.py) may swallow it.
+    """
+    return isinstance(exc, _BodyTooLarge) or (
+        isinstance(exc, BaseExceptionGroup) and exc.subgroup(_BodyTooLarge) is not None
+    )
 
 
 class BodySizeLimitMiddleware:
@@ -22,24 +33,35 @@ class BodySizeLimitMiddleware:
         app: ASGIApp,
         limits: dict[str, int],
         pattern_limits: Sequence[tuple[re.Pattern[str], int]] = (),
+        default_limit: int | None = None,
     ) -> None:
         self.app = app
         self.limits = limits  # exact request path -> maximum body bytes (POST only)
         # Full-match path patterns for paths that carry an id (e.g. /sessions/<id>/screenshots).
         self.pattern_limits = tuple(pattern_limits)
+        # Cap for every OTHER write (POST, PUT, PATCH) under /api/, i.e. the JSON endpoints (login,
+        # signup, handoff redeem, session create/edit, questions, job import). None disables it.
+        self.default_limit = default_limit
 
-    def _limit_for(self, path: str) -> int | None:
-        exact = self.limits.get(path)
-        if exact is not None:
-            return exact
-        for pattern, limit in self.pattern_limits:
-            if pattern.fullmatch(path):
-                return limit
+    def _limit_for(self, path: str, method: str) -> int | None:
+        if method == "POST":
+            exact = self.limits.get(path)
+            if exact is not None:
+                return exact
+            for pattern, limit in self.pattern_limits:
+                if pattern.fullmatch(path):
+                    return limit
+        if method in ("POST", "PUT", "PATCH") and path.startswith("/api/"):
+            return self.default_limit
         return None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        limit = self._limit_for(scope.get("path", "")) if scope["type"] == "http" else None
-        if limit is None or scope["method"] != "POST":
+        limit = (
+            self._limit_for(scope.get("path", ""), scope["method"])
+            if scope["type"] == "http"
+            else None
+        )
+        if limit is None:
             await self.app(scope, receive, send)
             return
 
@@ -71,10 +93,7 @@ class BodySizeLimitMiddleware:
         except (_BodyTooLarge, BaseExceptionGroup) as exc:
             # Inner BaseHTTPMiddleware runs the app in an anyio task group, which wraps errors
             # in an exception group; accept either form but re-raise anything else untouched.
-            raised_by_limit = isinstance(exc, _BodyTooLarge) or (
-                isinstance(exc, BaseExceptionGroup) and exc.subgroup(_BodyTooLarge) is not None
-            )
-            if not raised_by_limit:
+            if not is_body_limit_signal(exc):
                 raise
             if not response_started:
                 await self._reject(send)

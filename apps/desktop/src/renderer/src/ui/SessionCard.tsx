@@ -146,11 +146,11 @@ export function SessionCard({
           <button
             className="link-button"
             disabled={anyBusy}
-            onClick={() => void exportSession(session.id, "json")}
-            title="Export as JSON"
+            onClick={() => void exportSession(session.id, "pdf")}
+            title="Export as PDF"
             type="button"
           >
-            JSON
+            PDF
           </button>
           <button
             className="link-button link-danger"

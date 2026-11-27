@@ -131,3 +131,17 @@ def record_answer_timing(
         answer_first_token_seconds.labels(provider=provider or "none").observe(
             first_token_ms / 1000
         )
+
+# SEC-13 data lifecycle (D-85). Alert on any `result="failed"`: a cache purge that failed leaves
+# entries until they expire (at most 300 s outside local); a ledger write that failed means a
+# restore could bring that object back, so the operator must record it by hand.
+deletion_steps = Counter(
+    "interview_deletion_steps",
+    "Follow-up steps after a deletion (cache purge, ledger write, file removal)",
+    ("step", "result"),
+)
+orphan_sweep_findings = Counter(
+    "interview_orphan_sweep_findings",
+    "Orphan-file sweep results by type",
+    ("kind",),
+)

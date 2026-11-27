@@ -778,8 +778,12 @@ class QuestionAnswerer:
         if not "".join(run.parts).strip() or run.meta is None:
             raise _Failed(EMPTY_ANSWER, SAFE_MESSAGES[EMPTY_ANSWER], True)
         total_ms = self._ms(started)
+        # The check scans the whole answer in pure Python (about a microsecond per character), so
+        # it runs in a worker thread: on the event loop it would delay every other user's
+        # requests for as long as it takes (SEC-33). It reads only its arguments.
+        answer_text = "".join(run.parts)
         grounding_check = (
-            self._citation_check(evidence, "".join(run.parts), prepared)
+            await asyncio.to_thread(self._citation_check, evidence, answer_text, prepared)
             if evidence is not None
             else None
         )
@@ -913,6 +917,9 @@ class QuestionAnswerer:
                             "model": run.meta.model,
                             "validated": verdict.judged,
                         },
+                        user_id=user_id,
+                        session_id=prepared.session_id,
+                        source_ids=[prepared.resume_id, *prepared.document_ids],
                     )
                 break
             attempt_question = retry_question(question, verdict.reason)

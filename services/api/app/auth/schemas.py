@@ -61,3 +61,12 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"  # noqa: S105
     expires_in: int
     user: UserPublic
+
+
+class AccountDeleteRequest(BaseModel):
+    """SEC-13 Decision 4 (D-85): account deletion needs the password and a typed phrase."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    password: Annotated[str, Field(min_length=1, max_length=MAX_PASSWORD_LENGTH, repr=False)]
+    confirmation: Annotated[str, Field(max_length=64)]

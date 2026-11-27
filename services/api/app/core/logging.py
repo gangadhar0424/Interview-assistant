@@ -4,6 +4,8 @@ import json
 import logging
 import re
 import sys
+import traceback
+import uuid
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
@@ -28,8 +30,42 @@ class JsonFormatter(logging.Formatter):
             if key not in _RESERVED:
                 payload[key] = value
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            payload["exception"] = format_exception_without_messages(record.exc_info)
         return json.dumps(payload, default=str)
+
+
+_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
+
+def accepted_request_id(supplied: str | None) -> str:
+    """A client-supplied X-Request-ID only if it is short and plain; otherwise a fresh one.
+
+    Stops a caller from putting an unbounded or odd string into every log line and response header.
+    """
+    if supplied is not None and _REQUEST_ID.fullmatch(supplied):
+        return supplied
+    return uuid.uuid4().hex
+
+
+def format_exception_without_messages(exc_info: Any) -> str:
+    """Exception class names (the whole cause chain) and stack frames, NEVER an exception message.
+
+    Messages from the database driver, parsers or providers can carry parameter values, document or
+    transcript text. A frame line shows only source code, so the traceback stays useful.
+    """
+    exc = exc_info[1] if isinstance(exc_info, tuple) else None
+    if not isinstance(exc, BaseException):
+        return "unknown exception"
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen and len(parts) < 8:
+        seen.add(id(current))
+        frames = "".join(traceback.format_tb(current.__traceback__))
+        parts.append(f"{frames}{type(current).__module__}.{type(current).__qualname__}")
+        implicit = None if current.__suppress_context__ else current.__context__
+        current = current.__cause__ or implicit
+    return "\n-- caused by --\n".join(reversed(parts))
 
 
 _TICKET_PARAM = re.compile(r"""(ticket=)[^\s&"']+""", re.IGNORECASE)

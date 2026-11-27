@@ -17,7 +17,7 @@ export type ManagedSession = {
   activity_state?: ActivityState;
 };
 
-export type ExportFormat = "markdown" | "json";
+export type ExportFormat = "markdown" | "pdf";
 
 /** What to show: the server's derived state, or (older server) a guess from the status. */
 export function activityState(session: ManagedSession): ActivityState {
@@ -58,7 +58,7 @@ export function formatActivity(iso: string, now: number = Date.now()): string {
 
 /** Same name the server suggests: it carries no company, title or user data. */
 export function exportFileName(sessionId: string, format: ExportFormat): string {
-  return `session-${sessionId.slice(0, 8)}.${format === "markdown" ? "md" : "json"}`;
+  return `session-${sessionId.slice(0, 8)}.${format === "markdown" ? "md" : "pdf"}`;
 }
 
 export const EXPORT_WARNING =

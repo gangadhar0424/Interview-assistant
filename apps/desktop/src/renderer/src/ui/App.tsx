@@ -8,6 +8,8 @@ import { AudioPanel } from "./AudioPanel";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { DisplaySettings } from "./DisplaySettings";
 import { RecoveryBanner, SupportSettings } from "./SupportPanel";
+import { UpdateBanner, UpdateSettings } from "./UpdatePanel";
+import { CapturePrivacyBanner, CapturePrivacySettings } from "./CapturePrivacyPanel";
 import { ScreenshotPanel } from "./ScreenshotPanel";
 import { AnswerBody } from "./AnswerBody";
 
@@ -60,6 +62,7 @@ export default function App() {
     });
     const unsubscribeExpired = window.desktop.onSessionExpired(expireSession);
     const unsubscribeHandoff = window.desktop.onHandoffEvent((state) => void handleHandoffEvent(state));
+    const unsubscribeUpdates = window.desktop.onUpdateEvent((state) => useDesktopStore.getState().handleUpdateEvent(state));
     const interval = window.setInterval(() => void checkBackend(), 15_000);
     return () => {
       unsubscribeStream();
@@ -68,6 +71,7 @@ export default function App() {
       unsubscribeShortcut();
       unsubscribeExpired();
       unsubscribeHandoff();
+      unsubscribeUpdates();
       window.clearInterval(interval);
     };
   }, [initialize, handleStreamMessage, handleAudioEvent, expireSession, handleHandoffEvent, checkBackend]);
@@ -132,6 +136,8 @@ export default function App() {
         <main className="main-panel">
           <RecoveryBanner />
           <HandoffBanner />
+          <UpdateBanner />
+          <CapturePrivacyBanner />
           <AnimatePresence mode="wait">
             <motion.section
               animate={{ opacity: 1, y: 0 }}
@@ -741,7 +747,11 @@ function SettingsPage() {
 
       <DisplaySettings />
 
+      <CapturePrivacySettings />
+
       <ShortcutSettings />
+
+      <UpdateSettings />
 
       <SupportSettings />
 

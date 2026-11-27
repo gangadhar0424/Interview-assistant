@@ -5,6 +5,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import (
     AnyHttpUrl,
@@ -16,12 +17,32 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# services/api/app/core/config.py -> repository root
-REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def find_repo_root(config_file: Path) -> Path:
+    """The repository root in a checkout; the application directory inside a container image.
+
+    In a checkout the file is services/api/app/core/config.py, four levels below the root. In the
+    container image it is /app/app/core/config.py, which has no such ancestor (it used to crash
+    with an IndexError on import), so the application directory /app is used instead.
+    """
+    parents = config_file.resolve().parents
+    if len(parents) > 4 and (parents[4] / "services" / "api").is_dir():
+        return parents[4]
+    return parents[2]
+
+
+REPO_ROOT = find_repo_root(Path(__file__))
 
 MIN_JWT_SECRET_LENGTH = 43
 PLACEHOLDER_SECRET_PREFIX = "change-me"  # noqa: S105
 _JWT_SECRET_CHARS = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    return host is not None and host.lower() in _LOOPBACK_HOSTS
 
 
 def _has_secret(value: SecretStr | None) -> bool:
@@ -40,10 +61,34 @@ class Settings(BaseSettings):
     )
 
     app_env: Literal["local", "staging", "production"] = "local"
+    # SEC-07: `local` switches off every production safeguard, so it is only accepted when the
+    # database, Redis and CORS origins are all on this machine. Set true ONLY for a development
+    # setup that deliberately uses a remote database; never in a deployment.
+    local_allow_remote_services: bool = False
+    # SEC-18: when set, GET /metrics requires `Authorization: Bearer <token>` (defence in depth next
+    # to the proxy rule that keeps /metrics off the public hosts). Unset = open, as before.
+    metrics_bearer_token: SecretStr | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     database_url: str = Field(min_length=1)
     maintenance_database_url: str | None = None
     redis_url: str = Field(min_length=1)
+
+    # --- Database connection hardening (M-12, D-79) ---
+    # Every API process and every worker process has its own pool: size them against Postgres'
+    # max_connections (processes x (pool_size + max_overflow)). Waiting for a free connection is
+    # bounded, so exhaustion becomes a fast 503 instead of requests hanging.
+    db_pool_size: int = Field(default=10, ge=1, le=100)
+    db_max_overflow: int = Field(default=10, ge=0, le=100)
+    db_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    db_pool_recycle_seconds: int = Field(default=1800, ge=30, le=86400)
+    db_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    # Server-side limits applied to every connection: a runaway query or a transaction left open
+    # by a crashed request cannot hold locks or a connection forever.
+    db_statement_timeout_ms: int = Field(default=60_000, ge=1_000, le=600_000)
+    db_idle_in_transaction_timeout_ms: int = Field(default=300_000, ge=1_000, le=3_600_000)
+    # The interactive API documentation and the OpenAPI schema are served only in local
+    # development; outside it they are always off (they describe every endpoint to anyone).
+    api_docs_enabled: bool = True
 
     # --- Authentication (Phase 2) ---
     # HMAC signing secret for access tokens. Required; at least 256 bits of encoded material.
@@ -60,6 +105,24 @@ class Settings(BaseSettings):
     # Upload size limits in MiB.
     resume_max_upload_mb: int = Field(default=10, ge=1, le=100)
     document_max_upload_mb: int = Field(default=20, ge=1, le=200)
+    # Per-user upload quotas (SEC-15). Enforced server-side under a per-user lock. The defaults are
+    # engineering assumptions sized for an internal tool, not product decisions: the owner should
+    # confirm or change them. Storage counts resumes and documents together.
+    user_max_resumes: int = Field(default=20, ge=1, le=10_000)
+    user_max_documents: int = Field(default=100, ge=1, le=10_000)
+    user_max_storage_mb: int = Field(default=500, ge=1, le=100_000)
+
+    # --- Data lifecycle (SEC-13, D-85) ---
+    # Deletion ledger: append-only files of anonymous ids (kind, object id, owner id, time) that are
+    # re-applied after a database restore so deleted data is not brought back. DELETION_LEDGER_PATH
+    # is a DIRECTORY outside the database and the uploads volume that a restore replaces, and it is
+    # copied off-host with the backups. Each line carries an HMAC made with DELETION_LEDGER_KEY.
+    # Both are required outside local (app/lifecycle/ledger.py).
+    deletion_ledger_path: Path | None = None
+    deletion_ledger_key: SecretStr | None = None
+    # Orphan-file sweep: a stored file or temp part younger than this is never treated as an orphan,
+    # because an upload writes the file before it inserts the database row.
+    orphan_sweep_min_age_seconds: int = Field(default=3600, ge=300, le=7 * 24 * 3600)
 
     # --- Ingestion (Phase 4) ---
     # A job may be claimed this many times (initial run + automatic recoveries) before failing.
@@ -211,7 +274,9 @@ class Settings(BaseSettings):
     # caps so an auxiliary call can never dominate the response time.
     qa_rewrite_timeout_seconds: float = Field(default=0.8, gt=0, le=10)
     qa_judge_timeout_seconds: float = Field(default=0.8, gt=0, le=10)
-    # Per-session answer cache (Redis) for validated general answers; 0 disables it.
+    # Per-session answer cache (Redis) for validated general answers; 0 disables it. Capped at 300 s
+    # outside local (SEC-13 Decision 1, D-85): entries are purged on deletion, and the lifetime
+    # bounds anything a failed purge leaves behind.
     qa_answer_cache_ttl_seconds: int = Field(default=300, ge=0, le=3600)
     # A question that names a section (a title match) whose text is longer than the session's length
     # setting is answered from the WHOLE section by the model (grounded, complete, in the requested
@@ -239,6 +304,10 @@ class Settings(BaseSettings):
     ws_ticket_rate_limit_per_minute: int = Field(default=30, ge=1, le=600)
     # --- Web -> desktop handoff (D-55). Single-use code lifetime; per-user request limits. ---
     handoff_code_ttl_seconds: int = Field(default=60, ge=10, le=120)
+    # SEC-08: when true, a handoff code must be bound to a desktop-held secret (PKCE-style challenge
+    # at issue, verifier at redemption); unbound codes are refused. Off until the web and desktop
+    # clients send the challenge, so today's link flow keeps working.
+    handoff_require_challenge: bool = False
     handoff_issue_rate_limit_per_minute: int = Field(default=10, ge=1, le=600)
     handoff_redeem_rate_limit_per_minute: int = Field(default=20, ge=1, le=600)
     # The client pings about every heartbeat interval; silence for the idle timeout closes the
@@ -292,12 +361,26 @@ class Settings(BaseSettings):
             raise ValueError("answer length bands must not overlap (short < balanced < long)")
         return self
 
+    @field_validator("metrics_bearer_token", mode="before")
+    @classmethod
+    def _blank_metrics_token_is_unset(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @model_validator(mode="after")
+    def _metrics_token_is_strong(self) -> Self:
+        token = self.metrics_bearer_token
+        if token is not None and len(token.get_secret_value()) < 24:
+            raise ValueError("METRICS_BEARER_TOKEN must be at least 24 characters when set")
+        return self
+
     @field_validator("embedding_cache_dir", "embedding_provider", mode="before")
     @classmethod
     def _blank_embedding_value_is_unset(cls, v: object) -> object:
         return None if isinstance(v, str) and not v.strip() else v
 
-    @field_validator("file_storage_root", mode="before")
+    @field_validator(
+        "file_storage_root", "deletion_ledger_path", "deletion_ledger_key", mode="before"
+    )
     @classmethod
     def _blank_storage_root_is_unset(cls, v: object) -> object:
         # `FILE_STORAGE_ROOT=` (empty) must mean "not set", never "the current directory".
@@ -311,6 +394,11 @@ class Settings(BaseSettings):
         if not v.startswith("postgresql+asyncpg://"):
             raise ValueError("must start with 'postgresql+asyncpg://'")
         return v
+
+    @field_validator("maintenance_database_url", mode="before")
+    @classmethod
+    def _blank_maintenance_url_is_unset(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
 
     @field_validator("maintenance_database_url")
     @classmethod
@@ -357,6 +445,46 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _database_pool_is_consistent(self) -> Self:
+        if self.db_pool_timeout_seconds <= self.db_connect_timeout_seconds / 10:
+            raise ValueError("DB_POOL_TIMEOUT_SECONDS is unreasonably short")
+        if self.db_statement_timeout_ms >= self.db_idle_in_transaction_timeout_ms * 10:
+            raise ValueError("DB_STATEMENT_TIMEOUT_MS must be far below the idle-transaction limit")
+        return self
+
+    @property
+    def docs_enabled(self) -> bool:
+        """API docs only in local development, whatever API_DOCS_ENABLED says."""
+        return self.app_env == "local" and self.api_docs_enabled
+
+    @model_validator(mode="after")
+    def _local_environment_is_really_local(self) -> Self:
+        """SEC-07: APP_ENV defaults to `local`, which disables every production safeguard.
+
+        A deployment that forgets APP_ENV must not start with those relaxed defaults, so `local`
+        is refused when the database, Redis or an allowed web origin is not on this machine.
+        """
+        if self.app_env != "local" or self.local_allow_remote_services:
+            return self
+        remote: list[str] = []
+        for name, url in (("DATABASE_URL", self.database_url), ("REDIS_URL", self.redis_url)):
+            if not _is_loopback_host(urlsplit(url).hostname):
+                remote.append(name)
+        for origin in self.cors_origin_list:
+            if not _is_loopback_host(urlsplit(origin).hostname):
+                remote.append("CORS_ORIGINS")
+                break
+        if remote:
+            raise ValueError(
+                "APP_ENV is 'local' (the default) but "
+                + ", ".join(remote)
+                + (" points" if len(remote) == 1 else " point")
+                + " away from this machine. Set APP_ENV=production (or staging) for a "
+                "deployment. Local mode turns off the production security checks."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _no_placeholder_secret_outside_local(self) -> Self:
         secret = self.jwt_secret.get_secret_value()
         if self.app_env != "local":
@@ -378,10 +506,6 @@ class Settings(BaseSettings):
                 )
         if self.app_env != "local" and self.redis_url.startswith("redis://"):
             raise ValueError("REDIS_URL must use rediss:// outside APP_ENV=local")
-        if self.app_env != "local" and self.maintenance_database_url is None:
-            raise ValueError(
-                "MAINTENANCE_DATABASE_URL must be set outside APP_ENV=local for recovery jobs"
-            )
         if self.app_env != "local" and self.file_storage_root is None:
             raise ValueError(
                 "FILE_STORAGE_ROOT must be set outside APP_ENV=local (use a persistent volume)"
@@ -394,6 +518,27 @@ class Settings(BaseSettings):
             # A relative path would resolve against the process working directory, which in a
             # container is part of the replaceable (ephemeral) filesystem.
             raise ValueError("FILE_STORAGE_ROOT must be an absolute path outside APP_ENV=local")
+        return self
+
+    @model_validator(mode="after")
+    def _data_lifecycle_settings(self) -> Self:
+        """SEC-13 (D-85): the cache cap and the deletion ledger are mandatory outside local."""
+        if self.app_env == "local":
+            return self
+        if self.qa_answer_cache_ttl_seconds > 300:
+            raise ValueError(
+                "QA_ANSWER_CACHE_TTL_SECONDS must be at most 300 outside APP_ENV=local"
+            )
+        if self.deletion_ledger_path is None or not self.deletion_ledger_path.is_absolute():
+            raise ValueError(
+                "DELETION_LEDGER_PATH must be an absolute path outside APP_ENV=local (a volume "
+                "that a database restore does not replace)"
+            )
+        key = self.deletion_ledger_key
+        if key is None or len(key.get_secret_value()) < 32:
+            raise ValueError(
+                "DELETION_LEDGER_KEY must be at least 32 characters outside APP_ENV=local"
+            )
         return self
 
     @model_validator(mode="after")
@@ -531,8 +676,28 @@ class Settings(BaseSettings):
         return self.document_max_upload_mb * 1024 * 1024
 
     @property
+    def user_max_storage_bytes(self) -> int:
+        return self.user_max_storage_mb * 1024 * 1024
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def require_maintenance_database_url(self) -> str:
+        """The privileged operations identity, for the recovery and reindex commands ONLY (SEC-12).
+
+        Ordinary API and worker processes never need it and must not be given it, so it is
+        enforced here, where it is used, and not at start-up. Local mode may fall back to the
+        runtime URL.
+        """
+        if self.maintenance_database_url is not None:
+            return self.maintenance_database_url
+        if self.app_env == "local":
+            return self.database_url
+        raise ConfigurationError(
+            "MAINTENANCE_DATABASE_URL must be set to run this maintenance command outside "
+            "APP_ENV=local (use the operations identity; it is not part of the API or worker)."
+        )
 
     @property
     def cookie_secure(self) -> bool:
