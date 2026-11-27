@@ -79,8 +79,12 @@ $pw = ConvertTo-SecureString $env:IA_TEST_PW -AsPlainText -Force
 Export-PfxCertificate -Cert $c -FilePath $env:IA_TEST_PFX -Password $pw | Out-Null
 Remove-Item -LiteralPath ('Cert:\\CurrentUser\\My\\' + $c.Thumbprint) -DeleteKey
 `;
+  // Windows PowerShell 5.1 must not inherit a PowerShell 7 PSModulePath (GitHub's Windows runners set
+  // one): it then loads the wrong Microsoft.PowerShell.Security module and the Cert: drive is missing.
+  const env: NodeJS.ProcessEnv = { ...process.env, IA_TEST_PW: options.password, IA_TEST_PFX: pfx };
+  for (const key of Object.keys(env)) if (key.toLowerCase() === "psmodulepath") delete env[key];
   const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-    env: { ...process.env, IA_TEST_PW: options.password, IA_TEST_PFX: pfx },
+    env,
     encoding: "utf8",
     timeout: 120_000,
   });
